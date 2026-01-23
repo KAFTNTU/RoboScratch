@@ -269,7 +269,7 @@ javascript.javascriptGenerator.forBlock['wait_start'] = function(block) {
 Blockly.Blocks['stop_at_start'] = {
     init: function() {
         this.appendDummyInput().appendField("🛑 Зупинитися на старті");
-        this.setPreviousStatement(true);.setNextStatement(true);.setColour(0); 
+        this.setPreviousStatement(true); this.setNextStatement(true); this.setColour(0); 
     }
 };
 javascript.javascriptGenerator.forBlock['stop_at_start'] = function(block) {
@@ -287,7 +287,7 @@ javascript.javascriptGenerator.forBlock['stop_at_start'] = function(block) {
 Blockly.Blocks['count_laps'] = {
     init: function() {
         this.appendValueInput("LAPS").setCheck("Number").appendField("🔢 Лічити кола до"); 
-        this.setPreviousStatement(true);.setNextStatement(true);.setColour(40); 
+        this.setPreviousStatement(true); this.setNextStatement(true); this.setColour(40); 
     }
 };
 javascript.javascriptGenerator.forBlock['count_laps'] = function(block) {
@@ -341,7 +341,7 @@ javascript.javascriptGenerator.forBlock['sensor_get'] = function(b) {
 Blockly.Blocks['wait_until_sensor'] = {
      init: function() { 
         this.appendValueInput("VAL").setCheck("Number").appendField("⏳ Чекати, поки Порт").appendField(new Blockly.FieldDropdown([["1","0"], ["2","1"], ["3","2"], ["4","3"]]), "SENS").appendField(new Blockly.FieldDropdown([["<", "LT"], [">", "GT"]]), "OP");
-        this.setInputsInline(true); this.setPreviousStatement(true);.setNextStatement(true);.setColour(40);
+        this.setInputsInline(true); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour(40);
     }
 };
 javascript.javascriptGenerator.forBlock['wait_until_sensor'] = function(block) {
