@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>RoboControl Modular V12.0 Full</title>
+    <link rel="icon" href="data:,">
     
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -104,7 +105,7 @@
             top: 64px; 
             left: 0; 
             right: 0; 
-            bottom: 64px; 
+            bottom: 0px; 
             background-color: #0f172a !important; 
             z-index: 1;
         }
@@ -228,7 +229,43 @@
             background: #2563eb; color: white; border-color: #60a5fa;
         }
         .btn-check-input { display: none; }
-    </style>
+    
+/* ====== Responsive toolbox layout ====== */
+body.layout-mobile .blocklyToolboxDiv{
+  bottom: 64px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  top: auto !important;
+  height: 70px !important;
+  width: fit-content !important;
+  display: flex !important;
+  flex-direction: row !important;
+}
+
+body.layout-desktop .blocklyToolboxDiv{
+  left: 14px !important;
+  top: 84px !important;
+  bottom: 84px !important;
+  transform: none !important;
+  width: 240px !important;
+  height: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 10px !important;
+}
+
+body.layout-desktop .blocklyTreeRow{
+  justify-content: flex-start !important;
+  width: 100% !important;
+  margin: 4px 0 !important;
+}
+
+
+/* Make workspace fill to bottom on desktop, keep 64px space only on mobile */
+body.layout-desktop #blocklyDiv { bottom: 0px !important; }
+body.layout-mobile #blocklyDiv { bottom: 64px !important; }
+
+</style>
 </head>
 <body class="h-screen w-screen flex flex-col">
 
@@ -1231,27 +1268,80 @@
             }
         });
 
-        var workspace = Blockly.inject('blocklyDiv', {
-            toolbox: document.getElementById('toolbox'), 
-            theme: CustomTheme, 
-            renderer: 'zelos', 
-            horizontalLayout: true, 
-            toolboxPosition: 'end', 
-            grid: { spacing: 40, length: 2, colour: '#334155', snap: true }, 
-            zoom: { controls: false, wheel: true, startScale: 1.0, maxScale: 30, minScale: 0.2, scaleSpeed: 1.2, pinch: true }, 
-            trashcan: false, 
-            move: { scrollbars: true, drag: true, wheel: false }
-        });
-        
-        // --- FIX: SCALING FIX ---
-        setTimeout(() => {
-            workspace.setScale(0.65);
-            const style = document.createElement('style');
-            style.innerHTML = `.blocklyToolboxDiv { background-color: ${THEME_CONFIG.menuBg} !important; } .blocklyFlyoutBackground { fill: ${THEME_CONFIG.flyoutBg} !important; fill-opacity: ${THEME_CONFIG.flyoutOpacity} !important; } .blocklyTreeLabel { color: ${THEME_CONFIG.menuText} !important; } .blocklyTreeSelected .blocklyTreeRow { background-color: ${THEME_CONFIG.menuSelected} !important; }`;
-            document.head.appendChild(style);
-        }, 500);
+        var workspace = null;
+        let _isMobile = null;
 
-        function checkStop() {
+        function lockFlyoutScale(ws) {
+            const flyout = ws && ws.getFlyout ? ws.getFlyout() : null;
+            const fw = flyout && flyout.getWorkspace ? flyout.getWorkspace() : null;
+            if (!fw) return;
+            // 1.0 = fixed block size in toolbox/flyout (won't change with workspace zoom)
+            if (Math.abs(fw.getScale() - 1) > 0.001) {
+                fw.setScale(1);
+                flyout.reflow();
+            }
+        }
+
+        function makeWorkspace(mobile) {
+            const dom = workspace ? Blockly.Xml.workspaceToDom(workspace) : null;
+            const prevScale = workspace ? workspace.getScale() : 0.75;
+
+            if (workspace) workspace.dispose();
+
+            document.body.classList.toggle('layout-mobile', mobile);
+            document.body.classList.toggle('layout-desktop', !mobile);
+
+            workspace = Blockly.inject('blocklyDiv', {
+                toolbox: document.getElementById('toolbox'),
+                theme: CustomTheme,
+                renderer: 'zelos',
+
+                // Mobile: toolbox at bottom (horizontal). Desktop: toolbox on the left (vertical).
+                horizontalLayout: mobile,
+                toolboxPosition: mobile ? 'end' : 'start',
+
+                grid: { spacing: 40, length: 2, colour: '#334155', snap: true },
+                zoom: { controls: false, wheel: true, startScale: prevScale, maxScale: 5, minScale: 0.2, scaleSpeed: 1.2, pinch: true },
+                trashcan: false,
+                move: { scrollbars: true, drag: true, wheel: false }
+            });
+
+            // Restore blocks
+            if (dom) Blockly.Xml.domToWorkspace(dom, workspace);
+
+            // Apply theme css tweaks (without forcing workspace scale)
+            const style = document.createElement('style');
+            style.innerHTML = `.blocklyToolboxDiv { background-color: ${THEME_CONFIG.menuBg} !important; }
+            .blocklyFlyoutBackground { fill: ${THEME_CONFIG.flyoutBg} !important; fill-opacity: ${THEME_CONFIG.flyoutOpacity} !important; }
+            .blocklyTreeLabel { color: ${THEME_CONFIG.menuText} !important; }
+            .blocklyTreeSelected .blocklyTreeRow { background-color: ${THEME_CONFIG.menuSelected} !important; }`;
+            document.head.appendChild(style);
+
+            // Lock toolbox/flyout block size
+            lockFlyoutScale(workspace);
+            workspace.addChangeListener((e) => {
+                if (e.type === Blockly.Events.VIEWPORT_CHANGE) lockFlyoutScale(workspace);
+            });
+
+            // Keep compatibility with existing code
+            window.workspace = workspace;
+        }
+
+        function applyResponsive() {
+            const mobile = window.innerWidth < 900;
+            if (_isMobile === mobile) return;
+            _isMobile = mobile;
+            makeWorkspace(mobile);
+        }
+
+        window.addEventListener('resize', () => {
+            clearTimeout(window.__rz);
+            window.__rz = setTimeout(applyResponsive, 150);
+        });
+
+        applyResponsive();
+
+function checkStop() {
             return `if (typeof window._shouldStop !== 'undefined' && window._shouldStop) { throw "STOPPED"; }\n`;
         }
         
