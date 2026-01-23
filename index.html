@@ -409,7 +409,7 @@ body.layout-mobile #blocklyDiv { bottom: 64px !important; }
                 
                 <div class="joy-quad-wrapper">
                     <div>
-                        <div class="joy-quad-label">M1 (Перед)</div>
+                        <div class="joy-quad-label">M1</div>
                         <div id="joy1-container" class="joy-quad-container">
                             <div id="joy1-base" class="joy-quad-base">
                                 <div id="joy1-stick" class="joy-quad-stick snap"></div>
@@ -417,7 +417,7 @@ body.layout-mobile #blocklyDiv { bottom: 64px !important; }
                         </div>
                     </div>
                     <div>
-                        <div class="joy-quad-label">M3 (Зад)</div>
+                        <div class="joy-quad-label">M3</div>
                         <div id="joy3-container" class="joy-quad-container">
                             <div id="joy3-base" class="joy-quad-base">
                                 <div id="joy3-stick" class="joy-quad-stick snap"></div>
@@ -428,7 +428,7 @@ body.layout-mobile #blocklyDiv { bottom: 64px !important; }
 
                 <div class="joy-quad-wrapper">
                     <div>
-                        <div class="joy-quad-label">M2 (Перед)</div>
+                        <div class="joy-quad-label">M2</div>
                         <div id="joy2-container" class="joy-quad-container">
                             <div id="joy2-base" class="joy-quad-base">
                                 <div id="joy2-stick" class="joy-quad-stick snap"></div>
@@ -436,7 +436,7 @@ body.layout-mobile #blocklyDiv { bottom: 64px !important; }
                         </div>
                     </div>
                     <div>
-                        <div class="joy-quad-label">M4 (Зад)</div>
+                        <div class="joy-quad-label">M4</div>
                         <div id="joy4-container" class="joy-quad-container">
                             <div id="joy4-base" class="joy-quad-base">
                                 <div id="joy4-stick" class="joy-quad-stick snap"></div>
@@ -539,6 +539,68 @@ body.layout-mobile #blocklyDiv { bottom: 64px !important; }
                         <input type="checkbox" id="fourWdCheck" class="toggle-checkbox" onchange="saveTuning()">
                     </label>
                 </div>
+
+                <div class="bg-fuchsia-900/20 p-3 rounded-xl border border-fuchsia-500/30">
+                    <div class="flex items-center justify-between gap-3">
+                        <div>
+                            <div class="text-sm text-fuchsia-300 font-bold"><i class="fa-solid fa-robot mr-2"></i>Режим робота</div>
+                            <div class="text-[11px] text-slate-400 mt-1">🚗 Машинка: 4 байти (мотор1..4) · 🕷️ Павук: 8 байт (H/V 1..4)</div>
+                        </div>
+                        <select id="robotModeSelect" class="bg-slate-950 border border-slate-700 text-white text-xs rounded-lg px-2 py-2" onchange="saveTuning();">
+                            <option value="car">🚗 Машинка</option>
+                            <option value="spider">🕷️ Павук</option>
+                        </select>
+                    </div>
+
+                    <div id="spiderTuningBox" class="mt-3 hidden">
+                        <div class="grid grid-cols-2 gap-2">
+                            <div class="bg-black/30 p-2 rounded-lg border border-white/5">
+                                <div class="text-[10px] text-slate-400 mb-1">V_UP</div>
+                                <input type="range" id="spVup" min="0" max="180" step="1">
+                                <div class="text-[10px] text-blue-300 font-mono text-center" id="spVupVal">60</div>
+                            </div>
+                            <div class="bg-black/30 p-2 rounded-lg border border-white/5">
+                                <div class="text-[10px] text-slate-400 mb-1">V_DOWN</div>
+                                <input type="range" id="spVdown" min="0" max="180" step="1">
+                                <div class="text-[10px] text-blue-300 font-mono text-center" id="spVdownVal">90</div>
+                            </div>
+
+                            <div class="bg-black/30 p-2 rounded-lg border border-white/5">
+                                <div class="text-[10px] text-slate-400 mb-1">H_LEFT</div>
+                                <input type="range" id="spHleft" min="0" max="180" step="1">
+                                <div class="text-[10px] text-blue-300 font-mono text-center" id="spHleftVal">60</div>
+                            </div>
+                            <div class="bg-black/30 p-2 rounded-lg border border-white/5">
+                                <div class="text-[10px] text-slate-400 mb-1">H_RIGHT</div>
+                                <input type="range" id="spHright" min="0" max="180" step="1">
+                                <div class="text-[10px] text-blue-300 font-mono text-center" id="spHrightVal">120</div>
+                            </div>
+
+                            <div class="bg-black/30 p-2 rounded-lg border border-white/5">
+                                <div class="text-[10px] text-slate-400 mb-1">STEP AMP (°)</div>
+                                <input type="range" id="spAmp" min="0" max="30" step="1">
+                                <div class="text-[10px] text-blue-300 font-mono text-center" id="spAmpVal">15</div>
+                            </div>
+                            <div class="bg-black/30 p-2 rounded-lg border border-white/5">
+                                <div class="text-[10px] text-slate-400 mb-1">DEADZONE</div>
+                                <input type="range" id="spDead" min="0" max="25" step="1">
+                                <div class="text-[10px] text-blue-300 font-mono text-center" id="spDeadVal">8</div>
+                            </div>
+
+                            <div class="bg-black/30 p-2 rounded-lg border border-white/5">
+                                <div class="text-[10px] text-slate-400 mb-1">BASE Hz</div>
+                                <input type="range" id="spBaseHz" min="0.1" max="2.5" step="0.1">
+                                <div class="text-[10px] text-blue-300 font-mono text-center" id="spBaseHzVal">0.9</div>
+                            </div>
+                            <div class="bg-black/30 p-2 rounded-lg border border-white/5">
+                                <div class="text-[10px] text-slate-400 mb-1">K Hz</div>
+                                <input type="range" id="spKHz" min="0" max="4" step="0.1">
+                                <div class="text-[10px] text-blue-300 font-mono text-center" id="spKHzVal">1.6</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
 
                 <div class="space-y-2">
                     <span class="text-xs text-slate-400 uppercase tracking-widest font-bold">Інверсія моторів</span>
@@ -756,9 +818,9 @@ body.layout-mobile #blocklyDiv { bottom: 64px !important; }
         let lastJoyX = 0;
         let lastJoyY = 0;
         
-        let tuning = { trim: 0, invertL: false, invertR: false, useSlip: true, use4Motors: false, turnSens: 100 };
+        let tuning = {trim: 0, invertL: false, invertR: false, useSlip: true, use4Motors: false, turnSens: 100, robotMode: 'car', spider: { V_DOWN: 90, V_UP: 60, H_CENTER: 90, H_LEFT: 60, H_RIGHT: 120, stepAmpMax: 15, baseHz: 0.9, kHz: 1.6, deadzone: 8 } };
         try {
-            const saved = localStorage.getItem('roboTuning_v8');
+            const saved = localStorage.getItem('roboTuning_v9');
             if(saved) tuning = { ...tuning, ...JSON.parse(saved) };
         } catch(e) {}
         
@@ -770,6 +832,67 @@ body.layout-mobile #blocklyDiv { bottom: 64px !important; }
         document.getElementById('fourWdCheck').checked = tuning.use4Motors;
         document.getElementById('turnSensSlider').value = tuning.turnSens;
         document.getElementById('turnSensDisplay').innerText = tuning.turnSens + "%";
+
+        // Robot mode (car / spider)
+        const robotModeSelect = document.getElementById('robotModeSelect');
+        const spiderTuningBox = document.getElementById('spiderTuningBox');
+
+        function applyRobotModeUI() {
+            robotModeSelect.value = tuning.robotMode || 'car';
+            const isSpider = robotModeSelect.value === 'spider';
+            spiderTuningBox.classList.toggle('hidden', !isSpider);
+
+            // (optional) disable car-only toggles visually when spider is selected
+            document.getElementById('fourWdCheck').disabled = isSpider;
+            document.getElementById('invLCheck').disabled = isSpider;
+            document.getElementById('invRCheck').disabled = isSpider;
+        }
+
+        // Spider sliders
+        const spEls = {
+            V_UP:   { el: document.getElementById('spVup'),     out: document.getElementById('spVupVal') },
+            V_DOWN: { el: document.getElementById('spVdown'),   out: document.getElementById('spVdownVal') },
+            H_LEFT: { el: document.getElementById('spHleft'),   out: document.getElementById('spHleftVal') },
+            H_RIGHT:{ el: document.getElementById('spHright'),  out: document.getElementById('spHrightVal') },
+            stepAmpMax:{ el: document.getElementById('spAmp'),  out: document.getElementById('spAmpVal') },
+            deadzone:{ el: document.getElementById('spDead'),   out: document.getElementById('spDeadVal') },
+            baseHz:{ el: document.getElementById('spBaseHz'),   out: document.getElementById('spBaseHzVal') },
+            kHz:{ el: document.getElementById('spKHz'),         out: document.getElementById('spKHzVal') },
+        };
+
+        function syncSpiderUIFromTuning() {
+            tuning.spider = tuning.spider || {};
+            const s = tuning.spider;
+            s.V_UP = (s.V_UP ?? 60);
+            s.V_DOWN = (s.V_DOWN ?? 90);
+            s.H_LEFT = (s.H_LEFT ?? 60);
+            s.H_RIGHT = (s.H_RIGHT ?? 120);
+            s.H_CENTER = (s.H_CENTER ?? 90);
+            s.stepAmpMax = (s.stepAmpMax ?? 15);
+            s.deadzone = (s.deadzone ?? 8);
+            s.baseHz = (s.baseHz ?? 0.9);
+            s.kHz = (s.kHz ?? 1.6);
+
+            spEls.V_UP.el.value = s.V_UP; spEls.V_UP.out.innerText = s.V_UP;
+            spEls.V_DOWN.el.value = s.V_DOWN; spEls.V_DOWN.out.innerText = s.V_DOWN;
+            spEls.H_LEFT.el.value = s.H_LEFT; spEls.H_LEFT.out.innerText = s.H_LEFT;
+            spEls.H_RIGHT.el.value = s.H_RIGHT; spEls.H_RIGHT.out.innerText = s.H_RIGHT;
+            spEls.stepAmpMax.el.value = s.stepAmpMax; spEls.stepAmpMax.out.innerText = s.stepAmpMax;
+            spEls.deadzone.el.value = s.deadzone; spEls.deadzone.out.innerText = s.deadzone;
+            spEls.baseHz.el.value = s.baseHz; spEls.baseHz.out.innerText = s.baseHz;
+            spEls.kHz.el.value = s.kHz; spEls.kHz.out.innerText = s.kHz;
+        }
+
+        Object.values(spEls).forEach(({el, out}) => {
+            el.addEventListener('input', () => {
+                out.innerText = el.value;
+                saveTuning();
+            });
+        });
+
+        applyRobotModeUI();
+        syncSpiderUIFromTuning();
+
 
         const statusDot = document.getElementById('statusDot');
         const statusText = document.getElementById('statusText');
@@ -840,19 +963,115 @@ body.layout-mobile #blocklyDiv { bottom: 64px !important; }
             tuning.useSlip = document.getElementById('slipCheck').checked;
             tuning.use4Motors = document.getElementById('fourWdCheck').checked;
             tuning.turnSens = parseInt(document.getElementById('turnSensSlider').value);
-            localStorage.setItem('roboTuning_v8', JSON.stringify(tuning));
+            
+            tuning.robotMode = document.getElementById('robotModeSelect').value;
+            tuning.spider = tuning.spider || {};
+            tuning.spider.V_UP = parseInt(document.getElementById('spVup').value);
+            tuning.spider.V_DOWN = parseInt(document.getElementById('spVdown').value);
+            tuning.spider.H_LEFT = parseInt(document.getElementById('spHleft').value);
+            tuning.spider.H_RIGHT = parseInt(document.getElementById('spHright').value);
+            tuning.spider.H_CENTER = 90; // fixed center
+            tuning.spider.stepAmpMax = parseInt(document.getElementById('spAmp').value);
+            tuning.spider.deadzone = parseInt(document.getElementById('spDead').value);
+            tuning.spider.baseHz = parseFloat(document.getElementById('spBaseHz').value);
+            tuning.spider.kHz = parseFloat(document.getElementById('spKHz').value);
+
+            // keep UI in sync
+            if (typeof applyRobotModeUI === 'function') applyRobotModeUI();
+            if (typeof syncSpiderUIFromTuning === 'function') syncSpiderUIFromTuning();
+
+            localStorage.setItem('roboTuning_v9', JSON.stringify(tuning));
+        }
+
+        // 100ms control packet tick (car or spider)
+        let _spiderPhase = 0;
+
+        function computeSpiderFromJoystick(x, y) {
+            // x,y: -100..100
+            const s = tuning.spider || {};
+            const dead = s.deadzone ?? 8;
+
+            const mag = Math.min(100, Math.sqrt(x*x + y*y));
+            if (mag < dead) {
+                return {
+                    h: [s.H_CENTER ?? 90, s.H_CENTER ?? 90, s.H_CENTER ?? 90, s.H_CENTER ?? 90],
+                    v: [s.V_DOWN ?? 90, s.V_DOWN ?? 90, s.V_DOWN ?? 90, s.V_DOWN ?? 90],
+                    advance: false
+                };
+            }
+
+            // 4 sectors
+            let sector = 'UP';
+            if (Math.abs(y) >= Math.abs(x) && y > 0) sector = 'UP';
+            else if (Math.abs(y) >= Math.abs(x) && y < 0) sector = 'DOWN';
+            else if (Math.abs(x) > Math.abs(y) && x > 0) sector = 'RIGHT';
+            else if (Math.abs(x) > Math.abs(y) && x < 0) sector = 'LEFT';
+
+            const H_CENTER = s.H_CENTER ?? 90;
+            const H_LEFT = s.H_LEFT ?? 60;
+            const H_RIGHT = s.H_RIGHT ?? 120;
+
+            let Ht = H_CENTER;
+            if (sector === 'LEFT') Ht = H_LEFT;
+            if (sector === 'RIGHT') Ht = H_RIGHT;
+            if (sector === 'UP') Ht = H_CENTER;
+            if (sector === 'DOWN') Ht = H_CENTER;
+
+            const V_UP = s.V_UP ?? 60;
+            const V_DOWN = s.V_DOWN ?? 90;
+
+            const stepAmpMax = s.stepAmpMax ?? 15;
+            const stepAmp = (mag / 100) * stepAmpMax;
+
+            const dirSign = (sector === 'DOWN') ? -1 : 1;
+
+            // Gait: diagonal pairs A(1,3) and B(2,4)
+            const inA = _spiderPhase < 0.5;
+            const lifted = [inA, !inA, inA, !inA];
+
+            const h = [Ht, Ht, Ht, Ht].map((base, i) => {
+                const off = lifted[i] ? +stepAmp : -stepAmp;
+                return Math.max(0, Math.min(180, Math.round(base + dirSign * off)));
+            });
+
+            const v = [0,0,0,0].map((_, i) => lifted[i] ? V_UP : V_DOWN);
+
+            return { h, v, advance: true, mag };
         }
 
         setInterval(() => {
-            if (isConnected && activeView === 'view-joystick') {
-                let m1 = currentL, m2 = currentR;
-                let m3 = tuning.use4Motors ? currentL : 0;
-                let m4 = tuning.use4Motors ? currentR : 0;
-                sendDrivePacket(m1, m2, m3, m4);
+            if (!isConnected) return;
+
+            // Single joystick view drives either car or spider depending on tuning.robotMode
+            if (activeView === 'view-joystick') {
+                if ((tuning.robotMode || 'car') === 'spider') {
+                    const x = lastJoyX;
+                    const y = lastJoyY;
+
+                    const dt = 0.1; // 100ms
+                    const mag = Math.min(100, Math.sqrt(x*x + y*y));
+                    const s = tuning.spider || {};
+                    const dead = s.deadzone ?? 8;
+
+                    // advance phase only when moving
+                    if (mag >= dead) {
+                        const baseHz = s.baseHz ?? 0.9;
+                        const kHz = s.kHz ?? 1.6;
+                        const hz = baseHz + (kHz * (mag / 100));
+                        _spiderPhase = (_spiderPhase + dt * hz) % 1;
+                    }
+
+                    const out = computeSpiderFromJoystick(x, y);
+                    sendSpiderPacket(out.h[0], out.v[0], out.h[1], out.v[1], out.h[2], out.v[2], out.h[3], out.v[3]);
+                } else {
+                    let m1 = currentL, m2 = currentR;
+                    let m3 = tuning.use4Motors ? currentL : 0;
+                    let m4 = tuning.use4Motors ? currentR : 0;
+                    sendDrivePacket(m1, m2, m3, m4);
+                }
             }
         }, 100);
-
-        const SLIP_END = 0xC0;
+const SLIP_END = 0xC0;
         const SLIP_ESC = 0xDB;
         const SLIP_ESC_END = 0xDC;
         const SLIP_ESC_ESC = 0xDD;
@@ -1301,7 +1520,7 @@ body.layout-mobile #blocklyDiv { bottom: 64px !important; }
                 toolboxPosition: mobile ? 'end' : 'start',
 
                 grid: { spacing: 40, length: 2, colour: '#334155', snap: true },
-                zoom: { controls: false, wheel: true, startScale: prevScale, maxScale: 15, minScale: 0.7, scaleSpeed: 1.2, pinch: true },
+                zoom: { controls: false, wheel: true, startScale: prevScale, maxScale: (mobile ? prevScale : prevScale * 1.2), minScale: Math.max(0.25, prevScale * 0.5), scaleSpeed: 1.2, pinch: true },
                 trashcan: false,
                 move: { scrollbars: true, drag: true, wheel: false }
             });
