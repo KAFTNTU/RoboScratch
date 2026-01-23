@@ -53,7 +53,7 @@ javascript.javascriptGenerator.forBlock['start_hat'] = function(b) { return ''; 
 
 Blockly.Blocks['robot_move'] = { 
     init: function() { 
-        this.appendDummyInput().appendField("🚗 Їхати").appendValueInput("L").setCheck("Number").appendField("L").appendValueInput("R").setCheck("Number").appendField("R"); 
+        this.appendDummyInput().appendField("🚗 Їхати"); this.appendValueInput("L").setCheck("Number").appendField("L"); this.appendValueInput("R").setCheck("Number").appendField("R"); 
         this.setPreviousStatement(true); this.setNextStatement(true); this.setColour(230); 
     } 
 };
@@ -383,8 +383,8 @@ javascript.javascriptGenerator.forBlock['logic_edge_detect'] = function(block) {
 
 Blockly.Blocks['logic_schmitt'] = {
     init: function() {
-        this.appendDummyInput().appendField("🛡️ Вкл >").appendValueInput("HIGH").setCheck("Number");
-        this.appendDummyInput().appendField("Викл <").appendValueInput("LOW").setCheck("Number");
+        this.appendDummyInput().appendField("🛡️ Вкл >"); this.appendValueInput("HIGH").setCheck("Number");
+        this.appendDummyInput().appendField("Викл <"); this.appendValueInput("LOW").setCheck("Number");
         this.appendValueInput("VAL").setCheck("Number").appendField("Значення");
         this.setOutput(true, "Boolean"); this.setColour(210); this.setInputsInline(true);
     }
