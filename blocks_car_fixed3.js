@@ -39,6 +39,7 @@ window.CAR_CATEGORY = `
     <block type="count_laps">
             <value name="LAPS"><shadow type="math_number"><field name="NUM">3</field></shadow></value>
     </block>
+    <block type="autopilot_distance"></block>
 </category>
 `;
 
@@ -447,4 +448,59 @@ Blockly.Blocks['timer_reset'] = {
 };
 javascript.javascriptGenerator.forBlock['timer_reset'] = function(block) {
     return `_startTime = new Date().getTime();\n`;
+};
+
+
+
+// === 🤖 Autopilot by distance sensor (simple avoid) ===
+Blockly.Blocks['autopilot_distance'] = {
+    init: function() {
+        this.appendDummyInput()
+            .appendField("🤖 Автопілот (датчик)")
+            .appendField("Port")
+            .appendField(new Blockly.FieldDropdown([["1","1"],["2","2"],["3","3"],["4","4"]]), "PORT")
+            .appendField("поворот")
+            .appendField(new Blockly.FieldDropdown([["RIGHT","RIGHT"],["LEFT","LEFT"]]), "DIR");
+        this.appendValueInput("THR").setCheck("Number").appendField("якщо <");
+        this.appendValueInput("SPD").setCheck("Number").appendField("швидк.");
+        this.setPreviousStatement(true);
+        this.setNextStatement(true);
+        this.setColour(20);
+    }
+};
+
+javascript.javascriptGenerator.forBlock['autopilot_distance'] = function(block) {
+    const port = block.getFieldValue('PORT'); // "1".."4"
+    const dir = block.getFieldValue('DIR');
+    const thr = javascript.javascriptGenerator.valueToCode(block, 'THR', javascript.Order.ATOMIC) || '40';
+    const spd = javascript.javascriptGenerator.valueToCode(block, 'SPD', javascript.Order.ATOMIC) || '60';
+
+    return `
+    // autopilot loop (STOP breaks)
+    while(true) {
+        if (typeof window._shouldStop !== 'undefined' && window._shouldStop) throw "STOPPED";
+
+        const idx = Math.max(0, Math.min(3, (parseInt(${port}) - 1)));
+        const s = window.sensorData ? (window.sensorData[idx] || 0) : 0;
+
+        if (s > 0 && s < (${thr})) {
+            // obstacle: back then turn
+            await window.sendDrivePacket(-(${spd}), -(${spd}), 0, 0);
+            await new Promise(r => setTimeout(r, 250));
+
+            if ('${dir}' === 'LEFT') {
+                await window.sendDrivePacket(-(${spd}), (${spd}), 0, 0);
+            } else {
+                await window.sendDrivePacket((${spd}), -(${spd}), 0, 0);
+            }
+            await new Promise(r => setTimeout(r, 320));
+
+            await window.sendDrivePacket(0, 0, 0, 0);
+            await new Promise(r => setTimeout(r, 80));
+        } else {
+            await window.sendDrivePacket((${spd}), (${spd}), 0, 0);
+            await new Promise(r => setTimeout(r, 80));
+        }
+    }
+    \n`;
 };
