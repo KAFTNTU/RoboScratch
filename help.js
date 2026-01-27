@@ -1,22 +1,27 @@
 /*!
- * help.js — RoboControl Blockly Kid Help Overlay
- * Mode B (mobile): long-press on a block -> floating (?) button near the block.
- * Mode C (desktop): right click -> context menu item "❓ Пояснення (для дітей)".
+ * help.js — RoboControl Blockly Kid Help Overlay (Examples-only)
+ * Phone (B): long-press a block -> floating (?) button near the block -> opens help panel.
+ * PC (C): right click a block -> context menu item "❓ Пояснення (для дітей)" -> opens help panel.
  *
- * Requirements:
- *  - Blockly already loaded
- *  - main workspace available as window.workspace (your project already does this)
+ * In help panel:
+ *  - kid-friendly explanation (простими словами)
+ *  - analogy (аналогія)
+ *  - steps (кроки)
+ *  - mini preview of the selected block
+ *  - mini preview of an EXAMPLE chain (not a full ready program)
+ *
+ * NOTE: there is NO "add to workspace" button (by request), so kids don't just spam "+".
  *
  * Drop-in: <script src="help.js"></script>
  */
-
 (function () {
   "use strict";
 
   // ---------------------------
-  // 0) Small utilities
+  // 0) Utilities
   // ---------------------------
   const $ = (sel, root = document) => root.querySelector(sel);
+  const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 
   function el(tag, attrs = {}, children = []) {
     const n = document.createElement(tag);
@@ -30,475 +35,2153 @@
     return n;
   }
 
-  function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
+  function safeStr(x) { return (x == null) ? "" : String(x); }
 
   function isMobileLayout() {
-    // Your project toggles body.layout-mobile / body.layout-desktop
-    // If not present, fallback to coarse pointer check.
     return document.body.classList.contains("layout-mobile") || window.matchMedia("(pointer: coarse)").matches;
   }
-
   function isDesktopLayout() {
     return document.body.classList.contains("layout-desktop") || window.matchMedia("(pointer: fine)").matches;
   }
 
-  function safeStr(x) {
-    return (x == null) ? "" : String(x);
-  }
-
   // ---------------------------
-  // 1) Kid-friendly HELP database
+  // 1) HELP DATABASE (for all blocks)
   // ---------------------------
-  // You asked: "для всіх блоків".
-  // Strategy:
-  //  - For your custom blocks: hand-written kid explanations + analogies + examples.
-  //  - For built-in Blockly blocks: auto text from Blockly's tooltip + a kid template.
+  // This database covers:
+  //  - Your custom robot/spider blocks
+  //  - Common Blockly standard blocks
+  //  - Fallback for any unknown block type (auto)
   //
-  // You can extend HELP_TEXTS anytime.
-  const HELP_TEXTS = {
-    // ===== Your project blocks (based on toolbox in index) =====
-    "start_hat": {
-      title: "Старт",
-      kid: "Це як кнопка «ПОЇХАЛИ». Все, що з’єднано під цим блоком — починає виконуватись.",
-      analogy: "Уяви старт у гонці: поки суддя не махнув прапорцем — нічого не рухається.",
-      steps: [
-        "Постав «Старт» зверху.",
-        "Під’єднай під нього блоки руху/повороту/очікування.",
-        "Натисни запуск — програма піде зверху вниз."
-      ],
-      example: "Старт → Їхати вперед 1 сек → Стоп",
-      xml: `<block type="start_hat"></block>`
-    },
-    "robot_move": {
-      title: "Рух (L/R)",
-      kid: "Задає швидкість лівого (L) і правого (R) мотора. Якщо обидва однакові — їде прямо.",
-      analogy: "Як на танку: ліва гусениця і права гусениця. Різні швидкості = поворот.",
-      steps: [
-        "L = 100, R = 100 → вперед",
-        "L = -50, R = -50 → назад",
-        "L = 100, R = 20 → поворот вправо"
-      ],
-      example: "Їхати: L=80 R=80 (прямо)",
-      xml: `<block type="robot_move">
-              <value name="L"><shadow type="math_number_limited"><field name="NUM">80</field></shadow></value>
-              <value name="R"><shadow type="math_number_limited"><field name="NUM">80</field></shadow></value>
-            </block>`
-    },
-    "robot_move_soft": {
-      title: "Плавно до швидкості",
-      kid: "Робить розгін/гальмування плавно: за вказаний час доходить до потрібної швидкості.",
-      analogy: "Як у машині: ти не тиснеш газ одразу в підлогу, а плавно розганяєшся.",
-      steps: [
-        "TARGET — до якої швидкості дійти",
-        "SEC — за скільки секунд це зробити"
-      ],
-      example: "Плавно до 100% за 2 сек",
-      xml: `<block type="robot_move_soft">
-              <value name="TARGET"><shadow type="math_number_limited"><field name="NUM">100</field></shadow></value>
-              <value name="SEC"><shadow type="math_number"><field name="NUM">2</field></shadow></value>
-            </block>`
-    },
-    "robot_turn_timed": {
-      title: "Поворот на час",
-      kid: "Повертає вліво/вправо певний час. Чим довше час — тим більше поверне.",
-      analogy: "Як кермом: тримаєш кермо повернутим 0.5 сек — трохи повернув; 2 сек — сильніше.",
-      steps: [
-        "Вибери напрям (LEFT або RIGHT).",
-        "Задай секунди (наприклад 0.5).",
-        "Після цього можеш їхати прямо."
-      ],
-      example: "Повернути LEFT 0.6 сек",
-      xml: `<block type="robot_turn_timed">
-              <field name="DIR">LEFT</field>
-              <value name="SEC"><shadow type="math_number"><field name="NUM">0.6</field></shadow></value>
-            </block>`
-    },
-    "robot_set_speed": {
-      title: "Потужність (ліміт)",
-      kid: "Обмежує максимальну швидкість. Це як «гучність» для моторів: більше — швидше.",
-      analogy: "Як обмежувач швидкості на самокаті: ставиш 50% — він не розженеться сильніше.",
-      steps: [
-        "Постав 30–50% для дітей-початківців.",
-        "Постав 80–100% для швидкого режиму."
-      ],
-      example: "Потужність 60%",
-      xml: `<block type="robot_set_speed">
-              <value name="SPEED"><shadow type="math_number_limited"><field name="NUM">60</field></shadow></value>
-            </block>`
-    },
-    "robot_stop": {
-      title: "Стоп",
-      kid: "Зупиняє мотори.",
-      analogy: "Як натиснути гальма.",
-      steps: ["Постав після руху або в кінці програми."],
-      example: "Їхати → Стоп",
-      xml: `<block type="robot_stop"></block>`
-    },
-    "move_4_motors": {
-      title: "4 мотори",
-      kid: "Керує кожним мотором окремо (M1..M4).",
-      analogy: "Уяви чотири колеса з окремими педалями: кожне можна крутити по-різному.",
-      steps: [
-        "Якщо хочеш їхати прямо — став M1=M2=M3=M4",
-        "Для поворотів роби ліві колеса і праві різними"
-      ],
-      example: "M1=80 M2=80 M3=80 M4=80",
-      xml: `<block type="move_4_motors">
-              <value name="M1"><shadow type="math_number_limited"><field name="NUM">80</field></shadow></value>
-              <value name="M2"><shadow type="math_number_limited"><field name="NUM">80</field></shadow></value>
-              <value name="M3"><shadow type="math_number_limited"><field name="NUM">80</field></shadow></value>
-              <value name="M4"><shadow type="math_number_limited"><field name="NUM">80</field></shadow></value>
-            </block>`
-    },
-    "motor_single": {
-      title: "Один мотор",
-      kid: "Вмикає один вибраний мотор на потрібну швидкість.",
-      analogy: "Як окремо крутити тільки одне колесо, щоб перевірити чи воно працює.",
-      steps: ["Вибери мотор", "Постав SPEED"],
-      example: "Мотор M1 = 70",
-      xml: `<block type="motor_single">
-              <value name="SPEED"><shadow type="math_number_limited"><field name="NUM">70</field></shadow></value>
-            </block>`
-    },
-    "sensor_get": {
-      title: "Датчик (Port)",
-      kid: "Повертає число з датчика на порту (1..4). Це як «поглянути» що бачить сенсор.",
-      analogy: "Як перевірити температуру — датчик каже число.",
-      steps: [
-        "Встав цей блок у порівняння (>, <, =).",
-        "Або виведи число в лог/умову."
-      ],
-      example: "Якщо Port1 < 20 → Стоп",
-      xml: `<block type="sensor_get"></block>`
-    },
-    "wait_until_sensor": {
-      title: "Чекати датчик",
-      kid: "Пауза: програма чекає, поки датчик стане таким як треба (наприклад менше 20).",
-      analogy: "Як чекати, поки двері відкриються, і тільки тоді заходити.",
-      steps: ["Вибери порт", "Вибери умову (LT/GT/EQ)", "Вкажи число"],
-      example: "Чекати поки Port2 < 15",
-      xml: `<block type="wait_until_sensor">
-              <field name="SENS">1</field>
-              <field name="OP">LT</field>
-              <value name="VAL"><shadow type="math_number"><field name="NUM">15</field></shadow></value>
-            </block>`
-    },
-    "wait_seconds": {
-      title: "Чекати секунди",
-      kid: "Пауза на певний час. Програма «засинає» і потім продовжує.",
-      analogy: "Як таймер на телефоні: 3 секунди — і далі.",
-      steps: ["Постав 0.2–1 сек для маленьких пауз", "2–5 сек для великих"],
-      example: "Чекати 1 сек",
-      xml: `<block type="wait_seconds"><value name="SECONDS"><shadow type="math_number"><field name="NUM">1</field></shadow></value></block>`
-    },
-    "timer_get": {
-      title: "Таймер (прочитати)",
-      kid: "Показує, скільки часу пройшло після обнулення таймера.",
-      analogy: "Як секундомір.",
-      steps: ["Спочатку «Обнулити таймер»", "Потім перевіряти час у циклі/умові"],
-      example: "Якщо таймер > 3 сек → Стоп",
-      xml: `<block type="timer_get"></block>`
-    },
-    "timer_reset": {
-      title: "Таймер (обнулити)",
-      kid: "Скидає таймер в 0.",
-      analogy: "Як натиснути «Reset» на секундомірі.",
-      steps: ["Став на початку програми або перед виміром часу."],
-      example: "Обнулити таймер",
-      xml: `<block type="timer_reset"></block>`
-    },
-    "logic_edge_detect": {
-      title: "Край (зміна 0→1 / 1→0)",
-      kid: "Ловить момент, коли значення різко змінилось (ніби «клац»).",
-      analogy: "Як натиснути кнопку: важливий момент натискання, а не те, що вона потім тримається.",
-      steps: ["Клади сюди сигнал (0/1).", "Використовуй для «один раз спрацювати»."],
-      example: "Коли лінія з’явилась → зробити дію 1 раз",
-      xml: `<block type="logic_edge_detect"></block>`
-    },
-    "logic_schmitt": {
-      title: "Фільтр шуму (Шмітт)",
-      kid: "Допомагає, коли датчик «стрибає» (то 49, то 51). Робить рішення стабільним.",
-      analogy: "Як двері з доводчиком: не тремтять, а нормально закриваються.",
-      steps: ["LOW — нижня межа", "HIGH — верхня межа", "VAL — поточне значення"],
-      example: "LOW=30 HIGH=70: між ними не «скаче»",
-      xml: `<block type="logic_schmitt">
-              <value name="VAL"><shadow type="math_number"><field name="NUM">50</field></shadow></value>
-              <value name="LOW"><shadow type="math_number"><field name="NUM">30</field></shadow></value>
-              <value name="HIGH"><shadow type="math_number"><field name="NUM">70</field></shadow></value>
-            </block>`
-    },
-    "math_pid": {
-      title: "PID-регулятор",
-      kid: "Розумна формула, яка підправляє керування, щоб їхати рівно (по лінії/по відстані).",
-      analogy: "Як ти тримаєш рівновагу на велосипеді: постійно трохи підрулюєш.",
-      steps: ["ERROR — помилка (наскільки збились)", "Kp — швидка реакція", "Ki — накопичення", "Kd — гальмування ривків"],
-      example: "PID допоможе не «смикатись»",
-      xml: `<block type="math_pid">
-              <value name="ERROR"><shadow type="math_number"><field name="NUM">10</field></shadow></value>
-              <value name="KP"><shadow type="math_number"><field name="NUM">1</field></shadow></value>
-              <value name="KI"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
-              <value name="KD"><shadow type="math_number"><field name="NUM">0.2</field></shadow></value>
-            </block>`
-    },
-    "math_smooth": {
-      title: "Згладити",
-      kid: "Робить число «плавнішим», щоб не стрибало.",
-      analogy: "Як фільтр на відео: прибирає різкі ривки.",
-      steps: ["Корисно для датчиків і керування моторами."],
-      example: "Згладити покази датчика",
-      xml: `<block type="math_smooth"></block>`
-    },
+  // Each entry can have:
+  //  title, kid, analogy, steps[], example, example_xml (workspace fragment)
+  const HELP = {
+  "controls_if": {
+    "title": "Якщо",
+    "kid": "Перевіряє умову і виконує дії, якщо вона правда.",
+    "analogy": "Як інструкція з кроками: роби це, потім те; інколи повторюй.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"controls_if\"></block>"
+  },
+  "controls_ifelse": {
+    "title": "Якщо-інакше",
+    "kid": "Якщо умова правда — робить перше, інакше — друге.",
+    "analogy": "Як інструкція з кроками: роби це, потім те; інколи повторюй.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"controls_ifelse\"></block>"
+  },
+  "controls_repeat_ext": {
+    "title": "Повторити N разів",
+    "kid": "Повторює дії задану кількість разів.",
+    "analogy": "Як інструкція з кроками: роби це, потім те; інколи повторюй.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"controls_repeat_ext\"></block>"
+  },
+  "controls_whileUntil": {
+    "title": "Поки / До того як",
+    "kid": "Повторює дії, поки умова виконується (або до виконання).",
+    "analogy": "Як інструкція з кроками: роби це, потім те; інколи повторюй.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"controls_whileUntil\"></block>"
+  },
+  "controls_for": {
+    "title": "Для i від…до…",
+    "kid": "Цикл з лічильником i (рахує кроки).",
+    "analogy": "Як інструкція з кроками: роби це, потім те; інколи повторюй.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"controls_for\"></block>"
+  },
+  "controls_forEach": {
+    "title": "Для кожного з списку",
+    "kid": "Проходить по елементах списку один за одним.",
+    "analogy": "Як інструкція з кроками: роби це, потім те; інколи повторюй.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"controls_forEach\"></block>"
+  },
+  "controls_flow_statements": {
+    "title": "Зупинити цикл",
+    "kid": "Зупиняє або пропускає кроки в циклі.",
+    "analogy": "Як інструкція з кроками: роби це, потім те; інколи повторюй.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"controls_flow_statements\"></block>"
+  },
+  "controls_wait": {
+    "title": "Чекати",
+    "kid": "Пауза на секунди (як таймер).",
+    "analogy": "Як інструкція з кроками: роби це, потім те; інколи повторюй.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"controls_wait\"></block>"
+  },
+  "controls_forever": {
+    "title": "Завжди",
+    "kid": "Повторює дії без кінця (поки не натиснеш стоп).",
+    "analogy": "Як інструкція з кроками: роби це, потім те; інколи повторюй.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"controls_forever\"></block>"
+  },
+  "logic_compare": {
+    "title": "Порівняти",
+    "kid": "Порівнює числа: >, <, =.",
+    "analogy": "Як правило: «якщо ... то ...». Це допомагає приймати рішення.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"logic_compare\">\n  <field name=\"OP\">LT</field>\n  <value name=\"A\"><shadow type=\"math_number\"><field name=\"NUM\">3</field></shadow></value>\n  <value name=\"B\"><shadow type=\"math_number\"><field name=\"NUM\">5</field></shadow></value>\n</block>"
+  },
+  "logic_operation": {
+    "title": "І / АБО",
+    "kid": "З’єднує дві умови.",
+    "analogy": "Як правило: «якщо ... то ...». Це допомагає приймати рішення.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"logic_compare\">\n  <field name=\"OP\">LT</field>\n  <value name=\"A\"><shadow type=\"math_number\"><field name=\"NUM\">3</field></shadow></value>\n  <value name=\"B\"><shadow type=\"math_number\"><field name=\"NUM\">5</field></shadow></value>\n</block>"
+  },
+  "logic_negate": {
+    "title": "НЕ",
+    "kid": "Робить умову навпаки.",
+    "analogy": "Як правило: «якщо ... то ...». Це допомагає приймати рішення.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"logic_compare\">\n  <field name=\"OP\">LT</field>\n  <value name=\"A\"><shadow type=\"math_number\"><field name=\"NUM\">3</field></shadow></value>\n  <value name=\"B\"><shadow type=\"math_number\"><field name=\"NUM\">5</field></shadow></value>\n</block>"
+  },
+  "logic_boolean": {
+    "title": "Так/Ні",
+    "kid": "Логічне значення: правда або брехня.",
+    "analogy": "Як правило: «якщо ... то ...». Це допомагає приймати рішення.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"logic_compare\">\n  <field name=\"OP\">LT</field>\n  <value name=\"A\"><shadow type=\"math_number\"><field name=\"NUM\">3</field></shadow></value>\n  <value name=\"B\"><shadow type=\"math_number\"><field name=\"NUM\">5</field></shadow></value>\n</block>"
+  },
+  "logic_null": {
+    "title": "Нічого",
+    "kid": "Порожнє значення (нема даних).",
+    "analogy": "Як правило: «якщо ... то ...». Це допомагає приймати рішення.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"logic_compare\">\n  <field name=\"OP\">LT</field>\n  <value name=\"A\"><shadow type=\"math_number\"><field name=\"NUM\">3</field></shadow></value>\n  <value name=\"B\"><shadow type=\"math_number\"><field name=\"NUM\">5</field></shadow></value>\n</block>"
+  },
+  "logic_ternary": {
+    "title": "Вибір (умова ? A : B)",
+    "kid": "Вибирає одне з двох значень за умовою.",
+    "analogy": "Як правило: «якщо ... то ...». Це допомагає приймати рішення.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"logic_compare\">\n  <field name=\"OP\">LT</field>\n  <value name=\"A\"><shadow type=\"math_number\"><field name=\"NUM\">3</field></shadow></value>\n  <value name=\"B\"><shadow type=\"math_number\"><field name=\"NUM\">5</field></shadow></value>\n</block>"
+  },
+  "math_number": {
+    "title": "Число",
+    "kid": "Звичайне число.",
+    "analogy": "Як калькулятор: допомагає рахувати і порівнювати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"math_arithmetic\">\n  <field name=\"OP\">ADD</field>\n  <value name=\"A\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"B\"><shadow type=\"math_number\"><field name=\"NUM\">4</field></shadow></value>\n</block>"
+  },
+  "math_arithmetic": {
+    "title": "+ − × ÷",
+    "kid": "Математика: додати/відняти/помножити/поділити.",
+    "analogy": "Як калькулятор: допомагає рахувати і порівнювати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"math_arithmetic\">\n  <field name=\"OP\">ADD</field>\n  <value name=\"A\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"B\"><shadow type=\"math_number\"><field name=\"NUM\">4</field></shadow></value>\n</block>"
+  },
+  "math_single": {
+    "title": "Матем. функція",
+    "kid": "Модуль, корінь, синус тощо.",
+    "analogy": "Як калькулятор: допомагає рахувати і порівнювати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"math_arithmetic\">\n  <field name=\"OP\">ADD</field>\n  <value name=\"A\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"B\"><shadow type=\"math_number\"><field name=\"NUM\">4</field></shadow></value>\n</block>"
+  },
+  "math_trig": {
+    "title": "Тригонометрія",
+    "kid": "Синус/косинус/тангенс.",
+    "analogy": "Як калькулятор: допомагає рахувати і порівнювати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"math_arithmetic\">\n  <field name=\"OP\">ADD</field>\n  <value name=\"A\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"B\"><shadow type=\"math_number\"><field name=\"NUM\">4</field></shadow></value>\n</block>"
+  },
+  "math_constant": {
+    "title": "Константа",
+    "kid": "Готове число: π, e тощо.",
+    "analogy": "Як калькулятор: допомагає рахувати і порівнювати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"math_arithmetic\">\n  <field name=\"OP\">ADD</field>\n  <value name=\"A\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"B\"><shadow type=\"math_number\"><field name=\"NUM\">4</field></shadow></value>\n</block>"
+  },
+  "math_number_property": {
+    "title": "Властивість числа",
+    "kid": "Парне? Ділиться? Прості числа?",
+    "analogy": "Як калькулятор: допомагає рахувати і порівнювати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"math_arithmetic\">\n  <field name=\"OP\">ADD</field>\n  <value name=\"A\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"B\"><shadow type=\"math_number\"><field name=\"NUM\">4</field></shadow></value>\n</block>"
+  },
+  "math_round": {
+    "title": "Округлення",
+    "kid": "Округлює число.",
+    "analogy": "Як калькулятор: допомагає рахувати і порівнювати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"math_arithmetic\">\n  <field name=\"OP\">ADD</field>\n  <value name=\"A\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"B\"><shadow type=\"math_number\"><field name=\"NUM\">4</field></shadow></value>\n</block>"
+  },
+  "math_on_list": {
+    "title": "Математика зі списком",
+    "kid": "Сума/середнє/макс/мін у списку.",
+    "analogy": "Як калькулятор: допомагає рахувати і порівнювати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"math_arithmetic\">\n  <field name=\"OP\">ADD</field>\n  <value name=\"A\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"B\"><shadow type=\"math_number\"><field name=\"NUM\">4</field></shadow></value>\n</block>"
+  },
+  "math_modulo": {
+    "title": "Остача",
+    "kid": "Остача від ділення (mod).",
+    "analogy": "Як калькулятор: допомагає рахувати і порівнювати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"math_arithmetic\">\n  <field name=\"OP\">ADD</field>\n  <value name=\"A\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"B\"><shadow type=\"math_number\"><field name=\"NUM\">4</field></shadow></value>\n</block>"
+  },
+  "math_constrain": {
+    "title": "Обмежити",
+    "kid": "Не дає числу вийти за межі.",
+    "analogy": "Як калькулятор: допомагає рахувати і порівнювати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"math_arithmetic\">\n  <field name=\"OP\">ADD</field>\n  <value name=\"A\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"B\"><shadow type=\"math_number\"><field name=\"NUM\">4</field></shadow></value>\n</block>"
+  },
+  "math_random_int": {
+    "title": "Випадкове ціле",
+    "kid": "Випадкове число між A і B.",
+    "analogy": "Як калькулятор: допомагає рахувати і порівнювати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"math_arithmetic\">\n  <field name=\"OP\">ADD</field>\n  <value name=\"A\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"B\"><shadow type=\"math_number\"><field name=\"NUM\">4</field></shadow></value>\n</block>"
+  },
+  "math_random_float": {
+    "title": "Випадкове 0..1",
+    "kid": "Випадкове число від 0 до 1.",
+    "analogy": "Як калькулятор: допомагає рахувати і порівнювати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"math_arithmetic\">\n  <field name=\"OP\">ADD</field>\n  <value name=\"A\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"B\"><shadow type=\"math_number\"><field name=\"NUM\">4</field></shadow></value>\n</block>"
+  },
+  "text": {
+    "title": "Текст",
+    "kid": "Слова/рядок.",
+    "analogy": "Як слова в повідомленні: можна склеювати, різати, рахувати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"text_join\">\n  <mutation items=\"2\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"text\"><field name=\"TEXT\">Привіт</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"text\"><field name=\"TEXT\">світ</field></shadow></value>\n</block>"
+  },
+  "text_join": {
+    "title": "З’єднати текст",
+    "kid": "Склеює слова в одне речення.",
+    "analogy": "Як слова в повідомленні: можна склеювати, різати, рахувати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"text_join\">\n  <mutation items=\"2\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"text\"><field name=\"TEXT\">Привіт</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"text\"><field name=\"TEXT\">світ</field></shadow></value>\n</block>"
+  },
+  "text_append": {
+    "title": "Дописати до змінної",
+    "kid": "Додає текст до змінної.",
+    "analogy": "Як слова в повідомленні: можна склеювати, різати, рахувати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"text_join\">\n  <mutation items=\"2\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"text\"><field name=\"TEXT\">Привіт</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"text\"><field name=\"TEXT\">світ</field></shadow></value>\n</block>"
+  },
+  "text_length": {
+    "title": "Довжина",
+    "kid": "Скільки символів у тексті.",
+    "analogy": "Як слова в повідомленні: можна склеювати, різати, рахувати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"text_join\">\n  <mutation items=\"2\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"text\"><field name=\"TEXT\">Привіт</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"text\"><field name=\"TEXT\">світ</field></shadow></value>\n</block>"
+  },
+  "text_isEmpty": {
+    "title": "Порожній?",
+    "kid": "Перевіряє, чи текст порожній.",
+    "analogy": "Як слова в повідомленні: можна склеювати, різати, рахувати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"text_join\">\n  <mutation items=\"2\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"text\"><field name=\"TEXT\">Привіт</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"text\"><field name=\"TEXT\">світ</field></shadow></value>\n</block>"
+  },
+  "text_indexOf": {
+    "title": "Знайти",
+    "kid": "Шукає підрядок у тексті.",
+    "analogy": "Як слова в повідомленні: можна склеювати, різати, рахувати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"text_join\">\n  <mutation items=\"2\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"text\"><field name=\"TEXT\">Привіт</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"text\"><field name=\"TEXT\">світ</field></shadow></value>\n</block>"
+  },
+  "text_charAt": {
+    "title": "Символ №",
+    "kid": "Бере символ з тексту за номером.",
+    "analogy": "Як слова в повідомленні: можна склеювати, різати, рахувати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"text_join\">\n  <mutation items=\"2\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"text\"><field name=\"TEXT\">Привіт</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"text\"><field name=\"TEXT\">світ</field></shadow></value>\n</block>"
+  },
+  "text_getSubstring": {
+    "title": "Частина тексту",
+    "kid": "Вирізає шматок тексту.",
+    "analogy": "Як слова в повідомленні: можна склеювати, різати, рахувати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"text_join\">\n  <mutation items=\"2\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"text\"><field name=\"TEXT\">Привіт</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"text\"><field name=\"TEXT\">світ</field></shadow></value>\n</block>"
+  },
+  "text_changeCase": {
+    "title": "Великі/малі",
+    "kid": "Робить літери великими або малими.",
+    "analogy": "Як слова в повідомленні: можна склеювати, різати, рахувати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"text_join\">\n  <mutation items=\"2\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"text\"><field name=\"TEXT\">Привіт</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"text\"><field name=\"TEXT\">світ</field></shadow></value>\n</block>"
+  },
+  "text_trim": {
+    "title": "Обрізати пробіли",
+    "kid": "Прибирає пробіли на краях.",
+    "analogy": "Як слова в повідомленні: можна склеювати, різати, рахувати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"text_join\">\n  <mutation items=\"2\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"text\"><field name=\"TEXT\">Привіт</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"text\"><field name=\"TEXT\">світ</field></shadow></value>\n</block>"
+  },
+  "text_print": {
+    "title": "Показати текст",
+    "kid": "Виводить текст (лог/вікно).",
+    "analogy": "Як слова в повідомленні: можна склеювати, різати, рахувати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"text_join\">\n  <mutation items=\"2\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"text\"><field name=\"TEXT\">Привіт</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"text\"><field name=\"TEXT\">світ</field></shadow></value>\n</block>"
+  },
+  "text_prompt_ext": {
+    "title": "Запитати",
+    "kid": "Питає користувача і читає відповідь.",
+    "analogy": "Як слова в повідомленні: можна склеювати, різати, рахувати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"text_join\">\n  <mutation items=\"2\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"text\"><field name=\"TEXT\">Привіт</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"text\"><field name=\"TEXT\">світ</field></shadow></value>\n</block>"
+  },
+  "lists_create_empty": {
+    "title": "Порожній список",
+    "kid": "Створює список без елементів.",
+    "analogy": "Як коробка з предметами: у списку є багато значень по порядку.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"lists_create_with\">\n  <mutation items=\"3\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"math_number\"><field name=\"NUM\">1</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"ADD2\"><shadow type=\"math_number\"><field name=\"NUM\">3</field></shadow></value>\n</block>"
+  },
+  "lists_create_with": {
+    "title": "Список з елементів",
+    "kid": "Створює список з кількох значень.",
+    "analogy": "Як коробка з предметами: у списку є багато значень по порядку.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"lists_create_with\">\n  <mutation items=\"3\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"math_number\"><field name=\"NUM\">1</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"ADD2\"><shadow type=\"math_number\"><field name=\"NUM\">3</field></shadow></value>\n</block>"
+  },
+  "lists_repeat": {
+    "title": "Повторити в списку",
+    "kid": "Повторює значення N разів у списку.",
+    "analogy": "Як коробка з предметами: у списку є багато значень по порядку.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"lists_create_with\">\n  <mutation items=\"3\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"math_number\"><field name=\"NUM\">1</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"ADD2\"><shadow type=\"math_number\"><field name=\"NUM\">3</field></shadow></value>\n</block>"
+  },
+  "lists_length": {
+    "title": "Довжина списку",
+    "kid": "Скільки елементів у списку.",
+    "analogy": "Як коробка з предметами: у списку є багато значень по порядку.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"lists_create_with\">\n  <mutation items=\"3\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"math_number\"><field name=\"NUM\">1</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"ADD2\"><shadow type=\"math_number\"><field name=\"NUM\">3</field></shadow></value>\n</block>"
+  },
+  "lists_isEmpty": {
+    "title": "Список порожній?",
+    "kid": "Перевіряє, чи список пустий.",
+    "analogy": "Як коробка з предметами: у списку є багато значень по порядку.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"lists_create_with\">\n  <mutation items=\"3\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"math_number\"><field name=\"NUM\">1</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"ADD2\"><shadow type=\"math_number\"><field name=\"NUM\">3</field></shadow></value>\n</block>"
+  },
+  "lists_indexOf": {
+    "title": "Знайти в списку",
+    "kid": "Шукає елемент у списку.",
+    "analogy": "Як коробка з предметами: у списку є багато значень по порядку.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"lists_create_with\">\n  <mutation items=\"3\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"math_number\"><field name=\"NUM\">1</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"ADD2\"><shadow type=\"math_number\"><field name=\"NUM\">3</field></shadow></value>\n</block>"
+  },
+  "lists_getIndex": {
+    "title": "Взяти елемент",
+    "kid": "Бере/видаляє елемент зі списку.",
+    "analogy": "Як коробка з предметами: у списку є багато значень по порядку.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"lists_create_with\">\n  <mutation items=\"3\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"math_number\"><field name=\"NUM\">1</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"ADD2\"><shadow type=\"math_number\"><field name=\"NUM\">3</field></shadow></value>\n</block>"
+  },
+  "lists_setIndex": {
+    "title": "Змінити елемент",
+    "kid": "Ставить нове значення в позицію.",
+    "analogy": "Як коробка з предметами: у списку є багато значень по порядку.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"lists_create_with\">\n  <mutation items=\"3\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"math_number\"><field name=\"NUM\">1</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"ADD2\"><shadow type=\"math_number\"><field name=\"NUM\">3</field></shadow></value>\n</block>"
+  },
+  "lists_getSublist": {
+    "title": "Частина списку",
+    "kid": "Бере шматок списку.",
+    "analogy": "Як коробка з предметами: у списку є багато значень по порядку.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"lists_create_with\">\n  <mutation items=\"3\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"math_number\"><field name=\"NUM\">1</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"ADD2\"><shadow type=\"math_number\"><field name=\"NUM\">3</field></shadow></value>\n</block>"
+  },
+  "lists_split": {
+    "title": "Розбити/з’єднати",
+    "kid": "Ділить текст у список або навпаки.",
+    "analogy": "Як коробка з предметами: у списку є багато значень по порядку.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"lists_create_with\">\n  <mutation items=\"3\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"math_number\"><field name=\"NUM\">1</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"ADD2\"><shadow type=\"math_number\"><field name=\"NUM\">3</field></shadow></value>\n</block>"
+  },
+  "lists_sort": {
+    "title": "Сортувати",
+    "kid": "Сортує список.",
+    "analogy": "Як коробка з предметами: у списку є багато значень по порядку.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"lists_create_with\">\n  <mutation items=\"3\"></mutation>\n  <value name=\"ADD0\"><shadow type=\"math_number\"><field name=\"NUM\">1</field></shadow></value>\n  <value name=\"ADD1\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"ADD2\"><shadow type=\"math_number\"><field name=\"NUM\">3</field></shadow></value>\n</block>"
+  },
+  "variables_get": {
+    "title": "Змінна (прочитати)",
+    "kid": "Бере значення зі змінної.",
+    "analogy": "Змінна — як коробочка з підписом, де лежить число/текст.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"variables_set\">\n  <field name=\"VAR\">x</field>\n  <value name=\"VALUE\"><shadow type=\"math_number\"><field name=\"NUM\">10</field></shadow></value>\n</block>"
+  },
+  "variables_set": {
+    "title": "Змінна (задати)",
+    "kid": "Записує значення в змінну.",
+    "analogy": "Змінна — як коробочка з підписом, де лежить число/текст.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"variables_set\">\n  <field name=\"VAR\">x</field>\n  <value name=\"VALUE\"><shadow type=\"math_number\"><field name=\"NUM\">10</field></shadow></value>\n</block>"
+  },
+  "math_change": {
+    "title": "Змінити на",
+    "kid": "Додає/віднімає число від змінної.",
+    "analogy": "Як калькулятор: допомагає рахувати і порівнювати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"math_arithmetic\">\n  <field name=\"OP\">ADD</field>\n  <value name=\"A\"><shadow type=\"math_number\"><field name=\"NUM\">2</field></shadow></value>\n  <value name=\"B\"><shadow type=\"math_number\"><field name=\"NUM\">4</field></shadow></value>\n</block>"
+  },
+  "procedures_defnoreturn": {
+    "title": "Створити команду",
+    "kid": "Створює власний блок-команду.",
+    "analogy": "Як власна команда: придумав назву — і можеш використовувати багато разів.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"procedures_defnoreturn\"></block>"
+  },
+  "procedures_defreturn": {
+    "title": "Створити функцію",
+    "kid": "Створює власний блок, який повертає значення.",
+    "analogy": "Як власна команда: придумав назву — і можеш використовувати багато разів.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"procedures_defreturn\"></block>"
+  },
+  "procedures_callnoreturn": {
+    "title": "Виклик команди",
+    "kid": "Запускає власну команду.",
+    "analogy": "Як власна команда: придумав назву — і можеш використовувати багато разів.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"procedures_callnoreturn\"></block>"
+  },
+  "procedures_callreturn": {
+    "title": "Виклик функції",
+    "kid": "Отримує значення з власної функції.",
+    "analogy": "Як власна команда: придумав назву — і можеш використовувати багато разів.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"procedures_callreturn\"></block>"
+  },
+  "procedures_ifreturn": {
+    "title": "Повернути якщо",
+    "kid": "Повертає значення, якщо умова правда.",
+    "analogy": "Як власна команда: придумав назву — і можеш використовувати багато разів.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"procedures_ifreturn\"></block>"
+  },
+  "start_hat": {
+    "title": "Старт",
+    "kid": "Це як кнопка «ПОЇХАЛИ». Все під ним починає виконуватись.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"start_hat\"></block>\n  </next>\n</block>"
+  },
+  "robot_move": {
+    "title": "Рух L/R",
+    "kid": "Керує лівим і правим мотором. Рівно — прямо, різно — поворот.",
+    "analogy": "Як керувати машинкою: мотори — це ноги/колеса, датчики — очі.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"robot_move\"></block>\n  </next>\n</block>"
+  },
+  "robot_move_soft": {
+    "title": "Плавний розгін",
+    "kid": "Плавно доходить до швидкості за час.",
+    "analogy": "Як керувати машинкою: мотори — це ноги/колеса, датчики — очі.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"robot_move_soft\"></block>\n  </next>\n</block>"
+  },
+  "robot_turn_timed": {
+    "title": "Поворот на час",
+    "kid": "Повертає вліво/вправо певну кількість секунд.",
+    "analogy": "Як керувати машинкою: мотори — це ноги/колеса, датчики — очі.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"robot_turn_timed\"></block>\n  </next>\n</block>"
+  },
+  "robot_set_speed": {
+    "title": "Ліміт швидкості",
+    "kid": "Обмежує максимальну потужність.",
+    "analogy": "Як керувати машинкою: мотори — це ноги/колеса, датчики — очі.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"robot_set_speed\"></block>\n  </next>\n</block>"
+  },
+  "robot_stop": {
+    "title": "Стоп",
+    "kid": "Зупиняє мотори.",
+    "analogy": "Як керувати машинкою: мотори — це ноги/колеса, датчики — очі.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"robot_stop\"></block>\n  </next>\n</block>"
+  },
+  "move_4_motors": {
+    "title": "4 мотори",
+    "kid": "Керує кожним мотором окремо.",
+    "analogy": "Як керувати машинкою: мотори — це ноги/колеса, датчики — очі.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"move_4_motors\"></block>\n  </next>\n</block>"
+  },
+  "motor_single": {
+    "title": "Один мотор",
+    "kid": "Вмикає один вибраний мотор.",
+    "analogy": "Як керувати машинкою: мотори — це ноги/колеса, датчики — очі.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"motor_single\"></block>\n  </next>\n</block>"
+  },
+  "sensor_get": {
+    "title": "Датчик",
+    "kid": "Читає число з датчика.",
+    "analogy": "Як керувати машинкою: мотори — це ноги/колеса, датчики — очі.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"sensor_get\"></block>\n  </next>\n</block>"
+  },
+  "wait_until_sensor": {
+    "title": "Чекати датчик",
+    "kid": "Чекає, поки датчик стане як треба.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"wait_until_sensor\"></block>\n  </next>\n</block>"
+  },
+  "wait_seconds": {
+    "title": "Чекати секунди",
+    "kid": "Пауза на час.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"wait_seconds\"></block>\n  </next>\n</block>"
+  },
+  "timer_get": {
+    "title": "Таймер",
+    "kid": "Показує, скільки часу пройшло.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"timer_get\"></block>\n  </next>\n</block>"
+  },
+  "timer_reset": {
+    "title": "Таймер reset",
+    "kid": "Обнуляє таймер.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"timer_reset\"></block>\n  </next>\n</block>"
+  },
+  "logic_edge_detect": {
+    "title": "Край сигналу",
+    "kid": "Ловить момент зміни 0↔1.",
+    "analogy": "Як правило: «якщо ... то ...». Це допомагає приймати рішення.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"logic_edge_detect\"></block>\n  </next>\n</block>"
+  },
+  "logic_schmitt": {
+    "title": "Фільтр шуму",
+    "kid": "Робить рішення стабільним, коли значення стрибає.",
+    "analogy": "Як правило: «якщо ... то ...». Це допомагає приймати рішення.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"logic_schmitt\"></block>\n  </next>\n</block>"
+  },
+  "math_pid": {
+    "title": "PID",
+    "kid": "Розумно підправляє керування, щоб їхати рівно.",
+    "analogy": "Як калькулятор: допомагає рахувати і порівнювати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"math_pid\"></block>\n  </next>\n</block>"
+  },
+  "math_smooth": {
+    "title": "Згладити",
+    "kid": "Прибирає різкі стрибки числа.",
+    "analogy": "Як калькулятор: допомагає рахувати і порівнювати.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"math_smooth\"></block>\n  </next>\n</block>"
+  },
+  "record_start": {
+    "title": "Запис",
+    "kid": "Запам’ятовує твоє керування, щоб потім повторити.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"record_start\"></block>\n  </next>\n</block>"
+  },
+  "replay_track": {
+    "title": "Відтворити",
+    "kid": "Повторює записане керування.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"replay_track\"></block>\n  </next>\n</block>"
+  },
+  "replay_loop": {
+    "title": "Повторити N",
+    "kid": "Відтворює запис кілька разів.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"replay_loop\"></block>\n  </next>\n</block>"
+  },
+  "count_laps": {
+    "title": "Кола",
+    "kid": "Рахує кола/повтори маршруту.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"count_laps\"></block>\n  </next>\n</block>"
+  },
+  "wait_start": {
+    "title": "Чекати старт-лінію",
+    "kid": "Чекає, поки датчик побачить старт.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"wait_start\"></block>\n  </next>\n</block>"
+  },
+  "stop_at_start": {
+    "title": "Стоп на старті",
+    "kid": "Зупиняє робота на стартовій лінії.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"stop_at_start\"></block>\n  </next>\n</block>"
+  },
+  "go_home": {
+    "title": "Go Home",
+    "kid": "Скидає стан/повертає у базу.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"go_home\"></block>\n  </next>\n</block>"
+  },
+  "spider_center": {
+    "title": "Павук: центр",
+    "kid": "Ставить лапи в базове рівне положення.",
+    "analogy": "Як керувати іграшкою-павуком: команди руху і налаштування.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"spider_center\"></block>\n  </next>\n</block>"
+  },
+  "spider_step": {
+    "title": "Павук: крок",
+    "kid": "Робить один крок.",
+    "analogy": "Як керувати іграшкою-павуком: команди руху і налаштування.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"spider_step\"></block>\n  </next>\n</block>"
+  },
+  "spider_walk_while": {
+    "title": "Павук: йти поки",
+    "kid": "Йде, поки умова правда.",
+    "analogy": "Як керувати іграшкою-павуком: команди руху і налаштування.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"spider_walk_while\"></block>\n  </next>\n</block>"
+  },
+  "spider_walk_time": {
+    "title": "Павук: йти час",
+    "kid": "Йде певний час.",
+    "analogy": "Як керувати іграшкою-павуком: команди руху і налаштування.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"spider_walk_time\"></block>\n  </next>\n</block>"
+  },
+  "spider_turn_smooth": {
+    "title": "Павук: поворот",
+    "kid": "Плавно повертає на кут.",
+    "analogy": "Як керувати іграшкою-павуком: команди руху і налаштування.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"spider_turn_smooth\"></block>\n  </next>\n</block>"
+  },
+  "spider_leg_control": {
+    "title": "Павук: лапа",
+    "kid": "Керує однією лапою (кут).",
+    "analogy": "Як керувати іграшкою-павуком: команди руху і налаштування.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"spider_leg_control\"></block>\n  </next>\n</block>"
+  },
+  "spider_config": {
+    "title": "Павук: конфіг",
+    "kid": "Налаштовує висоту/швидкість.",
+    "analogy": "Як керувати іграшкою-павуком: команди руху і налаштування.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"spider_config\"></block>\n  </next>\n</block>"
+  },
+  "spider_anim": {
+    "title": "Павук: анімація",
+    "kid": "Запускає анімацію.",
+    "analogy": "Як керувати іграшкою-павуком: команди руху і налаштування.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"spider_anim\"></block>\n  </next>\n</block>"
+  },
+  "spider_joystick_ctrl": {
+    "title": "Павук: джойстик",
+    "kid": "Керування джойстиком.",
+    "analogy": "Як керувати іграшкою-павуком: команди руху і налаштування.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"spider_joystick_ctrl\"></block>\n  </next>\n</block>"
+  },
+  "spider_stop": {
+    "title": "Павук: стоп",
+    "kid": "Зупиняє павука.",
+    "analogy": "Як керувати іграшкою-павуком: команди руху і налаштування.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"start_hat\">\n  <next>\n    <block type=\"spider_stop\"></block>\n  </next>\n</block>"
+  },
+  "custom_block_1": {
+    "title": "Користувацький блок 1",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_1\"></block>"
+  },
+  "custom_block_2": {
+    "title": "Користувацький блок 2",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_2\"></block>"
+  },
+  "custom_block_3": {
+    "title": "Користувацький блок 3",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_3\"></block>"
+  },
+  "custom_block_4": {
+    "title": "Користувацький блок 4",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_4\"></block>"
+  },
+  "custom_block_5": {
+    "title": "Користувацький блок 5",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_5\"></block>"
+  },
+  "custom_block_6": {
+    "title": "Користувацький блок 6",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_6\"></block>"
+  },
+  "custom_block_7": {
+    "title": "Користувацький блок 7",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_7\"></block>"
+  },
+  "custom_block_8": {
+    "title": "Користувацький блок 8",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_8\"></block>"
+  },
+  "custom_block_9": {
+    "title": "Користувацький блок 9",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_9\"></block>"
+  },
+  "custom_block_10": {
+    "title": "Користувацький блок 10",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_10\"></block>"
+  },
+  "custom_block_11": {
+    "title": "Користувацький блок 11",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_11\"></block>"
+  },
+  "custom_block_12": {
+    "title": "Користувацький блок 12",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_12\"></block>"
+  },
+  "custom_block_13": {
+    "title": "Користувацький блок 13",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_13\"></block>"
+  },
+  "custom_block_14": {
+    "title": "Користувацький блок 14",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_14\"></block>"
+  },
+  "custom_block_15": {
+    "title": "Користувацький блок 15",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_15\"></block>"
+  },
+  "custom_block_16": {
+    "title": "Користувацький блок 16",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_16\"></block>"
+  },
+  "custom_block_17": {
+    "title": "Користувацький блок 17",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_17\"></block>"
+  },
+  "custom_block_18": {
+    "title": "Користувацький блок 18",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_18\"></block>"
+  },
+  "custom_block_19": {
+    "title": "Користувацький блок 19",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_19\"></block>"
+  },
+  "custom_block_20": {
+    "title": "Користувацький блок 20",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_20\"></block>"
+  },
+  "custom_block_21": {
+    "title": "Користувацький блок 21",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_21\"></block>"
+  },
+  "custom_block_22": {
+    "title": "Користувацький блок 22",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_22\"></block>"
+  },
+  "custom_block_23": {
+    "title": "Користувацький блок 23",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_23\"></block>"
+  },
+  "custom_block_24": {
+    "title": "Користувацький блок 24",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_24\"></block>"
+  },
+  "custom_block_25": {
+    "title": "Користувацький блок 25",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_25\"></block>"
+  },
+  "custom_block_26": {
+    "title": "Користувацький блок 26",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_26\"></block>"
+  },
+  "custom_block_27": {
+    "title": "Користувацький блок 27",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_27\"></block>"
+  },
+  "custom_block_28": {
+    "title": "Користувацький блок 28",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_28\"></block>"
+  },
+  "custom_block_29": {
+    "title": "Користувацький блок 29",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_29\"></block>"
+  },
+  "custom_block_30": {
+    "title": "Користувацький блок 30",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_30\"></block>"
+  },
+  "custom_block_31": {
+    "title": "Користувацький блок 31",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_31\"></block>"
+  },
+  "custom_block_32": {
+    "title": "Користувацький блок 32",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_32\"></block>"
+  },
+  "custom_block_33": {
+    "title": "Користувацький блок 33",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_33\"></block>"
+  },
+  "custom_block_34": {
+    "title": "Користувацький блок 34",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_34\"></block>"
+  },
+  "custom_block_35": {
+    "title": "Користувацький блок 35",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_35\"></block>"
+  },
+  "custom_block_36": {
+    "title": "Користувацький блок 36",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_36\"></block>"
+  },
+  "custom_block_37": {
+    "title": "Користувацький блок 37",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_37\"></block>"
+  },
+  "custom_block_38": {
+    "title": "Користувацький блок 38",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_38\"></block>"
+  },
+  "custom_block_39": {
+    "title": "Користувацький блок 39",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_39\"></block>"
+  },
+  "custom_block_40": {
+    "title": "Користувацький блок 40",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_40\"></block>"
+  },
+  "custom_block_41": {
+    "title": "Користувацький блок 41",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_41\"></block>"
+  },
+  "custom_block_42": {
+    "title": "Користувацький блок 42",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_42\"></block>"
+  },
+  "custom_block_43": {
+    "title": "Користувацький блок 43",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_43\"></block>"
+  },
+  "custom_block_44": {
+    "title": "Користувацький блок 44",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_44\"></block>"
+  },
+  "custom_block_45": {
+    "title": "Користувацький блок 45",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_45\"></block>"
+  },
+  "custom_block_46": {
+    "title": "Користувацький блок 46",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_46\"></block>"
+  },
+  "custom_block_47": {
+    "title": "Користувацький блок 47",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_47\"></block>"
+  },
+  "custom_block_48": {
+    "title": "Користувацький блок 48",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_48\"></block>"
+  },
+  "custom_block_49": {
+    "title": "Користувацький блок 49",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_49\"></block>"
+  },
+  "custom_block_50": {
+    "title": "Користувацький блок 50",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_50\"></block>"
+  },
+  "custom_block_51": {
+    "title": "Користувацький блок 51",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_51\"></block>"
+  },
+  "custom_block_52": {
+    "title": "Користувацький блок 52",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_52\"></block>"
+  },
+  "custom_block_53": {
+    "title": "Користувацький блок 53",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_53\"></block>"
+  },
+  "custom_block_54": {
+    "title": "Користувацький блок 54",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_54\"></block>"
+  },
+  "custom_block_55": {
+    "title": "Користувацький блок 55",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_55\"></block>"
+  },
+  "custom_block_56": {
+    "title": "Користувацький блок 56",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_56\"></block>"
+  },
+  "custom_block_57": {
+    "title": "Користувацький блок 57",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_57\"></block>"
+  },
+  "custom_block_58": {
+    "title": "Користувацький блок 58",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_58\"></block>"
+  },
+  "custom_block_59": {
+    "title": "Користувацький блок 59",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_59\"></block>"
+  },
+  "custom_block_60": {
+    "title": "Користувацький блок 60",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_60\"></block>"
+  },
+  "custom_block_61": {
+    "title": "Користувацький блок 61",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_61\"></block>"
+  },
+  "custom_block_62": {
+    "title": "Користувацький блок 62",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_62\"></block>"
+  },
+  "custom_block_63": {
+    "title": "Користувацький блок 63",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_63\"></block>"
+  },
+  "custom_block_64": {
+    "title": "Користувацький блок 64",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_64\"></block>"
+  },
+  "custom_block_65": {
+    "title": "Користувацький блок 65",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_65\"></block>"
+  },
+  "custom_block_66": {
+    "title": "Користувацький блок 66",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_66\"></block>"
+  },
+  "custom_block_67": {
+    "title": "Користувацький блок 67",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_67\"></block>"
+  },
+  "custom_block_68": {
+    "title": "Користувацький блок 68",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_68\"></block>"
+  },
+  "custom_block_69": {
+    "title": "Користувацький блок 69",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_69\"></block>"
+  },
+  "custom_block_70": {
+    "title": "Користувацький блок 70",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_70\"></block>"
+  },
+  "custom_block_71": {
+    "title": "Користувацький блок 71",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_71\"></block>"
+  },
+  "custom_block_72": {
+    "title": "Користувацький блок 72",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_72\"></block>"
+  },
+  "custom_block_73": {
+    "title": "Користувацький блок 73",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_73\"></block>"
+  },
+  "custom_block_74": {
+    "title": "Користувацький блок 74",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_74\"></block>"
+  },
+  "custom_block_75": {
+    "title": "Користувацький блок 75",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_75\"></block>"
+  },
+  "custom_block_76": {
+    "title": "Користувацький блок 76",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_76\"></block>"
+  },
+  "custom_block_77": {
+    "title": "Користувацький блок 77",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_77\"></block>"
+  },
+  "custom_block_78": {
+    "title": "Користувацький блок 78",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_78\"></block>"
+  },
+  "custom_block_79": {
+    "title": "Користувацький блок 79",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_79\"></block>"
+  },
+  "custom_block_80": {
+    "title": "Користувацький блок 80",
+    "kid": "Це ваш власний блок. Він робить дію, яку ви для нього придумали.",
+    "analogy": "Уяви, що програма — це рецепт. Цей блок — один крок рецепта.",
+    "steps": [
+      "1) Постав блок у програму.",
+      "2) З’єднай з іншими блоками зверху/знизу.",
+      "3) Запусти і подивись, що змінилось."
+    ],
+    "example": "Це маленький приклад ідеї. Спробуй змінити числа або умову і подивись результат.",
+    "example_xml": "<block type=\"custom_block_80\"></block>"
+  }
+};
 
-    // Track / автопілот
-    "record_start": {
-      title: "Запис траси",
-      kid: "Починає запам’ятовувати, як ти керуєш (швидкості і час).",
-      analogy: "Як записати відео гри: потім можна «повторити».",
-      steps: ["Натисни старт запису", "Покатайся", "Потім використай «Відтворити трасу»"],
-      example: "Запис → керування → Відтворення",
-      xml: `<block type="record_start"></block>`
-    },
-    "replay_track": {
-      title: "Відтворити трасу",
-      kid: "Повторює керування, яке було записано раніше.",
-      analogy: "Як автопілот по твоєму маршруту.",
-      steps: ["Спочатку треба записати трасу.", "Потім цей блок її програє."],
-      example: "Відтворити 1 раз",
-      xml: `<block type="replay_track"></block>`
-    },
-    "replay_loop": {
-      title: "Повторити запис N разів",
-      kid: "Програє трасу кілька разів.",
-      analogy: "Як включити повтор пісні 3 рази.",
-      steps: ["Постав TIMES = скільки повторів."],
-      example: "Повторити 3 рази",
-      xml: `<block type="replay_loop"><value name="TIMES"><shadow type="math_number"><field name="NUM">3</field></shadow></value></block>`
-    },
-    "count_laps": {
-      title: "Кількість кіл",
-      kid: "Керує, щоб виконати задану кількість кіл (лапів).",
-      analogy: "Як бігти 3 кола на стадіоні.",
-      steps: ["Вкажи LAPS — скільки кіл."],
-      example: "3 кола",
-      xml: `<block type="count_laps"><value name="LAPS"><shadow type="math_number"><field name="NUM">3</field></shadow></value></block>`
-    },
-    "wait_start": {
-      title: "Чекати старт-лінію",
-      kid: "Чекає, поки датчик побачить стартову лінію.",
-      analogy: "Як чекати, поки ти дійдеш до старту, і тільки потім почати рахувати кола.",
-      steps: ["Використовуй з датчиком лінії (чорна/біла)."],
-      example: "Чекати старт",
-      xml: `<block type="wait_start"></block>`
-    },
-    "stop_at_start": {
-      title: "Зупинитись на старті",
-      kid: "Коли повернувся на стартову лінію — зупиняє робота.",
-      analogy: "Фініш: перетнув лінію — стоп.",
-      steps: ["Став після логіки кіл/руху."],
-      example: "Фініш на старті",
-      xml: `<block type="stop_at_start"></block>`
-    },
-    "go_home": {
-      title: "Додому / Нуль",
-      kid: "Повертає в базовий стан (як «скинути керування»).",
-      analogy: "Як кнопка «додому» на телефоні.",
-      steps: ["Використовуй після тестів або перед новою програмою."],
-      example: "Go Home",
-      xml: `<block type="go_home"></block>`
-    },
+  function getHelp(block) {
+    const type = block?.type || "";
+    let info = HELP[type];
 
-    // Spider blocks (generic kid)
-    "spider_center": {
-      title: "Павук: Центр",
-      kid: "Ставить лапи в рівне положення (база).",
-      analogy: "Як встати рівно на дві ноги перед кроком.",
-      steps: ["Зручно на початку програми."],
-      example: "Центр → кроки",
-      xml: `<block type="spider_center"></block>`
-    },
-    "spider_step": {
-      title: "Павук: Крок",
-      kid: "Робить один крок в обраному напрямку.",
-      analogy: "Як зробити 1 крок вперед/назад.",
-      steps: ["Вибери напрям DIR", "Постав у цикл для багато кроків."],
-      example: "Крок вперед",
-      xml: `<block type="spider_step"><field name="DIR">FWD</field></block>`
-    },
-    "spider_walk_while": {
-      title: "Павук: Йти поки",
-      kid: "Йде кроками, поки умова не зміниться.",
-      analogy: "Йти, поки не дійшов до дверей.",
-      steps: ["Добре працює з датчиками."],
-      example: "Йти вперед поки датчик не побачить перешкоду",
-      xml: `<block type="spider_walk_while"><field name="DIR">FWD</field></block>`
-    },
-    "spider_walk_time": {
-      title: "Павук: Йти час",
-      kid: "Йде певний час (в секундах).",
-      analogy: "Йти 2 секунди, як по команді.",
-      steps: ["SEC — скільки секунд йти."],
-      example: "Йти 2 сек",
-      xml: `<block type="spider_walk_time"><field name="DIR">FWD</field><value name="SEC"><shadow type="math_number"><field name="NUM">2</field></shadow></value></block>`
-    },
-    "spider_turn_smooth": {
-      title: "Павук: Плавний поворот",
-      kid: "Повертає павука на кут.",
-      analogy: "Як повернутись на місці на 90°.",
-      steps: ["ANGLE — кут повороту."],
-      example: "90°",
-      xml: `<block type="spider_turn_smooth"><value name="ANGLE"><shadow type="math_number"><field name="NUM">90</field></shadow></value></block>`
-    },
-    "spider_leg_control": {
-      title: "Павук: Лапа",
-      kid: "Керує однією лапою (кут).",
-      analogy: "Як підняти/опустити одну ногу.",
-      steps: ["VAL — кут 0..180."],
-      example: "Кут 90",
-      xml: `<block type="spider_leg_control"><value name="VAL"><shadow type="math_number"><field name="NUM">90</field></shadow></value></block>`
-    },
-    "spider_config": {
-      title: "Павук: Налаштування",
-      kid: "Налаштовує висоту і швидкість ходи павука.",
-      analogy: "Як налаштувати висоту стільця і темп ходи.",
-      steps: ["HEIGHT — висота", "SPEED — швидкість"],
-      example: "HEIGHT 40 SPEED 100",
-      xml: `<block type="spider_config">
-              <value name="HEIGHT"><shadow type="math_number"><field name="NUM">40</field></shadow></value>
-              <value name="SPEED"><shadow type="math_number"><field name="NUM">100</field></shadow></value>
-            </block>`
-    },
-    "spider_anim": {
-      title: "Павук: Анімація",
-      kid: "Запускає готову анімацію (помах, танець...).",
-      analogy: "Як вибрати емоцію у персонажа.",
-      steps: ["ANIM — яка саме анімація."],
-      example: "WAVE",
-      xml: `<block type="spider_anim"><field name="ANIM">WAVE</field></block>`
-    },
-    "spider_joystick_ctrl": {
-      title: "Павук: Джойстик",
-      kid: "Дозволяє керувати павуком джойстиком.",
-      analogy: "Як у грі: рухаєш — він йде.",
-      steps: ["Став в програму, щоб підхопити джойстик."],
-      example: "Павук керується руками",
-      xml: `<block type="spider_joystick_ctrl"></block>`
-    },
-    "spider_stop": {
-      title: "Павук: Стоп",
-      kid: "Зупиняє рух павука.",
-      analogy: "Команда «Стій!»",
-      steps: ["Став в кінці або при перешкоді."],
-      example: "Стоп",
-      xml: `<block type="spider_stop"></block>`
+    // Fallback if unknown
+    if (!info) {
+      const tooltip = (typeof block.getTooltip === "function") ? block.getTooltip() : "";
+      info = {
+        title: "Блок: " + safeStr(type || "невідомий"),
+        kid: tooltip ? ("Простими словами: " + tooltip) : "Це блок програми. Він робить одну дію, коли до нього доходить черга.",
+        analogy: "Уяви, що програма — це інструкція. Цей блок — один крок інструкції.",
+        steps: [
+          "1) Постав блок у програму.",
+          "2) З’єднай з іншими блоками.",
+          "3) Запусти і подивись результат."
+        ],
+        example: "Спробуй змінити числа/умову і перевірити ще раз.",
+        example_xml: `<block type="${safeStr(type)}"></block>`
+      };
     }
-  };
 
-  // Built-in blocks: kid template by category / common patterns
-  const GENERIC_KID = {
-    "controls_if": {
-      title: "Якщо (умова)",
-      kid: "Перевіряє умову. Якщо вона правдива — робить те, що всередині.",
-      analogy: "Як правило: «якщо дощ — бери парасольку».",
-      example: "Якщо датчик < 20 → Стоп"
-    },
-    "controls_repeat_ext": {
-      title: "Повторити N разів",
-      kid: "Повторює те, що всередині, багато разів.",
-      analogy: "Як віджимання: зробити 10 разів.",
-      example: "Повторити 4 рази → крок"
-    },
-    "controls_whileUntil": {
-      title: "Поки / До того як",
-      kid: "Поки умова виконується — повторює дії.",
-      analogy: "Поки не дійшов додому — йди.",
-      example: "Поки датчик > 30 → їхати"
-    },
-    "controls_for": {
-      title: "Цикл з лічильником",
-      kid: "Робить цикл і рахує i: 1,2,3…",
-      analogy: "Як рахувати кроки: 1 до 10.",
-      example: "для i від 1 до 10 → дія"
-    },
-    "logic_compare": {
-      title: "Порівняння",
-      kid: "Порівнює 2 числа (більше/менше/дорівнює).",
-      analogy: "Хто більший: 5 чи 7?",
-      example: "датчик < 20"
-    },
-    "logic_operation": {
-      title: "І / АБО",
-      kid: "Об’єднує дві умови.",
-      analogy: "Треба і шапку, і рукавички (І). АБО — або чай, або какао.",
-      example: "(датчик1<20) І (датчик2<20)"
-    },
-    "logic_negate": {
-      title: "НЕ",
-      kid: "Робить навпаки: якщо було так — стане ні.",
-      analogy: "Не холодно = тепло.",
-      example: "НЕ(датчик<20)"
-    },
-    "math_number": {
-      title: "Число",
-      kid: "Просто число.",
-      analogy: "Як цифра на лінійці.",
-      example: "10"
-    },
-    "math_arithmetic": {
-      title: "Математика",
-      kid: "Додає, віднімає, множить, ділить.",
-      analogy: "Як калькулятор.",
-      example: "3 + 2"
-    },
-    "math_random_int": {
-      title: "Випадкове число",
-      kid: "Дає випадкове число між двома числами.",
-      analogy: "Як кинути кубик.",
-      example: "від 1 до 6"
-    }
-  };
-
-  function getHelpForBlock(block) {
-    const type = block?.type;
-    const fromDb = HELP_TEXTS[type];
-    if (fromDb) return { ...fromDb, type };
-
-    const generic = GENERIC_KID[type];
-    const tooltip = (typeof block.getTooltip === "function") ? block.getTooltip() : "";
-    const title = generic?.title || ("Блок: " + safeStr(type));
-    const kid = generic?.kid || (tooltip ? ("Цей блок робить таке: " + tooltip) : "Це блок програми. Він виконує свою дію, коли до нього доходить черга.");
-    const analogy = generic?.analogy || "Уяви, що програма — це інструкція. Цей блок — один крок інструкції.";
-    const example = generic?.example || "Спробуй поставити цей блок у програму і подивитись, що зміниться.";
-
-    // XML preview: default from block itself, or minimal block stub
-    let xml = "";
+    // Block preview XML: try to serialize the actual block (keeps current fields)
+    let block_xml = "";
     try {
-      if (Blockly && Blockly.Xml && typeof Blockly.Xml.blockToDom === "function") {
+      if (Blockly?.Xml?.blockToDom) {
         const dom = Blockly.Xml.blockToDom(block, true);
-        // remove position and id so it doesn't conflict
         dom.removeAttribute("id");
         dom.removeAttribute("x");
         dom.removeAttribute("y");
-        xml = new XMLSerializer().serializeToString(dom);
+        block_xml = new XMLSerializer().serializeToString(dom);
       }
     } catch (_) {}
 
-    if (!xml) xml = `<block type="${safeStr(type)}"></block>`;
-    return { type, title, kid, analogy, steps: [], example, xml };
+    if (!block_xml) block_xml = `<block type="${safeStr(type)}"></block>`;
+
+    return {
+      type,
+      title: info.title || ("Блок: " + safeStr(type)),
+      kid: info.kid || "—",
+      analogy: info.analogy || "—",
+      steps: Array.isArray(info.steps) ? info.steps : [],
+      example: info.example || "—",
+      block_xml,
+      example_xml: info.example_xml || block_xml
+    };
   }
 
   // ---------------------------
-  // 2) UI: Help Panel (right side)
+  // 2) UI
   // ---------------------------
-  let _uiReady = false;
-  let _panel, _panelInner, _panelTitle, _panelKid, _panelAnalogy, _panelSteps, _panelExample, _panelAddBtn, _panelCloseBtn, _miniWrap, _miniDiv;
-  let _miniWorkspace = null;
-  let _currentBlock = null;
+  let uiReady = false;
+  let panel, panelTitle, panelKid, panelAnalogy, panelSteps, panelExample;
+  let miniBlockDiv, miniExampleDiv;
+  let tabBlockBtn, tabExampleBtn;
+  let miniBlockWs = null, miniExampleWs = null;
+  let currentBlock = null;
 
   function ensureUI() {
-    if (_uiReady) return;
+    if (uiReady) return;
 
     const style = el("style", {}, [`
-      /* Help overlay UI */
       .rc-help-fab{
         position: absolute;
         width: 38px; height: 38px;
@@ -521,7 +2204,7 @@
         position: fixed;
         top: 70px;
         right: 12px;
-        width: min(420px, calc(100vw - 24px));
+        width: min(460px, calc(100vw - 24px));
         max-height: calc(100vh - 90px);
         background: rgba(15, 23, 42, 0.97);
         border: 1px solid rgba(148,163,184,0.25);
@@ -540,22 +2223,9 @@
         padding: 12px 14px;
         border-bottom: 1px solid rgba(148,163,184,0.18);
       }
-      .rc-help-panel header .t{
-        display:flex; flex-direction:column; gap:2px;
-      }
-      .rc-help-panel header .t .h{
-        font-size: 14px;
-        font-weight: 900;
-        color: #e2e8f0;
-        letter-spacing: 0.02em;
-      }
-      .rc-help-panel header .t .s{
-        font-size: 10px;
-        color: #94a3b8;
-        font-weight: 700;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-      }
+      .rc-help-panel header .t{ display:flex; flex-direction:column; gap:2px; }
+      .rc-help-panel header .t .h{ font-size: 14px; font-weight: 900; color: #e2e8f0; letter-spacing: 0.02em; }
+      .rc-help-panel header .t .s{ font-size: 10px; color: #94a3b8; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
       .rc-help-panel header button{
         width: 34px; height: 34px;
         border-radius: 10px;
@@ -599,14 +2269,36 @@
         line-height: 1.25;
       }
 
+      .rc-help-tabs{
+        display:flex;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .rc-help-tab{
+        flex: 1;
+        padding: 8px 10px;
+        border-radius: 12px;
+        border: 1px solid rgba(148,163,184,0.2);
+        background: rgba(30,41,59,0.55);
+        color: #e2e8f0;
+        font-weight: 900;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .rc-help-tab.active{
+        background: rgba(59,130,246,0.85);
+        color: #0b1220;
+      }
+
       .rc-help-mini{
-        height: 130px;
+        height: 150px;
         width: 100%;
         border-radius: 12px;
         overflow: hidden;
         border: 1px solid rgba(148,163,184,0.18);
         background: rgba(15,23,42,0.6);
       }
+      .rc-help-mini.small{ height: 130px; }
 
       .rc-help-actions{
         display:flex;
@@ -624,99 +2316,88 @@
         font-weight: 900;
         font-size: 12px;
         letter-spacing: 0.04em;
-      }
-      .rc-help-add{
-        background: rgba(34,197,94,0.9);
-        color: #0b1220;
-      }
-      .rc-help-add:active{ transform: scale(0.98); }
-      .rc-help-close{
         background: rgba(30,41,59,0.7);
         color: #e2e8f0;
-      }
-
-      /* Desktop: dock help panel a bit wider if space */
-      @media (min-width: 900px){
-        .rc-help-panel{ width: 440px; }
       }
     `]);
     document.head.appendChild(style);
 
-    _panelTitle = el("div", { class: "h" }, ["Підказка"]);
+    panelTitle = el("div", { class: "h" }, ["Підказка"]);
     const sub = el("div", { class: "s" }, ["для дітей"]);
-    const titleWrap = el("div", { class: "t" }, [_panelTitle, sub]);
+    const titleWrap = el("div", { class: "t" }, [panelTitle, sub]);
 
-    _panelCloseBtn = el("button", { title: "Закрити" }, ["✕"]);
-    _panelCloseBtn.addEventListener("click", () => closeHelp());
+    const closeBtn = el("button", { title: "Закрити" }, ["✕"]);
+    closeBtn.addEventListener("click", () => closeHelp());
 
-    const header = el("header", {}, [titleWrap, _panelCloseBtn]);
+    const header = el("header", {}, [titleWrap, closeBtn]);
 
-    _panelKid = el("div", { class: "text" }, ["—"]);
-    _panelAnalogy = el("div", { class: "text" }, ["—"]);
-    _panelExample = el("div", { class: "text" }, ["—"]);
-    _panelSteps = el("ul", { class: "rc-help-steps" });
+    tabBlockBtn = el("button", { class: "rc-help-tab active", type: "button" }, ["Блок"]);
+    tabExampleBtn = el("button", { class: "rc-help-tab", type: "button" }, ["Приклад"]);
+    const tabs = el("div", { class: "rc-help-tabs" }, [tabBlockBtn, tabExampleBtn]);
 
-    _miniDiv = el("div", { class: "rc-help-mini" });
-    _miniWrap = el("div", { class: "rc-help-card" }, [
-      el("div", { class: "label" }, ["Як виглядає блок"]),
-      _miniDiv
-    ]);
+    miniBlockDiv = el("div", { class: "rc-help-mini small", id: "rcMiniBlock" });
+    miniExampleDiv = el("div", { class: "rc-help-mini", id: "rcMiniExample", style: { display: "none" } });
 
-    const card1 = el("div", { class: "rc-help-card" }, [
-      el("div", { class: "label" }, ["Що робить"]),
-      _panelKid
-    ]);
-    const card2 = el("div", { class: "rc-help-card" }, [
-      el("div", { class: "label" }, ["Аналогія"]),
-      _panelAnalogy
-    ]);
-    const card3 = el("div", { class: "rc-help-card" }, [
-      el("div", { class: "label" }, ["Кроки"]),
-      _panelSteps
-    ]);
-    const card4 = el("div", { class: "rc-help-card" }, [
-      el("div", { class: "label" }, ["Приклад"]),
-      _panelExample
-    ]);
-
-    _panelInner = el("div", { class: "rc-help-body" }, [_miniWrap, card1, card2, card3, card4]);
-
-    _panelAddBtn = el("button", { class: "rc-help-add" }, ["➕ Додати цей блок на полотно"]);
-    _panelAddBtn.addEventListener("click", () => {
-      if (_currentBlock) addBlockToMainWorkspace(_currentBlock);
+    tabBlockBtn.addEventListener("click", () => {
+      tabBlockBtn.classList.add("active");
+      tabExampleBtn.classList.remove("active");
+      miniBlockDiv.style.display = "block";
+      miniExampleDiv.style.display = "none";
+    });
+    tabExampleBtn.addEventListener("click", () => {
+      tabExampleBtn.classList.add("active");
+      tabBlockBtn.classList.remove("active");
+      miniBlockDiv.style.display = "none";
+      miniExampleDiv.style.display = "block";
     });
 
-    const closeBtn2 = el("button", { class: "rc-help-close" }, ["Закрити"]);
+    const previewCard = el("div", { class: "rc-help-card" }, [
+      el("div", { class: "label" }, ["Як виглядає (ідея)"]),
+      tabs,
+      miniBlockDiv,
+      miniExampleDiv
+    ]);
+
+    panelKid = el("div", { class: "text" }, ["—"]);
+    panelAnalogy = el("div", { class: "text" }, ["—"]);
+    panelExample = el("div", { class: "text" }, ["—"]);
+    panelSteps = el("ul", { class: "rc-help-steps" });
+
+    const card1 = el("div", { class: "rc-help-card" }, [el("div", { class: "label" }, ["Що робить"]), panelKid]);
+    const card2 = el("div", { class: "rc-help-card" }, [el("div", { class: "label" }, ["Аналогія"]), panelAnalogy]);
+    const card3 = el("div", { class: "rc-help-card" }, [el("div", { class: "label" }, ["Кроки"]), panelSteps]);
+    const card4 = el("div", { class: "rc-help-card" }, [el("div", { class: "label" }, ["Приклад словами"]), panelExample]);
+
+    const body = el("div", { class: "rc-help-body" }, [previewCard, card1, card2, card3, card4]);
+
+    const closeBtn2 = el("button", {}, ["Закрити"]);
     closeBtn2.addEventListener("click", () => closeHelp());
 
-    const actions = el("div", { class: "rc-help-actions" }, [_panelAddBtn, closeBtn2]);
+    const actions = el("div", { class: "rc-help-actions" }, [closeBtn2]);
 
-    _panel = el("div", { class: "rc-help-panel" }, [header, _panelInner, actions]);
-    document.body.appendChild(_panel);
+    panel = el("div", { class: "rc-help-panel" }, [header, body, actions]);
+    document.body.appendChild(panel);
 
-    // Floating (?) button
     const fab = el("div", { class: "rc-help-fab", id: "rcHelpFab", title: "Пояснення" }, ["?"]);
     fab.addEventListener("click", () => {
-      if (_currentBlock) openHelpForBlock(_currentBlock);
+      if (currentBlock) openHelp(currentBlock);
     });
     document.body.appendChild(fab);
 
-    _uiReady = true;
+    uiReady = true;
   }
 
   function closeHelp() {
     ensureUI();
-    _panel.style.display = "none";
+    panel.style.display = "none";
   }
 
   // ---------------------------
-  // 3) Mini preview workspace
+  // 3) Mini workspaces
   // ---------------------------
-  function ensureMiniWorkspace() {
-    if (_miniWorkspace) return _miniWorkspace;
-
-    // Inject a read-only workspace into the mini div
-    _miniWorkspace = Blockly.inject(_miniDiv, {
+  function ensureMiniBlockWs() {
+    if (miniBlockWs) return miniBlockWs;
+    miniBlockWs = Blockly.inject(miniBlockDiv, {
       readOnly: true,
       scrollbars: false,
       sounds: false,
@@ -724,118 +2405,74 @@
       renderer: "zelos",
       zoom: { controls: false, wheel: false, startScale: 0.9, maxScale: 2, minScale: 0.5 },
       move: { scrollbars: false, drag: false, wheel: false },
-      toolbox: null,
-      media: undefined
+      toolbox: null
     });
-    return _miniWorkspace;
+    return miniBlockWs;
   }
 
-  function renderMiniBlock(xmlText) {
+  function ensureMiniExampleWs() {
+    if (miniExampleWs) return miniExampleWs;
+    miniExampleWs = Blockly.inject(miniExampleDiv, {
+      readOnly: true,
+      scrollbars: false,
+      sounds: false,
+      trashcan: false,
+      renderer: "zelos",
+      zoom: { controls: false, wheel: false, startScale: 0.9, maxScale: 2, minScale: 0.5 },
+      move: { scrollbars: false, drag: false, wheel: false },
+      toolbox: null
+    });
+    return miniExampleWs;
+  }
+
+  function renderWs(ws, xmlFragment) {
     try {
-      const ws = ensureMiniWorkspace();
       ws.clear();
-
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(`<xml xmlns="https://developers.google.com/blockly/xml">${xmlText}</xml>`, "text/xml");
-      const xml = xmlDoc.documentElement;
-      Blockly.Xml.domToWorkspace(xml, ws);
-
-      // Center block
+      const xmlText = `<xml xmlns="https://developers.google.com/blockly/xml">${xmlFragment}</xml>`;
+      const xmlDoc = new DOMParser().parseFromString(xmlText, "text/xml");
+      Blockly.Xml.domToWorkspace(xmlDoc.documentElement, ws);
       const blocks = ws.getAllBlocks(false);
-      if (blocks.length) {
-        const b = blocks[0];
-        b.moveBy(10, 10);
-      }
+      if (blocks.length) blocks[0].moveBy(12, 12);
       ws.resizeContents();
-    } catch (e) {
-      // ignore
-    }
+    } catch (_) {}
   }
 
   // ---------------------------
-  // 4) Open help for a specific block
+  // 4) Open help
   // ---------------------------
-  function openHelpForBlock(block) {
+  function openHelp(block) {
     ensureUI();
-    _currentBlock = block;
+    currentBlock = block;
 
-    const info = getHelpForBlock(block);
-    _panelTitle.textContent = info.title || ("Блок: " + info.type);
+    const info = getHelp(block);
+    panelTitle.textContent = info.title;
 
-    _panelKid.textContent = info.kid || "—";
-    _panelAnalogy.textContent = info.analogy || "—";
-    _panelExample.textContent = info.example || "—";
+    panelKid.textContent = info.kid;
+    panelAnalogy.textContent = info.analogy;
+    panelExample.textContent = info.example;
 
-    // Steps
-    _panelSteps.innerHTML = "";
-    const steps = Array.isArray(info.steps) ? info.steps : [];
-    if (steps.length === 0) {
-      _panelSteps.appendChild(el("li", {}, ["Спробуй додати блок і подивись, як змінюється поведінка робота."]));
-    } else {
-      steps.forEach(s => _panelSteps.appendChild(el("li", {}, [safeStr(s)])));
-    }
+    panelSteps.innerHTML = "";
+    const steps = info.steps.length ? info.steps : ["Спробуй змінити числа/умову і перевірити результат."];
+    steps.forEach(s => panelSteps.appendChild(el("li", {}, [safeStr(s)])));
 
-    // Preview
-    renderMiniBlock(info.xml);
+    const wsBlock = ensureMiniBlockWs();
+    const wsExample = ensureMiniExampleWs();
+    renderWs(wsBlock, info.block_xml);
+    renderWs(wsExample, info.example_xml);
 
-    _panel.style.display = "block";
+    panel.style.display = "block";
   }
 
   // ---------------------------
-  // 5) Add block to the MAIN workspace (your canvas)
+  // 5) Phone (B): long-press -> show (?) near block
   // ---------------------------
-  function addBlockToMainWorkspace(sourceBlock) {
-    const ws = getMainWorkspace();
-    if (!ws) return;
-
-    try {
-      // Clone DOM of the block (keeps fields + shadow values)
-      const dom = Blockly.Xml.blockToDom(sourceBlock, true);
-      dom.removeAttribute("id");
-      dom.removeAttribute("x");
-      dom.removeAttribute("y");
-
-      const block = Blockly.Xml.domToBlock(dom, ws);
-
-      // Place near center of viewport
-      const metrics = ws.getMetrics();
-      const cx = (metrics.viewLeft + metrics.viewWidth / 2);
-      const cy = (metrics.viewTop + metrics.viewHeight / 2);
-      // Convert from pixels in view to workspace coords:
-      const xy = ws.getSvgMetrics ? ws.getSvgMetrics() : null;
-      // Best effort: just move to center in workspace coords.
-      const mainScale = ws.scale || 1;
-      const wx = (cx / mainScale);
-      const wy = (cy / mainScale);
-
-      block.moveBy(wx, wy);
-      block.select();
-      ws.scrollCenter();
-    } catch (e) {
-      // fallback: create by type only
-      try {
-        const type = sourceBlock.type;
-        const b = ws.newBlock(type);
-        b.initSvg();
-        b.render();
-        b.moveBy(40, 40);
-        b.select();
-      } catch (_) {}
-    }
-  }
-
-  // ---------------------------
-  // 6) Mobile mode (B): long-press -> show (?) button
-  // ---------------------------
-  let _fab = null;
-  let _pressTimer = null;
-  let _pressTargetBlockId = null;
-  let _moved = false;
+  let pressTimer = null;
+  let pressBlockId = null;
+  let moved = false;
 
   function getFab() {
     ensureUI();
-    if (!_fab) _fab = $("#rcHelpFab");
-    return _fab;
+    return $("#rcHelpFab");
   }
 
   function hideFab() {
@@ -843,98 +2480,79 @@
     fab.style.display = "none";
   }
 
-  function showFabNearBlock(block) {
-    const fab = getFab();
-    const svgRoot = block.getSvgRoot && block.getSvgRoot();
-    const div = $("#blocklyDiv") || document.body;
-
-    if (!svgRoot) return;
-
-    const rBlock = svgRoot.getBoundingClientRect();
-    const rDiv = div.getBoundingClientRect();
-
-    // Place to the right-middle of the block
-    const left = (rBlock.right - rDiv.left) + 8;
-    const top = (rBlock.top - rDiv.top) + (rBlock.height / 2) - 19;
-
-    // Keep inside screen
-    const maxLeft = window.innerWidth - 44;
-    const maxTop = window.innerHeight - 44;
-
-    fab.style.left = clamp(left, 8, maxLeft) + "px";
-    fab.style.top = clamp(top, 70, maxTop) + "px"; // don't cover header
-    fab.style.display = "flex";
-  }
-
   function findBlockIdFromEventTarget(ev) {
     let n = ev.target;
-    for (let i = 0; i < 12 && n; i++) {
+    for (let i = 0; i < 14 && n; i++) {
       if (n.getAttribute && n.getAttribute("data-id")) return n.getAttribute("data-id");
       n = n.parentNode;
     }
     return null;
   }
 
+  function showFabNearBlock(block) {
+    const fab = getFab();
+    const svgRoot = block.getSvgRoot && block.getSvgRoot();
+    const div = $("#blocklyDiv") || document.body;
+    if (!svgRoot) return;
+
+    const rBlock = svgRoot.getBoundingClientRect();
+    const left = rBlock.right + 8;
+    const top = rBlock.top + (rBlock.height / 2) - 19;
+
+    const maxLeft = window.innerWidth - 44;
+    const maxTop = window.innerHeight - 44;
+
+    fab.style.left = clamp(left, 8, maxLeft) + "px";
+    fab.style.top = clamp(top, 70, maxTop) + "px";
+    fab.style.display = "flex";
+  }
+
   function attachMobileLongPress(ws) {
     const div = $("#blocklyDiv");
-    if (!div) return;
-
-    // Avoid multiple attachments
-    if (div.__rcHelpMobileAttached) return;
+    if (!div || div.__rcHelpMobileAttached) return;
     div.__rcHelpMobileAttached = true;
 
-    const onDown = (ev) => {
+    div.addEventListener("pointerdown", (ev) => {
       if (!isMobileLayout()) return;
-
-      _moved = false;
-      _pressTargetBlockId = findBlockIdFromEventTarget(ev);
-      if (!_pressTargetBlockId) return;
-
-      clearTimeout(_pressTimer);
-      _pressTimer = setTimeout(() => {
-        if (_moved) return;
-        const b = ws.getBlockById(_pressTargetBlockId);
+      moved = false;
+      pressBlockId = findBlockIdFromEventTarget(ev);
+      if (!pressBlockId) return;
+      clearTimeout(pressTimer);
+      pressTimer = setTimeout(() => {
+        if (moved) return;
+        const b = ws.getBlockById(pressBlockId);
         if (!b) return;
-        _currentBlock = b;
+        currentBlock = b;
         showFabNearBlock(b);
-      }, 380); // long press threshold
-    };
+      }, 380);
+    }, { passive: true });
 
-    const onMove = () => {
-      _moved = true;
-      clearTimeout(_pressTimer);
-    };
+    div.addEventListener("pointermove", () => {
+      moved = true;
+      clearTimeout(pressTimer);
+    }, { passive: true });
 
-    const onUp = () => {
-      clearTimeout(_pressTimer);
-      // don't auto-hide; user may want to tap (?) after lifting finger
-      // But if they tap elsewhere, we hide.
-    };
+    div.addEventListener("pointerup", () => {
+      clearTimeout(pressTimer);
+    }, { passive: true });
 
-    const onTapOutside = (ev) => {
+    document.addEventListener("pointerdown", (ev) => {
       const fab = getFab();
       if (fab.style.display === "flex") {
         if (ev.target === fab || fab.contains(ev.target)) return;
-        // if user tapped on a block again, keep; else hide
         const bid = findBlockIdFromEventTarget(ev);
         if (!bid) hideFab();
       }
-    };
-
-    div.addEventListener("pointerdown", onDown, { passive: true });
-    div.addEventListener("pointermove", onMove, { passive: true });
-    div.addEventListener("pointerup", onUp, { passive: true });
-    document.addEventListener("pointerdown", onTapOutside, { passive: true });
+    }, { passive: true });
   }
 
   // ---------------------------
-  // 7) Desktop mode (C): context menu item
+  // 6) Desktop (C): context menu item
   // ---------------------------
-  let _patchedContext = false;
-
+  let patchedContext = false;
   function patchContextMenuOnce() {
-    if (_patchedContext) return;
-    _patchedContext = true;
+    if (patchedContext) return;
+    patchedContext = true;
 
     const proto = Blockly?.BlockSvg?.prototype;
     if (!proto) return;
@@ -942,80 +2560,59 @@
     const old = proto.customContextMenu;
     proto.customContextMenu = function (options) {
       try { if (typeof old === "function") old.call(this, options); } catch (_) {}
-
       if (!isDesktopLayout()) return;
 
       const block = this;
       options.push({
-        text: "❓ Пояснення (для дітей) 📌",
+        text: "❓ Пояснення (для дітей)",
         enabled: true,
-        callback: function () {
-          openHelpForBlock(block);
-        }
+        callback: function () { openHelp(block); }
       });
     };
   }
 
   // ---------------------------
-  // 8) Main workspace discovery & re-attach
+  // 7) Attach to main workspace
   // ---------------------------
-  let _lastWorkspace = null;
-
+  let lastWs = null;
   function getMainWorkspace() {
-    // Your app sets window.workspace; fallback to Blockly.getMainWorkspace()
-    return window.workspace || (Blockly && Blockly.getMainWorkspace && Blockly.getMainWorkspace());
+    return window.workspace || (Blockly?.getMainWorkspace && Blockly.getMainWorkspace());
   }
 
-  function attachToWorkspace(ws) {
-    if (!ws) return;
-    if (ws === _lastWorkspace) return;
-    _lastWorkspace = ws;
+  function attach(ws) {
+    if (!ws || ws === lastWs) return;
+    lastWs = ws;
 
     ensureUI();
     patchContextMenuOnce();
     attachMobileLongPress(ws);
 
-    // Also: show small hover tooltip (native) for every block based on kid text
-    // This helps even if they don't open the panel.
-    try {
-      const oldTooltip = ws.getToolbox ? ws.getToolbox() : null;
-      // No-op, we set tooltips on blocks as they are created/changed
-    } catch (_) {}
-
-    // On block create/change: set tooltip
+    // Put short kid tooltip on every block (helpful even without panel)
     ws.addChangeListener((e) => {
       try {
         if (e.type === Blockly.Events.BLOCK_CREATE || e.type === Blockly.Events.BLOCK_CHANGE) {
           const b = ws.getBlockById(e.blockId);
           if (!b) return;
-          const info = getHelpForBlock(b);
-          // short tooltip
-          if (typeof b.setTooltip === "function") {
-            b.setTooltip(info.kid || info.title || "Пояснення");
-          }
+          const info = getHelp(b);
+          if (typeof b.setTooltip === "function") b.setTooltip(info.kid || info.title);
         }
         if (e.type === Blockly.Events.SELECTED && e.newElementId) {
           const b = ws.getBlockById(e.newElementId);
-          if (b) _currentBlock = b;
+          if (b) currentBlock = b;
         }
       } catch (_) {}
     });
   }
 
   function boot() {
-    if (!window.Blockly) return; // Blockly not loaded yet
-
-    // UI now
+    if (!window.Blockly) return;
     ensureUI();
-
-    // Keep watching for workspace changes (your app recreates workspace sometimes)
     setInterval(() => {
       const ws = getMainWorkspace();
-      if (ws) attachToWorkspace(ws);
+      if (ws) attach(ws);
     }, 300);
   }
 
-  // Start ASAP (after DOM + Blockly)
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot);
   } else {
