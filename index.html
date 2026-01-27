@@ -33,7 +33,12 @@
             box-shadow: 0 4px 20px rgba(0,0,0,0.4);
         }
 
-        /* --- JOYSTICK --- */
+        
+        /* --- SCRATCH MODE (hide global header, maximize workspace) --- */
+        body.scratch-mode header.glass-header { display: none !important; }
+        body.scratch-mode main { padding-top: 0 !important; }
+        body.scratch-mode .sensor-row { top: 10px !important; }
+/* --- JOYSTICK --- */
         #joystick-container { 
             position: relative; 
             width: 280px; 
@@ -265,6 +270,61 @@ body.layout-desktop .blocklyTreeRow{
 body.layout-desktop #blocklyDiv { bottom: 0px !important; }
 body.layout-mobile #blocklyDiv { bottom: 64px !important; }
 
+
+        /* builder top mini buttons */
+        .btn-exit { background: rgba(30, 41, 59, 0.75); }
+        .btn-exit:hover { background: rgba(51, 65, 85, 0.9); transform: translateY(-1px); }
+
+        .btn-hide-header { background: rgba(30, 41, 59, 0.75); }
+        .btn-hide-header:hover { background: rgba(51, 65, 85, 0.9); transform: translateY(-1px); }
+
+        .btn-bt-mini { background: rgba(37, 99, 235, 0.85); }
+        .btn-bt-mini:hover { background: rgba(59, 130, 246, 0.95); transform: translateY(-1px); }
+
+        .btn-log-mini { background: rgba(202, 138, 4, 0.85); }
+        .btn-log-mini:hover { background: rgba(234, 179, 8, 0.95); transform: translateY(-1px); }
+
+
+        /* Mobile top bar (sensor-row) polish */
+        body.layout-mobile .sensor-row {
+            left: 10px !important;
+            right: 10px !important;
+            width: auto !important;
+            border-radius: 18px !important;
+            padding: 10px 10px !important;
+            background: rgba(15, 23, 42, 0.82) !important;
+            border: 1px solid rgba(148,163,184,0.22) !important;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.35) !important;
+            backdrop-filter: blur(10px) !important;
+        }
+        body.layout-mobile .sensor-row .top-btn {
+            width: 44px !important;
+            height: 44px !important;
+            border-radius: 14px !important;
+            background: rgba(30, 41, 59, 0.75) !important;
+            border: 1px solid rgba(148,163,184,0.22) !important;
+            color: #e2e8f0 !important;
+        }
+        body.layout-mobile .sensor-row .top-btn:hover { transform: none !important; }
+        body.layout-mobile .sensor-row .top-btn:active { transform: translateY(1px) !important; }
+
+        /* Keep RUN green, keep Step only in debug controls */
+        body.layout-mobile .sensor-row .btn-run { background: rgba(34,197,94,0.92) !important; border: 1px solid rgba(34,197,94,0.55) !important; }
+        body.layout-mobile .sensor-row .btn-run.running { background: rgba(239,68,68,0.92) !important; border: 1px solid rgba(239,68,68,0.55) !important; }
+
+        /* Hide extra debug buttons on mobile (keep only step) */
+        body.layout-mobile #rcDbgToggle,
+        body.layout-mobile #rcDbgPause { display: none !important; }
+
+
+        /* --- STEP (one-button debug) --- */
+        .btn-step {
+            background: rgba(34,197,94,0.18);
+            border: 1px solid rgba(34,197,94,0.35);
+        }
+        .btn-step:hover { background: rgba(34,197,94,0.26); }
+
+        /* Bottom "now executing" bar (builder only) */
 </style>
 </head>
 <body class="h-screen w-screen flex flex-col">
@@ -362,38 +422,30 @@ body.layout-mobile #blocklyDiv { bottom: 64px !important; }
         <section id="view-builder" class="absolute inset-0 flex flex-col hidden opacity-0 transition-opacity duration-300">
             
             <div class="sensor-row">
-                <button onclick="openExampleModal()" class="top-btn btn-example" title="Готові збірки">
+                <button onclick="exitScratchMode()" class="top-btn btn-exit" title="Вийти з блоків">
+                    <i class="fa-solid fa-arrow-left"></i>
+                </button>
+                <button onclick="document.getElementById('btConnect')?.click()" class="top-btn btn-bt-mini" title="Bluetooth">
+                    <i class="fa-brands fa-bluetooth-b"></i>
+                </button>
+
+                <button onclick="toggleLogModal()" class="top-btn btn-log-mini" title="Лог">
+                    <i class="fa-solid fa-book"></i>
+                </button>
+
+                <button id="globalRunBtn" onclick="toggleRunState()" class="top-btn btn-run" title="Старт / Стоп">
+                    <i id="runIcon" class="fa-solid fa-play"></i>
+                </button>
+
+                <button onclick="openExampleModal()" class="top-btn btn-example" title="Файли">
                     <i class="fa-solid fa-folder-open"></i>
                 </button>
 
-                <div class="sensor-dashboard" id="sensorDashboard">
-                    <div class="sensor-item">
-                        <span class="sensor-label">Port 1</span>
-                        <span id="valP1" class="sensor-value">0</span>
-                    </div>
-                    <div class="w-px bg-slate-700"></div>
-                    <div class="sensor-item">
-                        <span class="sensor-label">Port 2</span>
-                        <span id="valP2" class="sensor-value">0</span>
-                    </div>
-                    <div class="w-px bg-slate-700"></div>
-                    <div class="sensor-item">
-                        <span class="sensor-label">Port 3</span>
-                        <span id="valP3" class="sensor-value">0</span>
-                    </div>
-                    <div class="w-px bg-slate-700"></div>
-                    <div class="sensor-item">
-                        <span class="sensor-label">Port 4</span>
-                        <span id="valP4" class="sensor-value">0</span>
-                    </div>
-                </div>
-
-                <button id="globalRunBtn" class="top-btn btn-run" onclick="toggleRunState()" title="Запуск/Стоп">
-                     <i class="fa-solid fa-play" id="runIcon"></i>
+                <button id="rcDbgStep" class="top-btn btn-step" title="Крок (перемотка)">
+                    <i class="fa-solid fa-forward-step"></i>
                 </button>
             </div>
-
-            <div id="blocklyDiv" class="flex-1 mt-0"></div>
+<div id="blocklyDiv" class="flex-1 mt-0"></div>
         </section>
 
         <!-- --- VIEW 3: QUAD MODE --- -->
@@ -455,73 +507,54 @@ body.layout-mobile #blocklyDiv { bottom: 64px !important; }
 
 
     <!-- === MODALS === -->
+
     
     <div id="exampleModal" class="fixed inset-0 bg-black/80 z-[70] hidden flex items-center justify-center backdrop-blur-sm p-4">
-        <div class="bg-slate-900 w-full max-w-sm rounded-2xl shadow-2xl border border-slate-700 p-6 overflow-y-auto max-h-[90vh]">
-            <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2"><i class="fa-solid fa-folder-open text-amber-500"></i> Готові збірки</h3>
-            <div class="space-y-3">
-                <button onclick="loadExample('autopilot')" class="w-full text-left p-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-all flex items-center gap-3">
-                    <div class="w-8 h-8 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center"><i class="fa-solid fa-robot"></i></div>
-                    <div>
-                        <div class="font-bold text-sm text-slate-200">Автопілот з датчиком</div>
-                        <div class="text-[10px] text-slate-500">Їде і об'їжджає перешкоди</div>
-                    </div>
-                </button>
-                <button onclick="loadExample('square')" class="w-full text-left p-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-all flex items-center gap-3">
-                    <div class="w-8 h-8 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center"><i class="fa-regular fa-square"></i></div>
-                    <div>
-                        <div class="font-bold text-sm text-slate-200">Рух квадратом</div>
-                        <div class="text-[10px] text-slate-500">Тест поворотів на 90 градусів</div>
-                    </div>
-                </button>
-                <button onclick="loadExample('line_follow')" class="w-full text-left p-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-all flex items-center gap-3">
-                    <div class="w-8 h-8 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center"><i class="fa-solid fa-road"></i></div>
-                    <div>
-                        <div class="font-bold text-sm text-slate-200">Слідування за лінією</div>
-                        <div class="text-[10px] text-slate-500">Проста логіка для треку</div>
-                    </div>
-                </button>
-                 <button onclick="loadExample('spider_demo')" class="w-full text-left p-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-all flex items-center gap-3">
-                    <div class="w-8 h-8 rounded-full bg-pink-500/20 text-pink-400 flex items-center justify-center"><i class="fa-solid fa-spider"></i></div>
-                    <div>
-                        <div class="font-bold text-sm text-slate-200">Демо Павука</div>
-                        <div class="text-[10px] text-slate-500">Тест ходи та анімації</div>
-                    </div>
+        <div class="bg-slate-900 w-full max-w-sm rounded-2xl shadow-2xl border border-slate-700 p-5 overflow-y-auto max-h-[90vh]">
+            <div class="flex items-center justify-between gap-3 mb-4">
+                <h3 class="text-lg font-black text-white flex items-center gap-2">
+                    <i class="fa-solid fa-folder-open text-amber-500"></i> Файли
+                </h3>
+                <button onclick="document.getElementById('exampleModal').classList.add('hidden')" class="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 flex items-center justify-center text-slate-300 hover:text-white" title="Закрити">
+                    <i class="fa-solid fa-xmark"></i>
                 </button>
             </div>
 
-            <div class="mt-6 pt-4 border-t border-slate-700">
-                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                    <i class="fa-solid fa-file-code"></i> Мої файли
-                </h3>
-                <div class="grid grid-cols-4 gap-2">
-                    <button onclick="newProject()" class="p-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-all flex flex-col items-center justify-center gap-2 group">
+            <div class="rounded-2xl border border-slate-700 bg-slate-800/40 p-4">
+                <div class="text-xs font-black text-slate-300 uppercase tracking-widest flex items-center gap-2">
+                    <i class="fa-solid fa-file-code"></i> Мої файли (XML)
+                </div>
+
+                <div class="grid grid-cols-4 gap-2 mt-3">
+                    <button onclick="newProject()" class="p-3 rounded-xl bg-slate-900/60 hover:bg-slate-700 border border-slate-700 transition-all flex flex-col items-center justify-center gap-2 group">
                         <i class="fa-solid fa-trash text-red-400 text-xl group-hover:scale-110 transition-transform"></i>
-                        <div class="text-xs font-bold text-slate-300">Новий</div>
+                        <div class="text-xs font-black text-slate-200">Новий</div>
                     </button>
-                    <button onclick="saveMyFile()" class="p-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-all flex flex-col items-center justify-center gap-2 group">
+                    <button onclick="saveMyFile()" class="p-3 rounded-xl bg-slate-900/60 hover:bg-slate-700 border border-slate-700 transition-all flex flex-col items-center justify-center gap-2 group">
                         <i class="fa-solid fa-download text-blue-400 text-xl group-hover:scale-110 transition-transform"></i>
-                        <div class="text-xs font-bold text-slate-300">Зберегти</div>
+                        <div class="text-xs font-black text-slate-200">Зберегти</div>
                     </button>
-                    <button onclick="document.getElementById('fileInputAppend').click()" class="p-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-all flex flex-col items-center justify-center gap-2 group">
+                    <button onclick="document.getElementById('fileInputAppend').click()" class="p-3 rounded-xl bg-slate-900/60 hover:bg-slate-700 border border-slate-700 transition-all flex flex-col items-center justify-center gap-2 group">
                         <i class="fa-solid fa-plus text-yellow-400 text-xl group-hover:scale-110 transition-transform"></i>
-                        <div class="text-xs font-bold text-slate-300">Додати</div>
+                        <div class="text-xs font-black text-slate-200">Додати</div>
                     </button>
-                    <button onclick="document.getElementById('fileInputReplace').click()" class="p-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-all flex flex-col items-center justify-center gap-2 group">
+                    <button onclick="document.getElementById('fileInputReplace').click()" class="p-3 rounded-xl bg-slate-900/60 hover:bg-slate-700 border border-slate-700 transition-all flex flex-col items-center justify-center gap-2 group">
                         <i class="fa-solid fa-folder-open text-green-400 text-xl group-hover:scale-110 transition-transform"></i>
-                        <div class="text-xs font-bold text-slate-300">Відкрити</div>
+                        <div class="text-xs font-black text-slate-200">Відкрити</div>
                     </button>
                 </div>
             </div>
 
-            <button onclick="document.getElementById('exampleModal').classList.add('hidden')" class="w-full mt-6 py-3 rounded-xl bg-slate-800 text-slate-400 hover:text-white border border-slate-700 font-bold text-sm">Скасувати</button>
+            <button onclick="document.getElementById('exampleModal').classList.add('hidden')" class="w-full mt-6 py-3 rounded-xl bg-slate-800 text-slate-300 hover:text-white border border-slate-700 font-bold text-sm">
+                Закрити
+            </button>
         </div>
     </div>
-    
+
     <input type="file" id="fileInputReplace" accept=".xml" style="display: none" onchange="loadMyFile(this, false)">
     <input type="file" id="fileInputAppend" accept=".xml" style="display: none" onchange="loadMyFile(this, true)">
 
-    <div id="tuningModal" class="fixed inset-0 bg-black/90 z-[80] hidden flex items-center justify-center backdrop-blur-md p-4">
+<div id="tuningModal" class="fixed inset-0 bg-black/90 z-[80] hidden flex items-center justify-center backdrop-blur-md p-4">
         <div class="bg-slate-900 w-full max-w-sm rounded-2xl shadow-2xl border border-slate-700 p-5 overflow-y-auto max-h-[90vh]">
             <h3 class="text-lg font-bold text-white mb-4 text-center">⚙️ Налаштування шасі</h3>
             
@@ -651,11 +684,20 @@ body.layout-mobile #blocklyDiv { bottom: 64px !important; }
 
     <div id="logModal" class="fixed inset-0 bg-black/50 z-40 hidden flex items-end sm:items-center justify-center backdrop-blur-sm sm:p-4">
         <div class="bg-slate-900 w-full sm:max-w-md h-2/3 sm:h-[500px] sm:rounded-2xl rounded-t-2xl shadow-2xl border border-slate-700 flex flex-col">
-            <div class="flex justify-between items-center p-4 border-b border-slate-800">
-                <h3 class="text-sm font-bold text-yellow-500 flex items-center gap-2"><i class="fa-solid fa-book"></i> СИСТЕМНИЙ ЛОГ</h3>
-                <div class="flex gap-2">
-                    <button onclick="clearLog()" class="text-slate-500 hover:text-white text-xs px-2"><i class="fa-solid fa-trash"></i></button>
-                    <button onclick="toggleLogModal()" class="text-slate-500 hover:text-white text-lg"><i class="fa-solid fa-xmark"></i></button>
+            <div class="grid grid-cols-3 items-center p-4 border-b border-slate-800">
+                <h3 class="text-sm font-bold text-yellow-500 flex items-center gap-2 justify-self-start">
+                    <i class="fa-solid fa-book"></i> СИСТЕМНИЙ ЛОГ
+                </h3>
+
+                <div id="rcLogHeaderCenter" class="justify-self-center"></div>
+
+                <div class="flex gap-2 justify-self-end">
+                    <button onclick="clearLog()" class="text-slate-500 hover:text-white text-xs px-2" title="Очистити">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                    <button onclick="toggleLogModal()" class="text-slate-500 hover:text-white text-lg" title="Закрити">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
                 </div>
             </div>
             <div id="logContainer" class="flex-1 overflow-y-auto p-4 space-y-1 bg-black/20 font-mono text-xs">
@@ -778,6 +820,7 @@ body.layout-mobile #blocklyDiv { bottom: 64px !important; }
             <block type="math_smooth"></block>
         </category>
         <category name="Контроль" colour="#FFBF00">
+            <block type="sensor_display"></block>
             <block type="wait_until_sensor">
                 <field name="SENS">0</field>
                 <field name="OP">LT</field>
@@ -1237,6 +1280,19 @@ const SLIP_END = 0xC0;
             } catch(e) { log(e, 'err'); }
         });
 
+        
+        // --- Scratch Mode: hide global header when in block editor ---
+        function toggleScratchMode(force) {
+            // force=true -> enable, force=false -> disable, force=undefined -> toggle
+            const enable = (force === undefined) ? !document.body.classList.contains('scratch-mode') : !!force;
+            document.body.classList.toggle('scratch-mode', enable);
+        }
+        function exitScratchMode() {
+            toggleScratchMode(false);
+            const btn = document.querySelector("button[onclick*=\"switchView('view-joystick'\"]");
+            switchView('view-joystick', btn || null);
+        }
+
         function switchView(viewId, btnElement) {
             document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
             if(btnElement) btnElement.classList.add('active');
@@ -1254,6 +1310,9 @@ const SLIP_END = 0xC0;
             activeView = viewId;
             if(viewId !== 'view-joystick' && isGyroEnabled) toggleGyro();
             if(viewId === 'view-builder' && typeof Blockly !== 'undefined') setTimeout(() => Blockly.svgResize(workspace), 100);
+            // auto: when entering blocks view, hide global header to free space
+            if(viewId === 'view-builder') toggleScratchMode(true);
+            else toggleScratchMode(false);
         }
         function startDualMode(btn) { switchView('view-dual', btn); }
 
@@ -1488,7 +1547,63 @@ const SLIP_END = 0xC0;
         });
 
         var workspace = null;
-        let _isMobile = null;
+
+        // --- Neutral block: покази датчиків (не підключається ні до чого) ---
+// Додається в категорію "Контроль" як "sensor_display"
+if (window.Blockly) {
+    Blockly.Blocks = Blockly.Blocks || {};
+    Blockly.Blocks['sensor_display'] = {
+        init: function () {
+            this.appendDummyInput()
+                .appendField("Покази датчиків")
+                .appendField("  P1:")
+                .appendField("0", "P1")
+                .appendField("  P2:")
+                .appendField("0", "P2")
+                .appendField("  P3:")
+                .appendField("0", "P3")
+                .appendField("  P4:")
+                .appendField("0", "P4");
+
+            this.setColour(50);
+
+            // Ніяких з’єднань: блок не можна вставити у сценарій
+            // (за замовчуванням previous/next/output = немає)
+            this.setDeletable(true);
+            this.setMovable(true);
+            this.setTooltip("Показує поточні значення датчиків. Блок 'нейтральний' і не виконується.");
+        }
+    };
+
+    // No code generation
+    if (window.javascript && javascript.javascriptGenerator) {
+        javascript.javascriptGenerator.forBlock = javascript.javascriptGenerator.forBlock || {};
+        javascript.javascriptGenerator.forBlock['sensor_display'] = function () {
+            return '';
+        };
+    }
+}
+
+// Update values inside all 'sensor_display' blocks (легко і без лагів)
+function rcUpdateSensorDisplayBlocks() {
+    try {
+        if (!workspace || !window.Blockly) return;
+        const s = Array.isArray(window.sensorData) ? window.sensorData : [];
+        const blocks = workspace.getBlocksByType
+            ? workspace.getBlocksByType('sensor_display', false)
+            : (workspace.getAllBlocks(false) || []).filter(b => b && b.type === 'sensor_display');
+
+        for (const b of blocks) {
+            b.setFieldValue(String(s[0] ?? 0), 'P1');
+            b.setFieldValue(String(s[1] ?? 0), 'P2');
+            b.setFieldValue(String(s[2] ?? 0), 'P3');
+            b.setFieldValue(String(s[3] ?? 0), 'P4');
+        }
+    } catch (e) { /* ignore */ }
+}
+
+let _isMobile = null;
+
 
         function lockFlyoutScale(ws) {
             const flyout = ws && ws.getFlyout ? ws.getFlyout() : null;
@@ -1544,6 +1659,11 @@ const SLIP_END = 0xC0;
 
             // Keep compatibility with existing code
             window.workspace = workspace;
+
+            // Keep sensor display blocks updated (even if sensor packets are slow)
+            if (!window.__rcSensorDispTimer) {
+                window.__rcSensorDispTimer = setInterval(rcUpdateSensorDisplayBlocks, 200);
+            }
         }
 
         function applyResponsive() {
@@ -1565,33 +1685,46 @@ function checkStop() {
         }
         
         // === 🕷️ VALIDATION LOGIC ===
-        workspace.addChangeListener(function(event) {
-            if (event.type === Blockly.Events.BLOCK_MOVE || event.type === Blockly.Events.BLOCK_CREATE || event.type === Blockly.Events.FINISHED_LOADING) {
-                validateWorkspace();
-            }
-        });
+// Дебаунс щоб не лагало під час перетягування блока
+let __rcValidateTimer = null;
+function scheduleValidateWorkspace() {
+    clearTimeout(__rcValidateTimer);
+    __rcValidateTimer = setTimeout(() => {
+        try { validateWorkspace(); } catch (e) { /* ignore */ }
+    }, 60);
+}
 
-        function validateWorkspace() {
-            const allBlocks = workspace.getAllBlocks(false);
-            const hasSpiderBlocks = allBlocks.some(b => b.type.startsWith('spider_'));
-            
-            allBlocks.forEach(b => {
-                const isCarBlock = b.type.startsWith('robot_') || b.type === 'move_4_motors' || b.type === 'motor_single';
-                if (hasSpiderBlocks && isCarBlock) {
-                    if (!b.originalColour) b.originalColour = b.getColour();
-                    const path = b.getSvgRoot().querySelector('.blocklyPath');
-                    if (path) {
-                        b.getSvgRoot().classList.add('blockly-error-glow');
-                        b.setWarningText("⚠️ НЕСУМІСНІСТЬ: Не можна змішувати блоки Павука та Машинки!");
-                    }
-                } else {
-                    b.getSvgRoot().classList.remove('blockly-error-glow');
-                    b.setWarningText(null);
-                }
-            });
+workspace.addChangeListener(function(event) {
+    if (event.type === Blockly.Events.BLOCK_MOVE ||
+        event.type === Blockly.Events.BLOCK_CREATE ||
+        event.type === Blockly.Events.FINISHED_LOADING) {
+        scheduleValidateWorkspace();
+    }
+});
+
+function validateWorkspace() {
+    if (!workspace) return;
+    const allBlocks = workspace.getAllBlocks(false) || [];
+    const hasSpiderBlocks = allBlocks.some(b => b && typeof b.type === "string" && b.type.startsWith('spider_'));
+
+    for (const b of allBlocks) {
+        if (!b || typeof b.type !== "string") continue;
+
+        const isCarBlock = b.type.startsWith('robot_') || b.type === 'move_4_motors' || b.type === 'motor_single';
+        const root = (b.getSvgRoot && b.getSvgRoot()) || null;
+
+        if (hasSpiderBlocks && isCarBlock) {
+            if (root) root.classList.add('blockly-error-glow');
+            b.setWarningText("⚠️ НЕСУМІСНІСТЬ: Не можна змішувати блоки Павука та Машинки!");
+        } else {
+            if (root) root.classList.remove('blockly-error-glow');
+            b.setWarningText(null);
         }
-        
-        // --- HELPERS FROM ORIGINAL ---
+    }
+}
+
+// --- HELPERS FROM ORIGINAL ---
+
         let moveHistory = [];
         let isCodeRunning = false;
         window._shouldStop = false;
@@ -1684,7 +1817,34 @@ function checkStop() {
         }
 
         function newProject() { if(confirm("Створити новий проект?")) { workspace.clear(); Blockly.Xml.domToWorkspace(Blockly.utils.xml.textToDom('<xml><block type="start_hat" x="50" y="50"></block></xml>'), workspace); document.getElementById('exampleModal').classList.add('hidden'); } }
-        function saveMyFile() { const xml = Blockly.utils.xml.domToText(Blockly.Xml.workspaceToDom(workspace)); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([xml],{type:"text/xml"})); a.download = "robot_code.xml"; a.click(); }
+        function saveMyFile() {
+            try {
+                const xml = Blockly.utils.xml.domToText(Blockly.Xml.workspaceToDom(workspace));
+                const defaultName = "robot_code_" + new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-") + ".xml";
+                const promptFn = (window.Blockly && Blockly.dialog && Blockly.dialog.prompt) ? Blockly.dialog.prompt : null;
+
+                const doSave = (raw) => {
+                    if (raw === null || typeof raw === "undefined") return;
+                    let name = String(raw).trim();
+                    if (!name) return;
+
+                    // sanitize filename
+                    name = name.replace(/[\/:*?"<>|]/g, "_");
+                    if (!name.toLowerCase().endsWith(".xml")) name += ".xml";
+
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(new Blob([xml], { type: "text/xml" }));
+                    a.download = name;
+                    a.click();
+                    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+                };
+
+                if (promptFn) promptFn("Назва файлу", defaultName, doSave);
+                else doSave(window.prompt("Назва файлу", defaultName));
+            } catch (e) {
+                alert("Не вдалося зберегти: " + e);
+            }
+        }
         function loadMyFile(input, isAppend) { const f = input.files[0]; if(!f) return; const r = new FileReader(); r.onload = (e) => { if(!isAppend) workspace.clear(); Blockly.Xml.domToWorkspace(Blockly.utils.xml.textToDom(e.target.result), workspace); document.getElementById('exampleModal').classList.add('hidden'); }; r.readAsText(f); input.value = ''; }
         
         Blockly.dialog.setPrompt(function(message, defaultValue, callback) {
@@ -1709,9 +1869,139 @@ function checkStop() {
     </script>
      <script src="blocks_car_fixed3.js"></script>
     <script src="blocks_spider.js"></script>
+  <script src="help.js"></script>
+<script>
+(function(){
+  "use strict";
 
-    <!-- Kid help system -->
- <script src="help.js"></script> 
+  // ---------- small helpers ----------
+  const nowMs = () => (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+  const fmtTime = () => new Date().toLocaleTimeString().split(" ")[0];
+  const safeName = (s) => String(s ?? "").trim().replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim();
+
+  // ---------- 1) Safety Watchdog STOP ----------
+  const RCWatchdog = {
+    enabled: true,
+    timeoutMs: 1200,
+    tickMs: 400,
+    lastCmdAt: 0,
+    lastStopAt: 0,
+    bump(){
+      this.lastCmdAt = nowMs();
+    },
+    stopNow(reason){
+      try{
+        // Avoid spamming STOP too often
+        const t = nowMs();
+        if (t - this.lastStopAt < 350) return;
+        this.lastStopAt = t;
+
+        if (typeof window.sendDrivePacket === "function") window.sendDrivePacket(0,0,0,0);
+        if (typeof window.sendSpiderPacket === "function") window.sendSpiderPacket(90,90,90,90,90,90,90,90);
+        if (typeof window.log === "function") window.log("SAFETY STOP" + (reason ? (": " + reason) : ""), "err");
+      } catch(e){}
+    },
+    start(){
+      if (this._timer) return;
+      this._timer = setInterval(() => {
+        if (!this.enabled) return;
+
+        // Only enforce when connected OR simulating
+        const activeLink = !!window.isConnected || !!window.isSimulating;
+
+        if (!activeLink) return;
+
+        // Enforce when code is running or motors are non-zero
+        const motors = window.motorState || {m1:0,m2:0,m3:0,m4:0};
+        const motorsActive = (motors.m1||0)!==0 || (motors.m2||0)!==0 || (motors.m3||0)!==0 || (motors.m4||0)!==0;
+        const running = !!window.isCodeRunning;
+
+        if (!(running || motorsActive)) return;
+
+        const t = nowMs();
+        if (!this.lastCmdAt) { this.lastCmdAt = t; return; }
+        if (t - this.lastCmdAt > this.timeoutMs) {
+          this.stopNow("no commands");
+        }
+      }, this.tickMs);
+
+      // Stop when tab hidden / leaving
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) this.stopNow("tab hidden");
+      });
+
+      window.addEventListener("pagehide", () => this.stopNow("page hide"));
+      window.addEventListener("beforeunload", () => this.stopNow("leave"));
+    }
+  };
+
+  // ---------- 6) Telemetry (buffer + CSV export) ----------
+  const RCTelemetry = {
+    enabled: true,
+    maxRows: 6000,
+    rows: [],
+    push(row){
+      if (!this.enabled) return;
+      this.rows.push(row);
+      if (this.rows.length > this.maxRows) this.rows.splice(0, this.rows.length - this.maxRows);
+    },
+    exportCSV(){
+      const rows = this.rows.slice();
+      const header = ["time","ms","kind","m1","m2","m3","m4","s1","s2","s3","s4","mode"].join(",");
+      const lines = [header];
+      for (const r of rows){
+        const line = [
+          JSON.stringify(r.time ?? ""),
+          String(Math.round(r.ms ?? 0)),
+          JSON.stringify(r.kind ?? ""),
+          String(r.m1 ?? ""),
+          String(r.m2 ?? ""),
+          String(r.m3 ?? ""),
+          String(r.m4 ?? ""),
+          String(r.s1 ?? ""),
+          String(r.s2 ?? ""),
+          String(r.s3 ?? ""),
+          String(r.s4 ?? ""),
+          JSON.stringify(r.mode ?? "")
+        ].join(",");
+        lines.push(line);
+      }
+      const csv = lines.join("\n");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([csv], {type:"text/csv"}));
+      a.download = "telemetry_" + new Date().toISOString().replace(/[:.]/g,"-") + ".csv";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    }
+  };
+function ensureLogExportButton(){
+    if (document.getElementById("rcExportCSVBtn")) return;
+    const modal = document.getElementById("logModal");
+    if (!modal) return;
+
+    // Prefer centered slot in header (for nice layout on mobile)
+    const centerSlot = modal.querySelector("#rcLogHeaderCenter");
+    const btnBar = centerSlot || modal.querySelector(".flex.items-center.justify-between") || modal.querySelector(".flex.items-center") || modal;
+
+    const btn = document.createElement("button");
+    btn.id = "rcExportCSVBtn";
+    btn.className = "px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 font-black text-slate-100 text-xs whitespace-nowrap";
+    btn.textContent = "Експорт CSV";
+    btn.addEventListener("click", () => RCTelemetry.exportCSV());
+
+    btnBar.appendChild(btn);
+}
+
+  // Boot (few retries, no infinite loops)
+  let tries = 0;
+  (function boot(){
+    tries++;
+    try{ patchOnce(); }catch(e){}
+    if (tries < 20) setTimeout(boot, Math.min(700, 60 + tries*40));
+  })();
+
+})();
+</script>
 
 </body>
 </html>
