@@ -2200,6 +2200,39 @@
       }
       .rc-help-fab:active{ transform: scale(0.92); }
 
+/* Touch menu shown on long-press (mobile) */
+.rc-help-touchmenu{
+  position: fixed;
+  min-width: 190px;
+  background: rgba(15, 23, 42, 0.98);
+  border: 1px solid rgba(148,163,184,0.22);
+  border-radius: 14px;
+  box-shadow: 0 18px 40px rgba(0,0,0,0.6);
+  z-index: 10001;
+  display: none;
+  overflow: hidden;
+  backdrop-filter: blur(10px);
+}
+.rc-help-touchmenu .item{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding: 12px 12px;
+  color: #e2e8f0;
+  font-weight: 900;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(148,163,184,0.14);
+  user-select:none;
+}
+.rc-help-touchmenu .item:last-child{ border-bottom: none; }
+.rc-help-touchmenu .item:active{ background: rgba(59,130,246,0.20); }
+.rc-help-touchmenu .icon{
+  width: 22px;
+  text-align:center;
+  opacity: 0.95;
+}
+
+
       .rc-help-backdrop{
         position: fixed;
         inset: 0;
@@ -2399,6 +2432,27 @@
     backdrop.addEventListener("click", () => closeHelp());
     document.body.appendChild(backdrop);
 
+    // Touch menu (for phones) - shown on long-press near the block
+    const tmenu = el("div", { class: "rc-help-touchmenu", id: "rcHelpTouchMenu" }, [
+      el("div", { class: "item", id: "rcHelpTouchHelp" }, [
+        el("div", { class: "icon" }, ["❓"]),
+        el("div", {}, ["Пояснення"])
+      ]),
+      el("div", { class: "item", id: "rcHelpTouchClose" }, [
+        el("div", { class: "icon" }, ["✕"]),
+        el("div", {}, ["Закрити меню"])
+      ])
+    ]);
+    document.body.appendChild(tmenu);
+
+    const helpBtn = document.getElementById("rcHelpTouchHelp");
+    const closeBtnM = document.getElementById("rcHelpTouchClose");
+    if (helpBtn) helpBtn.addEventListener("click", () => {
+      hideTouchMenu();
+      if (currentBlock) openHelp(currentBlock);
+    });
+    if (closeBtnM) closeBtnM.addEventListener("click", () => hideTouchMenu());
+
     const fab = el("div", { class: "rc-help-fab", id: "rcHelpFab", title: "Пояснення" }, ["?"]);
     fab.addEventListener("click", () => {
       if (currentBlock) openHelp(currentBlock);
@@ -2502,6 +2556,7 @@
     renderWs(wsBlock, info.block_xml);
     renderWs(wsExample, info.example_xml);
 
+    hideTouchMenu();
     panel.style.display = "block";
     const bd = document.getElementById("rcHelpBackdrop");
     if (bd) bd.style.display = "block";
@@ -2530,6 +2585,39 @@
   function hideFab() {
     const fab = getFab();
     fab.style.display = "none";
+  }
+
+  function getTouchMenu() {
+    return document.getElementById("rcHelpTouchMenu");
+  }
+  function hideTouchMenu() {
+    const m = getTouchMenu();
+    if (m) m.style.display = "none";
+  }
+  function showTouchMenuNearBlock(block) {
+    const m = getTouchMenu();
+    if (!m) return;
+
+    const svgRoot = block.getSvgRoot && block.getSvgRoot();
+    if (!svgRoot) return;
+
+    const r = svgRoot.getBoundingClientRect();
+    const w = m.offsetWidth || 200;
+    const h = m.offsetHeight || 110;
+
+    // Try to place to the right of the block; fallback below
+    let left = r.right + 10;
+    let top = r.top + 10;
+
+    if (left + w > window.innerWidth - 8) left = (r.left - w - 10);
+    if (left < 8) left = clamp(r.left, 8, window.innerWidth - w - 8);
+
+    if (top + h > window.innerHeight - 8) top = (r.bottom - h - 10);
+    if (top < 70) top = clamp(r.bottom + 8, 70, window.innerHeight - h - 8);
+
+    m.style.left = left + "px";
+    m.style.top = top + "px";
+    m.style.display = "block";
   }
 
   function findBlockIdFromEventTarget(ev) {
@@ -2575,7 +2663,8 @@
         const b = ws.getBlockById(pressBlockId);
         if (!b) return;
         currentBlock = b;
-        showFabNearBlock(b);
+        hideFab();
+        showTouchMenuNearBlock(b);
       }, 380);
     }, { passive: true });
 
@@ -2590,10 +2679,16 @@
 
     document.addEventListener("pointerdown", (ev) => {
       const fab = getFab();
+      const tm = getTouchMenu();
+      if (tm && tm.style.display === "block") {
+        if (tm.contains(ev.target)) return;
+        const bid0 = findBlockIdFromEventTarget(ev);
+        if (!bid0) hideTouchMenu();
+      }
       if (fab.style.display === "flex") {
         if (ev.target === fab || fab.contains(ev.target)) return;
         const bid = findBlockIdFromEventTarget(ev);
-        if (!bid) hideFab();
+        if (!bid) { hideFab(); hideTouchMenu(); }
       }
     }, { passive: true });
   }
