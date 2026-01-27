@@ -810,6 +810,60 @@
   const $ = (sel, root=document) => root.querySelector(sel);
   const safe = (x) => (x == null) ? "" : String(x);
 
+// Map technical field names to the same wording kids see on blocks.
+// (Used only in the Help modal; does NOT affect Blockly internals.)
+const FIELD_LABEL_MAP = {
+  // Common numeric/time
+  "SECONDS": "Секунди",
+  "SEC": "Секунди",
+  "TIME": "Час",
+  // Movement
+  "TARGET": "Швидкість",
+  "SPEED": "Швидкість",
+  "DIR": "Напрям",
+  "MOTOR": "Мотор",
+  // Sensors / conditions
+  "PORT": "Порт",
+  "SENS": "Порт",
+  "TYPE": "Тип",
+  "OP": "Знак",
+  "VAL": "Поріг",
+  "BOOL": "Умова",
+  // Loops
+  "TIMES": "Разів",
+  "MODE": "Режим",
+  "VAR": "Лічильник",
+  "FROM": "Від",
+  "TO": "До",
+  "BY": "Крок",
+  // Spider
+  "LEG": "Лапа",
+  "HEIGHT": "Висота",
+  "ANGLE": "Кут",
+  "ANIM": "Анімація",
+  // Math / control
+  "ERROR": "Помилка",
+  "KP": "Kp",
+  "KI": "Ki",
+  "KD": "Kd",
+  "ALPHA": "Alpha"
+};
+
+function prettyFieldName(name) {
+  const n = String(name || "");
+  return FIELD_LABEL_MAP[n] || n;
+}
+
+function prettyRange(range) {
+  const r = String(range || "");
+  if (!r) return "";
+  return r
+    .replaceAll("WHILE/UNTIL", "Поки/Доки")
+    .replaceAll("LEFT/RIGHT", "Ліво/Право")
+    .replaceAll("FWD/BWD/LEFT/RIGHT", "Вперед/Назад/Ліво/Право")
+    .replaceAll("ADD/SUB/MUL/DIV", "+/−/×/÷");
+}
+
   function el(tag, attrs={}, children=[]) {
     const n = document.createElement(tag);
     for (const [k,v] of Object.entries(attrs)) {
@@ -973,9 +1027,11 @@
         const name = safe(f.name);
         const meaning = safe(f.meaning);
         const range = safe(f.range);
+        const prettyName = prettyFieldName(name);
+        const prettyR = prettyRange(range);
         fieldsEl.appendChild(el("li", {}, [
-          el("code", {}, [name]),
-          document.createTextNode(" — " + meaning + (range ? (" (" + range + ")") : ""))
+          el("code", {}, [prettyName]),
+          document.createTextNode(" — " + meaning + (prettyR ? (" (" + prettyR + ")") : (range ? (" (" + range + ")") : "")))
         ]));
       }
     } else {
