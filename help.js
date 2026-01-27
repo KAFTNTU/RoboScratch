@@ -2431,8 +2431,8 @@
       const xmlText = `<xml xmlns="https://developers.google.com/blockly/xml">${xmlFragment}</xml>`;
       const xmlDoc = new DOMParser().parseFromString(xmlText, "text/xml");
       Blockly.Xml.domToWorkspace(xmlDoc.documentElement, ws);
-      const tops = ws.getTopBlocks(false);
-      if (tops && tops.length) tops[0].moveBy(12, 12);
+      const blocks = ws.getAllBlocks(false);
+      if (blocks.length) blocks[0].moveBy(12, 12);
       ws.resizeContents();
     } catch (_) {}
   }
@@ -2547,43 +2547,19 @@
   }
 
   // ---------------------------
-  // 6) Desktop (C): context menu item (NO prototype override)
+  // 6) Desktop (C): context menu item
   // ---------------------------
-  // New Blockly versions can throw if we overwrite/patch customContextMenu.
-  // So we register a global context menu entry via ContextMenuRegistry.
-  let contextItemRegistered = false;
+  let patchedContext = false;
+  function patchContextMenuOnce() {
+    if (patchedContext) return;
+    patchedContext = true;
 
-  function registerContextMenuItemOnce() {
-    if (contextItemRegistered) return;
-    contextItemRegistered = true;
+    const proto = Blockly?.BlockSvg?.prototype;
+    if (!proto) return;
 
-    try {
-      const reg = Blockly?.ContextMenuRegistry?.registry;
-      if (!reg || !reg.register) return;
-
-      // Avoid double-register if user reloads scripts.
-      const ID = "rc_kid_help";
-      if (reg.getItem && reg.getItem(ID)) return;
-
-      reg.register({
-        id: ID,
-        scopeType: Blockly.ContextMenuRegistry.ScopeType.BLOCK,
-        displayText: function() { return "❓ Пояснення (для дітей)"; },
-        preconditionFn: function(scope) {
-          // Only on desktop / mouse-like pointer
-          if (!isDesktopLayout()) return "hidden";
-          // scope.block exists
-          return (scope && scope.block) ? "enabled" : "hidden";
-        },
-        callback: function(scope) {
-          if (scope && scope.block) openHelp(scope.block);
-        },
-        weight: 50
-      });
-    } catch (_) {
-      // ignore
-    }
-  }
+    const old = proto.customContextMenu;
+    proto.customContextMenu = function (options) {
+      try { if (typeof old === "function") old.call(this, options); } catch (_) {}
       if (!isDesktopLayout()) return;
 
       const block = this;
@@ -2608,7 +2584,7 @@
     lastWs = ws;
 
     ensureUI();
-    registerContextMenuItemOnce();
+    patchContextMenuOnce();
     attachMobileLongPress(ws);
 
     // Put short kid tooltip on every block (helpful even without panel)
