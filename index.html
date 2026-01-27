@@ -296,17 +296,32 @@ body.layout-mobile #blocklyDiv { bottom: 64px !important; }
             border: 1px solid rgba(148,163,184,0.22) !important;
             box-shadow: 0 12px 30px rgba(0,0,0,0.35) !important;
             backdrop-filter: blur(10px) !important;
+        
+            max-width: calc(100vw - 20px) !important;
+            box-sizing: border-box !important;
+            overflow-x: auto !important;
+            overflow-y: hidden !important;
+            -webkit-overflow-scrolling: touch !important;
+            scrollbar-width: none; /* Firefox */
+
         }
         body.layout-mobile .sensor-row .top-btn {
             width: 44px !important;
             height: 44px !important;
             border-radius: 14px !important;
-            background: rgba(30, 41, 59, 0.75) !important;
+            /* Don't override button colors here — individual button classes set their own backgrounds */
             border: 1px solid rgba(148,163,184,0.22) !important;
             color: #e2e8f0 !important;
         }
         body.layout-mobile .sensor-row .top-btn:hover { transform: none !important; }
         body.layout-mobile .sensor-row .top-btn:active { transform: translateY(1px) !important; }
+        .sensor-row::-webkit-scrollbar { display: none; } /* WebKit */
+
+        @media (max-width: 380px) {
+            .sensor-row { gap: 8px !important; padding: 8px 8px !important; }
+            .sensor-row .top-btn { width: 40px !important; height: 40px !important; border-radius: 12px !important; }
+        }
+
 
         /* Keep RUN green, keep Step only in debug controls */
         body.layout-mobile .sensor-row .btn-run { background: rgba(34,197,94,0.92) !important; border: 1px solid rgba(34,197,94,0.55) !important; }
