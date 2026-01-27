@@ -2200,12 +2200,21 @@
       }
       .rc-help-fab:active{ transform: scale(0.92); }
 
+      .rc-help-backdrop{
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.45);
+        z-index: 9999;
+        display: none;
+      }
+
       .rc-help-panel{
         position: fixed;
-        top: 70px;
-        right: 12px;
-        width: min(460px, calc(100vw - 24px));
-        max-height: calc(100vh - 90px);
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: min(520px, 92vw);
+        max-height: 86vh;
         background: rgba(15, 23, 42, 0.97);
         border: 1px solid rgba(148,163,184,0.25);
         border-radius: 18px;
@@ -2319,12 +2328,18 @@
         background: rgba(30,41,59,0.7);
         color: #e2e8f0;
       }
+    
+      /* Make preview workspaces blend with dark UI */
+      .rc-help-panel .blocklySvg { background: transparent !important; }
+      .rc-help-panel .blocklyMainBackground { fill: transparent !important; }
+      .rc-help-panel .blocklyFlyoutBackground { fill: rgba(15,23,42,0.35) !important; }
+
     `]);
     document.head.appendChild(style);
 
     panelTitle = el("div", { class: "h" }, ["Підказка"]);
-    const sub = el("div", { class: "s" }, ["для дітей"]);
-    const titleWrap = el("div", { class: "t" }, [panelTitle, sub]);
+    const sub = null;
+    const titleWrap = el("div", { class: "t" }, [panelTitle]);
 
     const closeBtn = el("button", { title: "Закрити" }, ["✕"]);
     closeBtn.addEventListener("click", () => closeHelp());
@@ -2343,16 +2358,18 @@
       tabExampleBtn.classList.remove("active");
       miniBlockDiv.style.display = "block";
       miniExampleDiv.style.display = "none";
+      setTimeout(() => { try { if (miniBlockWs && Blockly.svgResize) Blockly.svgResize(miniBlockWs); } catch(_) {} }, 0);
     });
     tabExampleBtn.addEventListener("click", () => {
       tabExampleBtn.classList.add("active");
       tabBlockBtn.classList.remove("active");
       miniBlockDiv.style.display = "none";
       miniExampleDiv.style.display = "block";
+      setTimeout(() => { try { if (miniExampleWs && Blockly.svgResize) Blockly.svgResize(miniExampleWs); } catch(_) {} }, 0);
     });
 
     const previewCard = el("div", { class: "rc-help-card" }, [
-      el("div", { class: "label" }, ["Як виглядає (ідея)"]),
+      el("div", { class: "label" }, ["Як виглядає"]),
       tabs,
       miniBlockDiv,
       miniExampleDiv
@@ -2378,6 +2395,10 @@
     panel = el("div", { class: "rc-help-panel" }, [header, body, actions]);
     document.body.appendChild(panel);
 
+    const backdrop = el("div", { class: "rc-help-backdrop", id: "rcHelpBackdrop" });
+    backdrop.addEventListener("click", () => closeHelp());
+    document.body.appendChild(backdrop);
+
     const fab = el("div", { class: "rc-help-fab", id: "rcHelpFab", title: "Пояснення" }, ["?"]);
     fab.addEventListener("click", () => {
       if (currentBlock) openHelp(currentBlock);
@@ -2390,6 +2411,8 @@
   function closeHelp() {
     ensureUI();
     panel.style.display = "none";
+    const bd = document.getElementById("rcHelpBackdrop");
+    if (bd) bd.style.display = "none";
   }
 
   // ---------------------------
@@ -2431,8 +2454,27 @@
       const xmlText = `<xml xmlns="https://developers.google.com/blockly/xml">${xmlFragment}</xml>`;
       const xmlDoc = new DOMParser().parseFromString(xmlText, "text/xml");
       Blockly.Xml.domToWorkspace(xmlDoc.documentElement, ws);
-      const blocks = ws.getAllBlocks(false);
-      if (blocks.length) blocks[0].moveBy(12, 12);
+
+      // Resize SVG to current div size
+      if (Blockly.svgResize) Blockly.svgResize(ws);
+
+      // Center the top-most block
+      const tops = ws.getTopBlocks(false);
+      if (tops && tops.length) {
+        const b = tops[0];
+        const hw = b.getHeightWidth ? b.getHeightWidth() : { height: 0, width: 0 };
+        const metrics = ws.getMetrics ? ws.getMetrics() : null;
+        if (metrics) {
+          const scale = ws.scale || 1;
+          const targetX = (metrics.viewWidth / 2 - hw.width / 2) / scale;
+          const targetY = (metrics.viewHeight / 2 - hw.height / 2) / scale;
+          // Move relative from current position
+          const xy = b.getRelativeToSurfaceXY ? b.getRelativeToSurfaceXY() : { x: 0, y: 0 };
+          b.moveBy(targetX - xy.x, targetY - xy.y);
+        } else {
+          b.moveBy(12, 12);
+        }
+      }
       ws.resizeContents();
     } catch (_) {}
   }
@@ -2461,6 +2503,16 @@
     renderWs(wsExample, info.example_xml);
 
     panel.style.display = "block";
+    const bd = document.getElementById("rcHelpBackdrop");
+    if (bd) bd.style.display = "block";
+
+    // Ensure previews render correctly (workspaces need a visible size)
+    setTimeout(() => {
+      try { if (window.Blockly && window.Blockly.svgResize) {
+        if (miniBlockWs) Blockly.svgResize(miniBlockWs);
+        if (miniExampleWs) Blockly.svgResize(miniExampleWs);
+      }} catch (_) {}
+    }, 0);
   }
 
   // ---------------------------
