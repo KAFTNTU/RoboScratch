@@ -33,7 +33,12 @@
             box-shadow: 0 4px 20px rgba(0,0,0,0.4);
         }
 
-        /* --- JOYSTICK --- */
+        
+        /* --- SCRATCH MODE (hide global header, maximize workspace) --- */
+        body.scratch-mode header.glass-header { display: none !important; }
+        body.scratch-mode main { padding-top: 0 !important; }
+        body.scratch-mode .sensor-row { top: 10px !important; }
+/* --- JOYSTICK --- */
         #joystick-container { 
             position: relative; 
             width: 280px; 
@@ -265,6 +270,20 @@ body.layout-desktop .blocklyTreeRow{
 body.layout-desktop #blocklyDiv { bottom: 0px !important; }
 body.layout-mobile #blocklyDiv { bottom: 64px !important; }
 
+
+        /* builder top mini buttons */
+        .btn-exit { background: rgba(30, 41, 59, 0.75); }
+        .btn-exit:hover { background: rgba(51, 65, 85, 0.9); transform: translateY(-1px); }
+
+        .btn-hide-header { background: rgba(30, 41, 59, 0.75); }
+        .btn-hide-header:hover { background: rgba(51, 65, 85, 0.9); transform: translateY(-1px); }
+
+        .btn-bt-mini { background: rgba(37, 99, 235, 0.85); }
+        .btn-bt-mini:hover { background: rgba(59, 130, 246, 0.95); transform: translateY(-1px); }
+
+        .btn-log-mini { background: rgba(202, 138, 4, 0.85); }
+        .btn-log-mini:hover { background: rgba(234, 179, 8, 0.95); transform: translateY(-1px); }
+
 </style>
 </head>
 <body class="h-screen w-screen flex flex-col">
@@ -362,7 +381,23 @@ body.layout-mobile #blocklyDiv { bottom: 64px !important; }
         <section id="view-builder" class="absolute inset-0 flex flex-col hidden opacity-0 transition-opacity duration-300">
             
             <div class="sensor-row">
-                <button onclick="openExampleModal()" class="top-btn btn-example" title="Готові збірки">
+                <button onclick="exitScratchMode()" class="top-btn btn-exit" title="Вийти з блоків">
+                    <i class="fa-solid fa-arrow-left"></i>
+                </button>
+
+                <button onclick="toggleScratchMode(true)" class="top-btn btn-hide-header" title="Сховати/показати верхнє меню">
+                    <i class="fa-solid fa-up-right-and-down-left-from-center"></i>
+                </button>
+
+                <button onclick="document.getElementById('btConnect')?.click()" class="top-btn btn-bt-mini" title="Bluetooth">
+                    <i class="fa-brands fa-bluetooth-b"></i>
+                </button>
+
+                <button onclick="toggleLogModal()" class="top-btn btn-log-mini" title="Лог">
+                    <i class="fa-solid fa-book"></i>
+                </button>
+
+                <button onclick="openExampleModal()\" class="top-btn btn-example" title="Готові збірки">
                     <i class="fa-solid fa-folder-open"></i>
                 </button>
 
@@ -1237,6 +1272,19 @@ const SLIP_END = 0xC0;
             } catch(e) { log(e, 'err'); }
         });
 
+        
+        // --- Scratch Mode: hide global header when in block editor ---
+        function toggleScratchMode(force) {
+            // force=true -> enable, force=false -> disable, force=undefined -> toggle
+            const enable = (force === undefined) ? !document.body.classList.contains('scratch-mode') : !!force;
+            document.body.classList.toggle('scratch-mode', enable);
+        }
+        function exitScratchMode() {
+            toggleScratchMode(false);
+            const btn = document.querySelector("button[onclick*=\"switchView('view-joystick'\"]");
+            switchView('view-joystick', btn || null);
+        }
+
         function switchView(viewId, btnElement) {
             document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
             if(btnElement) btnElement.classList.add('active');
@@ -1254,6 +1302,9 @@ const SLIP_END = 0xC0;
             activeView = viewId;
             if(viewId !== 'view-joystick' && isGyroEnabled) toggleGyro();
             if(viewId === 'view-builder' && typeof Blockly !== 'undefined') setTimeout(() => Blockly.svgResize(workspace), 100);
+            // auto: when entering blocks view, hide global header to free space
+            if(viewId === 'view-builder') toggleScratchMode(true);
+            else toggleScratchMode(false);
         }
         function startDualMode(btn) { switchView('view-dual', btn); }
 
@@ -1710,8 +1761,669 @@ function checkStop() {
      <script src="blocks_car_fixed3.js"></script>
     <script src="blocks_spider.js"></script>
 
-    <!-- Kid help system -->
- <script src="help.js"></script> 
+<!-- RC Enhancements: Watchdog + Step Debug + Telemetry Log + Projects (IndexedDB) -->
+<script>
+(function(){
+  "use strict";
+
+  // ---------- small helpers ----------
+  const nowMs = () => (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+  const fmtTime = () => new Date().toLocaleTimeString().split(" ")[0];
+  const safeName = (s) => String(s ?? "").trim().replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim();
+
+  // ---------- 1) Safety Watchdog STOP ----------
+  const RCWatchdog = {
+    enabled: true,
+    timeoutMs: 1200,
+    tickMs: 400,
+    lastCmdAt: 0,
+    lastStopAt: 0,
+    bump(){
+      this.lastCmdAt = nowMs();
+    },
+    stopNow(reason){
+      try{
+        // Avoid spamming STOP too often
+        const t = nowMs();
+        if (t - this.lastStopAt < 350) return;
+        this.lastStopAt = t;
+
+        if (typeof window.sendDrivePacket === "function") window.sendDrivePacket(0,0,0,0);
+        if (typeof window.sendSpiderPacket === "function") window.sendSpiderPacket(90,90,90,90,90,90,90,90);
+        if (typeof window.log === "function") window.log("SAFETY STOP" + (reason ? (": " + reason) : ""), "err");
+      } catch(e){}
+    },
+    start(){
+      if (this._timer) return;
+      this._timer = setInterval(() => {
+        if (!this.enabled) return;
+
+        // Only enforce when connected OR simulating
+        const activeLink = !!window.isConnected || !!window.isSimulating;
+
+        if (!activeLink) return;
+
+        // Enforce when code is running or motors are non-zero
+        const motors = window.motorState || {m1:0,m2:0,m3:0,m4:0};
+        const motorsActive = (motors.m1||0)!==0 || (motors.m2||0)!==0 || (motors.m3||0)!==0 || (motors.m4||0)!==0;
+        const running = !!window.isCodeRunning;
+
+        if (!(running || motorsActive)) return;
+
+        const t = nowMs();
+        if (!this.lastCmdAt) { this.lastCmdAt = t; return; }
+        if (t - this.lastCmdAt > this.timeoutMs) {
+          this.stopNow("no commands");
+        }
+      }, this.tickMs);
+
+      // Stop when tab hidden / leaving
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) this.stopNow("tab hidden");
+      });
+
+      window.addEventListener("pagehide", () => this.stopNow("page hide"));
+      window.addEventListener("beforeunload", () => this.stopNow("leave"));
+    }
+  };
+
+  // ---------- 6) Telemetry (buffer + CSV export) ----------
+  const RCTelemetry = {
+    enabled: true,
+    maxRows: 6000,
+    rows: [],
+    push(row){
+      if (!this.enabled) return;
+      this.rows.push(row);
+      if (this.rows.length > this.maxRows) this.rows.splice(0, this.rows.length - this.maxRows);
+    },
+    exportCSV(){
+      const rows = this.rows.slice();
+      const header = ["time","ms","kind","m1","m2","m3","m4","s1","s2","s3","s4","mode"].join(",");
+      const lines = [header];
+      for (const r of rows){
+        const line = [
+          JSON.stringify(r.time ?? ""),
+          String(Math.round(r.ms ?? 0)),
+          JSON.stringify(r.kind ?? ""),
+          String(r.m1 ?? ""),
+          String(r.m2 ?? ""),
+          String(r.m3 ?? ""),
+          String(r.m4 ?? ""),
+          String(r.s1 ?? ""),
+          String(r.s2 ?? ""),
+          String(r.s3 ?? ""),
+          String(r.s4 ?? ""),
+          JSON.stringify(r.mode ?? "")
+        ].join(",");
+        lines.push(line);
+      }
+      const csv = lines.join("\n");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([csv], {type:"text/csv"}));
+      a.download = "telemetry_" + new Date().toISOString().replace(/[:.]/g,"-") + ".csv";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    }
+  };
+
+  // ---------- 8) Projects (IndexedDB) ----------
+  const RCProjects = {
+    db: null,
+    dbName: "robo_scratch_projects_v1",
+    store: "projects",
+    async init(){
+      if (this.db) return this.db;
+      if (!("indexedDB" in window)) throw new Error("IndexedDB not supported");
+
+      this.db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open(this.dbName, 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          const st = db.createObjectStore(this.store, {keyPath:"id"});
+          st.createIndex("updatedAt", "updatedAt");
+          st.createIndex("name", "name");
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      return this.db;
+    },
+    _tx(mode){
+      const db = this.db;
+      const tx = db.transaction(this.store, mode);
+      return tx.objectStore(this.store);
+    },
+    _uuid(){
+      // short-ish id
+      return "p_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(16);
+    },
+    _getWorkspaceXML(){
+      const ws = window.workspace || (window.Blockly && Blockly.getMainWorkspace && Blockly.getMainWorkspace());
+      if (!ws) throw new Error("Workspace not ready");
+      return Blockly.utils.xml.domToText(Blockly.Xml.workspaceToDom(ws));
+    },
+    async list(){
+      await this.init();
+      const st = this._tx("readonly");
+      const items = await new Promise((resolve, reject) => {
+        const req = st.getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+      items.sort((a,b) => (b.updatedAt||0) - (a.updatedAt||0));
+      return items;
+    },
+    async saveAs(name){
+      await this.init();
+      const xml = this._getWorkspaceXML();
+      const t = Date.now();
+      const item = { id: this._uuid(), name: safeName(name) || "Проєкт", xml, createdAt: t, updatedAt: t };
+      const st = this._tx("readwrite");
+      await new Promise((resolve, reject) => {
+        const req = st.put(item);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+      return item;
+    },
+    async update(id, patch){
+      await this.init();
+      const stR = this._tx("readonly");
+      const cur = await new Promise((resolve, reject) => {
+        const req = stR.get(id);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      if (!cur) throw new Error("Not found");
+      const next = Object.assign({}, cur, patch, {updatedAt: Date.now()});
+      const stW = this._tx("readwrite");
+      await new Promise((resolve, reject) => {
+        const req = stW.put(next);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+      return next;
+    },
+    async quickSaveTo(id){
+      const xml = this._getWorkspaceXML();
+      return this.update(id, { xml });
+    },
+    async delete(id){
+      await this.init();
+      const st = this._tx("readwrite");
+      await new Promise((resolve, reject) => {
+        const req = st.delete(id);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    },
+    async load(id){
+      await this.init();
+      const st = this._tx("readonly");
+      const item = await new Promise((resolve, reject) => {
+        const req = st.get(id);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      if (!item) throw new Error("Not found");
+      const ws = window.workspace || (window.Blockly && Blockly.getMainWorkspace && Blockly.getMainWorkspace());
+      ws.clear();
+      Blockly.Xml.domToWorkspace(Blockly.utils.xml.textToDom(item.xml), ws);
+      return item;
+    },
+    async duplicate(id){
+      await this.init();
+      const st = this._tx("readonly");
+      const item = await new Promise((resolve, reject) => {
+        const req = st.get(id);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      if (!item) throw new Error("Not found");
+      return this.saveAs((item.name || "Проєкт") + " (копія)");
+    }
+  };
+
+  // UI: Projects modal injected (no heavy frameworks)
+  function ensureProjectsUI(){
+    if (document.getElementById("rcProjectsModal")) return;
+
+    const modal = document.createElement("div");
+    modal.id = "rcProjectsModal";
+    modal.className = "fixed inset-0 z-[9997] hidden";
+    modal.innerHTML = `
+      <div class="absolute inset-0 bg-black/50" data-close="1"></div>
+      <div class="absolute left-1/2 top-1/2 w-[92vw] max-w-[640px] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-slate-700 bg-slate-900/95 shadow-2xl backdrop-blur-xl overflow-hidden">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-slate-700">
+          <div class="font-black text-slate-100">Мої проєкти</div>
+          <button class="w-9 h-9 rounded-xl border border-slate-700 bg-slate-800 text-slate-200" data-close="1">✕</button>
+        </div>
+
+        <div class="p-4 space-y-3">
+          <div class="flex flex-wrap gap-2">
+            <button id="rcProjSaveAs" class="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-black text-white">Зберегти поточний як…</button>
+            <button id="rcProjRefresh" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 font-black text-slate-100">Оновити список</button>
+          </div>
+
+          <div class="text-xs text-slate-400">
+            Порада: експорт XML — це файл на пристрій. "Мої проєкти" — збереження в браузері.
+          </div>
+
+          <div id="rcProjList" class="space-y-2 max-h-[52vh] overflow-auto pr-1"></div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    modal.addEventListener("click", (e) => {
+      const t = e.target;
+      if (t && t.getAttribute && t.getAttribute("data-close") === "1") closeProjects();
+    });
+
+    document.getElementById("rcProjRefresh").addEventListener("click", () => renderProjects());
+    document.getElementById("rcProjSaveAs").addEventListener("click", async () => {
+      const name = await askName("Назва проєкту", "Мій проєкт");
+      if (name == null) return;
+      try{
+        await RCProjects.saveAs(name);
+        if (window.log) window.log("Saved to Projects: " + safeName(name), "info");
+        await renderProjects();
+      } catch(e){
+        alert("Не вийшло зберегти: " + e);
+      }
+    });
+  }
+
+  function openProjects(){
+    ensureProjectsUI();
+    document.getElementById("rcProjectsModal").classList.remove("hidden");
+    renderProjects();
+  }
+  function closeProjects(){
+    const m = document.getElementById("rcProjectsModal");
+    if (m) m.classList.add("hidden");
+  }
+
+  async function renderProjects(){
+    ensureProjectsUI();
+    const listEl = document.getElementById("rcProjList");
+    listEl.innerHTML = `<div class="text-slate-400 text-sm">Завантаження…</div>`;
+    try{
+      const items = await RCProjects.list();
+      if (!items.length){
+        listEl.innerHTML = `<div class="text-slate-400 text-sm">Поки що немає збережених проєктів.</div>`;
+        return;
+      }
+      listEl.innerHTML = "";
+      for (const it of items){
+        const row = document.createElement("div");
+        row.className = "rounded-2xl border border-slate-700 bg-slate-800/40 p-3";
+        const upd = new Date(it.updatedAt||it.createdAt||0);
+        const date = isNaN(upd.getTime()) ? "" : (upd.toLocaleDateString() + " " + upd.toLocaleTimeString().slice(0,5));
+        row.innerHTML = `
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="font-black text-slate-100 truncate">${safeName(it.name||"Проєкт")}</div>
+              <div class="text-xs text-slate-400">${date}</div>
+            </div>
+            <div class="flex flex-wrap gap-2 justify-end">
+              <button class="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 font-black text-white" data-act="open" data-id="${it.id}">Відкрити</button>
+              <button class="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-700 border border-slate-700 font-black text-slate-100" data-act="save" data-id="${it.id}">Оновити</button>
+              <button class="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-700 border border-slate-700 font-black text-slate-100" data-act="rename" data-id="${it.id}">Назва</button>
+              <button class="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-700 border border-slate-700 font-black text-slate-100" data-act="dup" data-id="${it.id}">Копія</button>
+              <button class="px-3 py-2 rounded-xl bg-red-700 hover:bg-red-600 font-black text-white" data-act="del" data-id="${it.id}">Видалити</button>
+            </div>
+          </div>
+        `;
+        row.addEventListener("click", async (e) => {
+          const btn = e.target;
+          if (!btn || !btn.getAttribute) return;
+          const act = btn.getAttribute("data-act");
+          const id = btn.getAttribute("data-id");
+          if (!act || !id) return;
+
+          if (act === "open"){
+            try{ await RCProjects.load(id); closeProjects(); if (window.log) window.log("Loaded: " + (it.name||""), "info"); }
+            catch(err){ alert("Не вдалося відкрити: " + err); }
+          }
+          if (act === "save"){
+            try{ await RCProjects.quickSaveTo(id); if (window.log) window.log("Updated: " + (it.name||""), "info"); await renderProjects(); }
+            catch(err){ alert("Не вдалося оновити: " + err); }
+          }
+          if (act === "rename"){
+            const nm = await askName("Нова назва", it.name || "Проєкт");
+            if (nm == null) return;
+            try{ await RCProjects.update(id, {name: safeName(nm) || it.name}); await renderProjects(); }
+            catch(err){ alert("Не вдалося перейменувати: " + err); }
+          }
+          if (act === "dup"){
+            try{ await RCProjects.duplicate(id); await renderProjects(); }
+            catch(err){ alert("Не вдалося зробити копію: " + err); }
+          }
+          if (act === "del"){
+            if (!confirm("Видалити проєкт \"" + (it.name||"") + "\"?")) return;
+            try{ await RCProjects.delete(id); await renderProjects(); }
+            catch(err){ alert("Не вдалося видалити: " + err); }
+          }
+        });
+        listEl.appendChild(row);
+      }
+    } catch(e){
+      listEl.innerHTML = `<div class="text-red-300 text-sm">Помилка: ${safeName(e)}</div>`;
+    }
+  }
+
+  // Name prompt using Blockly.dialog if available (better on phone)
+  function askName(title, defaultValue){
+    return new Promise((resolve) => {
+      const promptFn = (window.Blockly && Blockly.dialog && Blockly.dialog.prompt) ? Blockly.dialog.prompt : null;
+      if (promptFn) {
+        promptFn(title, defaultValue, (val) => resolve(val));
+      } else {
+        resolve(window.prompt(title, defaultValue));
+      }
+    });
+  }
+
+  // ---------- 3) Step-by-step debug (prefix hook) ----------
+  const RCDebug = {
+    enabled: false,
+    paused: false,
+    waiting: null,
+    lastId: null,
+    setEnabled(v){
+      this.enabled = !!v;
+      updateDebugUI();
+    },
+    pause(){
+      this.paused = true;
+      updateDebugUI();
+    },
+    resume(){
+      this.paused = false;
+      this._release();
+      updateDebugUI();
+    },
+    step(){
+      // release once, then pause again on next block
+      this.paused = false;
+      this._release();
+      this._stepOnce = true;
+      updateDebugUI();
+    },
+    _release(){
+      if (this.waiting) { try{ this.waiting(); }catch(e){} this.waiting = null; }
+    },
+    forceRelease(){
+      this.paused = false;
+      this._stepOnce = false;
+      this._release();
+    }
+  };
+
+  window.__rcStepHook = async function(blockId){
+    // fast path when disabled
+    if (!RCDebug.enabled) return;
+
+    const id = String(blockId ?? "");
+    if (id && id !== "null" && id !== "undefined"){
+      try{
+        const ws = window.workspace || (window.Blockly && Blockly.getMainWorkspace && Blockly.getMainWorkspace());
+        if (ws && id !== RCDebug.lastId){
+          RCDebug.lastId = id;
+          ws.highlightBlock(id);
+        }
+      }catch(e){}
+    }
+
+    // if one-step: pause right after this block enters
+    if (RCDebug._stepOnce){
+      RCDebug._stepOnce = false;
+      RCDebug.paused = true;
+    }
+
+    if (!RCDebug.paused) return;
+
+    await new Promise((resolve) => { RCDebug.waiting = resolve; });
+  };
+
+  function ensureDebugButtons(){
+    if (document.getElementById("rcDbgToggle")) return;
+    const runBtn = document.getElementById("globalRunBtn");
+    if (!runBtn || !runBtn.parentElement) return;
+
+    const wrap = document.createElement("div");
+    wrap.className = "flex gap-2 items-center";
+    wrap.style.marginLeft = "10px";
+
+    wrap.innerHTML = `
+      <button id="rcDbgToggle" class="top-btn btn-run !bg-slate-800 !border !border-slate-700" title="Debug (крок за кроком)">
+        <i class="fa-solid fa-bug"></i>
+      </button>
+      <button id="rcDbgPause" class="top-btn btn-run !bg-slate-800 !border !border-slate-700 opacity-60 pointer-events-none" title="Пауза/Продовжити">
+        <i class="fa-solid fa-pause" id="rcDbgPauseIcon"></i>
+      </button>
+      <button id="rcDbgStep" class="top-btn btn-run !bg-slate-800 !border !border-slate-700 opacity-60 pointer-events-none" title="Крок">
+        <i class="fa-solid fa-forward-step"></i>
+      </button>
+    `;
+
+    runBtn.parentElement.appendChild(wrap);
+
+    document.getElementById("rcDbgToggle").addEventListener("click", () => {
+      RCDebug.setEnabled(!RCDebug.enabled);
+      if (window.log) window.log("Debug: " + (RCDebug.enabled ? "ON" : "OFF"), "info");
+    });
+    document.getElementById("rcDbgPause").addEventListener("click", () => {
+      if (!window.isCodeRunning) return;
+      if (RCDebug.paused) RCDebug.resume(); else RCDebug.pause();
+    });
+    document.getElementById("rcDbgStep").addEventListener("click", () => {
+      if (!window.isCodeRunning) return;
+      RCDebug.step();
+    });
+
+    updateDebugUI();
+  }
+
+  function updateDebugUI(){
+    const t = document.getElementById("rcDbgToggle");
+    const p = document.getElementById("rcDbgPause");
+    const s = document.getElementById("rcDbgStep");
+    const pi = document.getElementById("rcDbgPauseIcon");
+    if (!t || !p || !s) return;
+
+    t.classList.toggle("running", RCDebug.enabled);
+
+    const active = !!window.isCodeRunning && RCDebug.enabled;
+    p.classList.toggle("opacity-60", !active);
+    p.classList.toggle("pointer-events-none", !active);
+    s.classList.toggle("opacity-60", !active);
+    s.classList.toggle("pointer-events-none", !active);
+
+    if (pi){
+      pi.classList.remove("fa-play","fa-pause");
+      pi.classList.add(RCDebug.paused ? "fa-play" : "fa-pause");
+    }
+  }
+
+  // ---------- hook into existing app ----------
+  function patchOnce(){
+    // Ensure UI pieces are present
+    ensureDebugButtons();
+    ensureProjectsButton();
+    ensureLogExportButton();
+
+    // Patch saveMyFile -> prompt filename for download (simple)
+    if (!window.__rcPatchedSave && typeof window.saveMyFile === "function"){
+      window.__rcPatchedSave = true;
+      window.saveMyFile = function(){
+        try{
+          const ws = window.workspace || (window.Blockly && Blockly.getMainWorkspace && Blockly.getMainWorkspace());
+          const xml = Blockly.utils.xml.domToText(Blockly.Xml.workspaceToDom(ws));
+          const defaultName = "robot_code";
+          const promptFn = (window.Blockly && Blockly.dialog && Blockly.dialog.prompt) ? Blockly.dialog.prompt : null;
+
+          const doSave = (raw) => {
+            if (raw == null) return;
+            let name = safeName(raw);
+            if (!name) name = defaultName;
+            if (!/\.xml$/i.test(name)) name += ".xml";
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(new Blob([xml], {type:"text/xml"}));
+            a.download = name;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+          };
+
+          if (promptFn) promptFn("Назва файлу", defaultName, doSave);
+          else doSave(window.prompt("Назва файлу", defaultName));
+        } catch(e){
+          alert("Не вдалося зберегти: " + e);
+        }
+      };
+    }
+
+    // Patch runCode: add debug prefix hook safely
+    if (!window.__rcPatchedRun && typeof window.runCode === "function"){
+      window.__rcPatchedRun = true;
+      const origRun = window.runCode;
+      window.runCode = async function(){
+        // ensure debug controls reflect running
+        updateDebugUI();
+        RCWatchdog.bump();
+
+        // We re-implement minimal changes by temporarily setting STATEMENT_PREFIX
+        try{
+          if (window.javascript && javascript.javascriptGenerator){
+            javascript.javascriptGenerator.STATEMENT_PREFIX =
+              'await window.__rcStepHook(%1);\\n' +
+              'if (window._shouldStop) throw "STOPPED";\\n';
+          }
+        }catch(e){}
+
+        // If debug is enabled, start paused at first block
+        if (RCDebug.enabled){
+          RCDebug.paused = true;
+          RCDebug.lastId = null;
+          updateDebugUI();
+        } else {
+          RCDebug.forceRelease();
+        }
+
+        try{
+          await origRun();
+        } finally {
+          // cleanup
+          RCDebug.forceRelease();
+          updateDebugUI();
+        }
+      };
+    }
+
+    // Patch stopCode to also release debugger
+    if (!window.__rcPatchedStop && typeof window.stopCode === "function"){
+      window.__rcPatchedStop = true;
+      const origStop = window.stopCode;
+      window.stopCode = function(){
+        RCDebug.forceRelease();
+        try{ origStop(); } finally { updateDebugUI(); }
+      };
+    }
+
+    // Patch packet senders: bump watchdog + store telemetry
+    if (!window.__rcPatchedPackets && typeof window.sendDrivePacket === "function"){
+      window.__rcPatchedPackets = true;
+
+      const origDrive = window.sendDrivePacket;
+      window.sendDrivePacket = function(m1,m2,m3,m4){
+        RCWatchdog.bump();
+
+        // snapshot sensors
+        const s = window.sensorData || [];
+        const mode = window.isCodeRunning ? "run" : (window._isRecordingTrack ? "record" : (window._isReplayingTrack ? "replay" : "idle"));
+        RCTelemetry.push({
+          time: fmtTime(),
+          ms: nowMs(),
+          kind: "drive",
+          m1, m2, m3, m4,
+          s1: s[0] ?? "", s2: s[1] ?? "", s3: s[2] ?? "", s4: s[3] ?? "",
+          mode
+        });
+
+        return origDrive(m1,m2,m3,m4);
+      };
+
+      if (typeof window.sendSpiderPacket === "function"){
+        const origSpider = window.sendSpiderPacket;
+        window.sendSpiderPacket = function(a,b,c,d,e,f,g,h){
+          RCWatchdog.bump();
+          const s = window.sensorData || [];
+          const mode = window.isCodeRunning ? "run" : (window._isRecordingTrack ? "record" : (window._isReplayingTrack ? "replay" : "idle"));
+          RCTelemetry.push({
+            time: fmtTime(),
+            ms: nowMs(),
+            kind: "spider",
+            m1: a, m2: b, m3: c, m4: d,
+            s1: s[0] ?? "", s2: s[1] ?? "", s3: s[2] ?? "", s4: s[3] ?? "",
+            mode
+          });
+          return origSpider(a,b,c,d,e,f,g,h);
+        };
+      }
+    }
+
+    // Start watchdog
+    RCWatchdog.start();
+  }
+
+  // ---------- UI injections ----------
+  function ensureProjectsButton(){
+    if (document.getElementById("rcProjectsBtn")) return;
+    const saveBtn = document.querySelector('button[onclick="saveMyFile()"]');
+    if (!saveBtn || !saveBtn.parentElement) return;
+
+    const btn = document.createElement("button");
+    btn.id = "rcProjectsBtn";
+    btn.className = saveBtn.className;
+    btn.innerHTML = `
+      <i class="fa-solid fa-folder-open text-emerald-400 text-xl group-hover:scale-110 transition-transform"></i>
+      <div class="text-xs font-bold text-slate-300">Мої</div>
+    `;
+    btn.onclick = openProjects;
+
+    // insert after Save
+    saveBtn.parentElement.insertBefore(btn, saveBtn.nextSibling);
+  }
+
+  function ensureLogExportButton(){
+    if (document.getElementById("rcExportCSVBtn")) return;
+    const modal = document.getElementById("logModal");
+    if (!modal) return;
+
+    // Find header area with buttons, fallback to top bar inside modal
+    const btnBar = modal.querySelector(".flex.items-center.justify-between") || modal.querySelector(".flex.items-center") || modal;
+    const btn = document.createElement("button");
+    btn.id = "rcExportCSVBtn";
+    btn.className = "px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 font-black text-slate-100 text-xs";
+    btn.textContent = "Експорт CSV";
+    btn.addEventListener("click", () => RCTelemetry.exportCSV());
+
+    // place near existing controls
+    btnBar.appendChild(btn);
+  }
+
+  // Boot (few retries, no infinite loops)
+  let tries = 0;
+  (function boot(){
+    tries++;
+    try{ patchOnce(); }catch(e){}
+    if (tries < 20) setTimeout(boot, Math.min(700, 60 + tries*40));
+  })();
+
+})();
+</script>
 
 </body>
 </html>
