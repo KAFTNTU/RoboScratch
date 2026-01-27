@@ -284,6 +284,38 @@ body.layout-mobile #blocklyDiv { bottom: 64px !important; }
         .btn-log-mini { background: rgba(202, 138, 4, 0.85); }
         .btn-log-mini:hover { background: rgba(234, 179, 8, 0.95); transform: translateY(-1px); }
 
+
+        /* Mobile top bar (sensor-row) polish */
+        body.layout-mobile .sensor-row {
+            left: 10px !important;
+            right: 10px !important;
+            width: auto !important;
+            border-radius: 18px !important;
+            padding: 10px 10px !important;
+            background: rgba(15, 23, 42, 0.82) !important;
+            border: 1px solid rgba(148,163,184,0.22) !important;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.35) !important;
+            backdrop-filter: blur(10px) !important;
+        }
+        body.layout-mobile .sensor-row .top-btn {
+            width: 44px !important;
+            height: 44px !important;
+            border-radius: 14px !important;
+            background: rgba(30, 41, 59, 0.75) !important;
+            border: 1px solid rgba(148,163,184,0.22) !important;
+            color: #e2e8f0 !important;
+        }
+        body.layout-mobile .sensor-row .top-btn:hover { transform: none !important; }
+        body.layout-mobile .sensor-row .top-btn:active { transform: translateY(1px) !important; }
+
+        /* Keep RUN green, keep Step only in debug controls */
+        body.layout-mobile .sensor-row .btn-run { background: rgba(34,197,94,0.92) !important; border: 1px solid rgba(34,197,94,0.55) !important; }
+        body.layout-mobile .sensor-row .btn-run.running { background: rgba(239,68,68,0.92) !important; border: 1px solid rgba(239,68,68,0.55) !important; }
+
+        /* Hide extra debug buttons on mobile (keep only step) */
+        body.layout-mobile #rcDbgToggle,
+        body.layout-mobile #rcDbgPause { display: none !important; }
+
 </style>
 </head>
 <body class="h-screen w-screen flex flex-col">
@@ -384,12 +416,7 @@ body.layout-mobile #blocklyDiv { bottom: 64px !important; }
                 <button onclick="exitScratchMode()" class="top-btn btn-exit" title="Вийти з блоків">
                     <i class="fa-solid fa-arrow-left"></i>
                 </button>
-
-                <button onclick="toggleScratchMode(true)" class="top-btn btn-hide-header" title="Сховати/показати верхнє меню">
-                    <i class="fa-solid fa-up-right-and-down-left-from-center"></i>
-                </button>
-
-                <button onclick="document.getElementById('btConnect')?.click()" class="top-btn btn-bt-mini" title="Bluetooth">
+<button onclick="document.getElementById('btConnect')?.click()" class="top-btn btn-bt-mini" title="Bluetooth">
                     <i class="fa-brands fa-bluetooth-b"></i>
                 </button>
 
@@ -2189,63 +2216,35 @@ function checkStop() {
   };
 
   function ensureDebugButtons(){
-    if (document.getElementById("rcDbgToggle")) return;
-    const runBtn = document.getElementById("globalRunBtn");
-    if (!runBtn || !runBtn.parentElement) return;
-
-    const wrap = document.createElement("div");
-    wrap.className = "flex gap-2 items-center";
-    wrap.style.marginLeft = "10px";
-
-    wrap.innerHTML = `
-      <button id="rcDbgToggle" class="top-btn btn-run !bg-slate-800 !border !border-slate-700" title="Debug (крок за кроком)">
-        <i class="fa-solid fa-bug"></i>
-      </button>
-      <button id="rcDbgPause" class="top-btn btn-run !bg-slate-800 !border !border-slate-700 opacity-60 pointer-events-none" title="Пауза/Продовжити">
-        <i class="fa-solid fa-pause" id="rcDbgPauseIcon"></i>
-      </button>
-      <button id="rcDbgStep" class="top-btn btn-run !bg-slate-800 !border !border-slate-700 opacity-60 pointer-events-none" title="Крок">
-        <i class="fa-solid fa-forward-step"></i>
-      </button>
-    `;
-
-    runBtn.parentElement.appendChild(wrap);
-
-    document.getElementById("rcDbgToggle").addEventListener("click", () => {
-      RCDebug.setEnabled(!RCDebug.enabled);
-      if (window.log) window.log("Debug: " + (RCDebug.enabled ? "ON" : "OFF"), "info");
-    });
-    document.getElementById("rcDbgPause").addEventListener("click", () => {
-      if (!window.isCodeRunning) return;
-      if (RCDebug.paused) RCDebug.resume(); else RCDebug.pause();
-    });
-    document.getElementById("rcDbgStep").addEventListener("click", () => {
-      if (!window.isCodeRunning) return;
+    if (document.getElementById("rcDbgStep").addEventListener("click", () => {
+      // One-button stepping: if not running -> start from beginning in debug (paused) then step once.
+      if (!RCDebug.enabled) {
+        RCDebug.setEnabled(true);
+        updateDebugUI();
+      }
+      if (!window.isCodeRunning) {
+        // runCode is patched to start paused when debug is enabled
+        window.runCode();
+        // after run starts, do a single step
+        setTimeout(() => {
+          if (window.isCodeRunning) RCDebug.step();
+        }, 60);
+        return;
+      }
       RCDebug.step();
     });
-
-    updateDebugUI();
+updateDebugUI();
   }
 
   function updateDebugUI(){
-    const t = document.getElementById("rcDbgToggle");
-    const p = document.getElementById("rcDbgPause");
     const s = document.getElementById("rcDbgStep");
-    const pi = document.getElementById("rcDbgPauseIcon");
-    if (!t || !p || !s) return;
+    if (!s) return;
 
-    t.classList.toggle("running", RCDebug.enabled);
-
-    const active = !!window.isCodeRunning && RCDebug.enabled;
-    p.classList.toggle("opacity-60", !active);
-    p.classList.toggle("pointer-events-none", !active);
-    s.classList.toggle("opacity-60", !active);
-    s.classList.toggle("pointer-events-none", !active);
-
-    if (pi){
-      pi.classList.remove("fa-play","fa-pause");
-      pi.classList.add(RCDebug.paused ? "fa-play" : "fa-pause");
-    }
+    const active = !!window.isCodeRunning; // step usable when running; when not running, it starts run.
+    // Step button is always clickable; keep slight disabled look only when BT not connected maybe.
+    s.classList.toggle("opacity-60", false);
+    s.classList.toggle("pointer-events-none", false);
+  }
   }
 
   // ---------- hook into existing app ----------
