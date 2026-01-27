@@ -1762,34 +1762,7 @@ function checkStop() {
         }
 
         function newProject() { if(confirm("Створити новий проект?")) { workspace.clear(); Blockly.Xml.domToWorkspace(Blockly.utils.xml.textToDom('<xml><block type="start_hat" x="50" y="50"></block></xml>'), workspace); document.getElementById('exampleModal').classList.add('hidden'); } }
-        function saveMyFile() {
-            const xml = Blockly.utils.xml.domToText(Blockly.Xml.workspaceToDom(workspace));
-            const defaultName = "robot_code";
-
-            const doSave = (rawName) => {
-                if (rawName == null) return; // cancel
-                let name = String(rawName).trim();
-                if (!name) name = defaultName;
-
-                // sanitize for filenames
-                name = name.replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim();
-                if (!/\.xml$/i.test(name)) name += ".xml";
-
-                const a = document.createElement("a");
-                a.href = URL.createObjectURL(new Blob([xml], { type: "text/xml" }));
-                a.download = name;
-                a.click();
-                setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-            };
-
-            // Use Blockly dialog (mobile-friendly) if available, fallback to prompt
-            if (Blockly && Blockly.dialog && typeof Blockly.dialog.prompt === "function") {
-                Blockly.dialog.prompt("Введи назву файлу", defaultName, doSave);
-            } else {
-                doSave(prompt("Введи назву файлу", defaultName));
-            }
-        }
-        )); a.download = "robot_code.xml"; a.click(); }
+        function saveMyFile() { const xml = Blockly.utils.xml.domToText(Blockly.Xml.workspaceToDom(workspace)); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([xml],{type:"text/xml"})); a.download = "robot_code.xml"; a.click(); }
         function loadMyFile(input, isAppend) { const f = input.files[0]; if(!f) return; const r = new FileReader(); r.onload = (e) => { if(!isAppend) workspace.clear(); Blockly.Xml.domToWorkspace(Blockly.utils.xml.textToDom(e.target.result), workspace); document.getElementById('exampleModal').classList.add('hidden'); }; r.readAsText(f); input.value = ''; }
         
         Blockly.dialog.setPrompt(function(message, defaultValue, callback) {
@@ -2451,6 +2424,5 @@ updateDebugUI();
 })();
 </script>
 
-  <script src="help.js"></script>
 </body>
 </html>
