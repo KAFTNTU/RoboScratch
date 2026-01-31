@@ -890,6 +890,63 @@ domToMutation: function(xmlElement){
     };
   }
 
+
+  // ------------------------------------------------------------
+  // Fix legacy rc_mini WRAP_TYPE dropdown (remove menu everywhere)
+  // ------------------------------------------------------------
+  function _disableWrapTypeEditorOnBlock(b){
+    try{
+      if (!b || !(b.type==='rc_mini' || b.type==='rc_mini_value')) return;
+      const f = b.getField && b.getField('WRAP_TYPE');
+      if (!f) return;
+      // Old versions used FieldDropdown. Kill its editor so the menu never shows.
+      if (typeof f.showEditor_ === 'function') f.showEditor_ = function(){};
+      const ct = f.getClickTarget_ ? f.getClickTarget_() : null;
+      if (ct){
+        ct.style.pointerEvents = 'none';
+        ct.style.cursor = 'default';
+      }
+    }catch(e){}
+  }
+
+  function patchMiniWrapEditorsInWorkspace(ws){
+    const Blockly = window.Blockly;
+    if (!ws || !ws.getAllBlocks) return;
+    try{
+      for (const b of ws.getAllBlocks(false)){
+        _disableWrapTypeEditorOnBlock(b);
+      }
+    }catch(e){}
+    // Patch future created blocks too
+    try{
+      if (Blockly && Blockly.Events && ws.addChangeListener && !ws.__rcMiniWrapPatch){
+        ws.__rcMiniWrapPatch = true;
+        ws.addChangeListener((ev)=>{
+          try{
+            if (!ev) return;
+            if (ev.type === Blockly.Events.BLOCK_CREATE && ev.ids){
+              for (const id of ev.ids){
+                const b = ws.getBlockById(id);
+                _disableWrapTypeEditorOnBlock(b);
+              }
+            }
+          }catch(e){}
+        });
+      }
+    }catch(e){}
+  }
+
+  function patchMiniWrapEditorsAll(){
+    const Blockly = window.Blockly;
+    if (!Blockly) return;
+    const list = (Blockly.Workspace && Blockly.Workspace.getAll) ? Blockly.Workspace.getAll() : [];
+    if (list && list.length){
+      for (const ws of list) patchMiniWrapEditorsInWorkspace(ws);
+    } else {
+      try{ patchMiniWrapEditorsInWorkspace(Blockly.getMainWorkspace && Blockly.getMainWorkspace()); }catch(e){}
+    }
+  }
+
   // ------------------------------------------------------------
   // Custom macro block types (stored) — dynamic fields from params
   // ------------------------------------------------------------
@@ -1278,12 +1335,34 @@ domToMutation: function(xmlElement){
     if (isValueMini && !isValueBlock){ toast('Потрібен VALUE-блок'); return; }
     if (!isValueMini && isValueBlock){ toast('Потрібен STATEMENT-блок'); return; }
 
+    const Blockly = window.Blockly;
+    const oldData = (b.data || '');
+    const oldWrap = (b.getFieldValue ? (b.getFieldValue('WRAP_TYPE') || '') : '');
+
     const ser = RC._miniSerialize ? RC._miniSerialize(top) : null;
     b.data = ser ? u.jstring(ser) : '';
     try{ b._rcMiniState = b.data; }catch(e){}
 
-    // Store wrap type as the inner block type (no dropdown меню)
-    try{ if (top.type) b.setFieldValue(top.type, 'WRAP_TYPE'); }catch(e){}
+    // Store wrap type as the inner top block type (no dropdown menu)
+    let newWrap = oldWrap;
+    try{ if (top.type){ newWrap = top.type; b.setFieldValue(newWrap, 'WRAP_TYPE'); } }catch(e){}
+
+    // Tell Blockly this block changed (needed for Undo/Redo + autosave listeners)
+    try{
+      if (Blockly && Blockly.Events && Blockly.Events.isEnabled && Blockly.Events.isEnabled()){
+        try{ Blockly.Events.fire(new Blockly.Events.BlockChange(b, 'mutation', null, oldData, (b.data||''))); }catch(e){}
+        if (newWrap !== oldWrap){
+          try{ Blockly.Events.fire(new Blockly.Events.BlockChange(b, 'field', 'WRAP_TYPE', oldWrap, newWrap)); }catch(e){}
+        }
+      }
+    }catch(e){}
+
+    // Force draft save right now (inner content changes don't auto-trigger workspace events)
+    try{
+      if (typeof saveDraft === 'function' && typeof builder !== 'undefined' && builder && builder.ws && b.workspace === builder.ws){
+        saveDraft();
+      }
+    }catch(e){}
 
     toast('Збережено');
     closeMiniModal();
@@ -1389,6 +1468,9 @@ domToMutation: function(xmlElement){
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
+
+    // Patch legacy WRAP_TYPE dropdowns in builder workspace
+    try{ patchMiniWrapEditorsInWorkspace(builder.ws); }catch(e){}
 
     // Force dark toolbox/flyout in case global styles override theme (index styles can be aggressive)
     try{
@@ -2191,7 +2273,7 @@ domToMutation: function(xmlElement){
         u.el('div',{style:'color:#e2e8f0;font-weight:950;'},`S${i+1}`),
         u.el('div',{style:'color:#94a3b8;font-weight:900;', id:`rcSimVal${i}`},'0')
       ]);
-      const s = u.el('input',{type:'range', min:'0', max:'400', value:'0', style:'width:100%;'});
+      const s = u.el('input',{type:'range', min:'0', max:'100', value:'0', style:'width:100%;'});
       s.addEventListener('input', ()=>{
         document.getElementById(`rcSimVal${i}`).textContent = s.value;
       });
@@ -2914,6 +2996,8 @@ domToMutation: function(xmlElement){
     // Ensure category + define blocks
     ensureCustomCategory();
     defineMiniAndParamBlocks(Blockly);
+    // Remove old WRAP_TYPE dropdown menus on existing mini blocks
+    patchMiniWrapEditorsAll();
 
     // Register existing custom blocks
     for (const d of loadBlocks()){
