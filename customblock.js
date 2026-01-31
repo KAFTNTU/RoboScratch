@@ -591,12 +591,28 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
   }
 
   function defineMiniAndParamBlocks(Blockly){
-    if (Blockly.Blocks['rc_mini']) return;
+    // Always (re)define to avoid stale cached versions
+    try{ if (Blockly.Blocks['rc_mini']) delete Blockly.Blocks['rc_mini']; }catch(e){}
+    try{ if (Blockly.Blocks['rc_mini_value']) delete Blockly.Blocks['rc_mini_value']; }catch(e){}
 
     function addGearField(input, miniBlockRefGetter){
       const field = new Blockly.FieldImage(GEAR_SVG, 16, 16, '⚙', function(){
         const b = miniBlockRefGetter();
-        if (b) openMiniConfigModal(b);
+        if (!b) return;
+
+        // If an older cached rc_mini used a dropdown for WRAP_TYPE, disable its editor to remove the menu.
+        try{
+          const f = b.getField && b.getField('WRAP_TYPE');
+          if (f && typeof f.showEditor_ === 'function'){
+            f.showEditor_ = function(){ /* disabled */ };
+          }
+          if (f && f.getClickTarget_ && f.getClickTarget_()){
+            f.getClickTarget_().style.pointerEvents = 'none';
+            f.getClickTarget_().style.cursor = 'default';
+          }
+        }catch(e){}
+
+        openMiniConfigModal(b);
       });
       input.appendField(field, 'GEAR');
     }
@@ -750,40 +766,80 @@ domToMutation: function(xmlElement){
     }
 
     function serializeBlock(block){
-      try { if (Blockly.serialization?.blocks?.save) return { kind:'json', payload: Blockly.serialization.blocks.save(block) }; }
-      catch(e){}
-      try {
+      // Robust: always store XML (most compatible) + optionally JSON state
+      let xmlText = '';
+      try{
         const xml = Blockly.Xml.blockToDom(block, true);
-        return { kind:'xml', payload: Blockly.Xml.domToText(xml) };
-      } catch(e){}
-      return null;
+        xmlText = Blockly.Xml.domToText(xml);
+      }catch(e){ xmlText = ''; }
+
+      let jsonState = null;
+      try{
+        if (Blockly.serialization?.blocks?.save){
+          jsonState = Blockly.serialization.blocks.save(block);
+        }
+      }catch(e){ jsonState = null; }
+
+      // Prefer XML for restore; keep JSON as optional extra
+      return { kind:'xml', payload: xmlText, json: jsonState };
     }
 
     function deserializeBlockTo(ws, wrapType, stateObj){
       ws.clear();
       let b = null;
 
-      if (stateObj && stateObj.kind === 'json' && Blockly.serialization?.blocks?.load){
+      // 1) Prefer XML restore (most compatible across Blockly versions)
+      const tryXml = (xmlText)=>{
+        if (!xmlText) return null;
         try{
-          Blockly.serialization.blocks.load(stateObj.payload, ws);
-          b = ws.getTopBlocks(true)[0] || null;
-        }catch(e){ b=null; }
+          const dom = Blockly.Xml.textToDom(xmlText);
+          ws.clear();
+          const loaded = Blockly.Xml.domToBlock(dom, ws);
+          const top = loaded || (ws.getTopBlocks(true)[0] || null);
+          if (top){
+            try{ if (top.initSvg && !top.svgGroup_) top.initSvg(); }catch(e){}
+            try{ if (top.render) top.render(); }catch(e){}
+          }
+          return top || null;
+        }catch(e){ return null; }
+      };
+
+      // 2) Optional JSON restore
+      const tryJson = (jsonState)=>{
+        if (!jsonState || !Blockly.serialization?.blocks?.load) return null;
+        try{
+          ws.clear();
+          Blockly.serialization.blocks.load(jsonState, ws);
+          const top = ws.getTopBlocks(true)[0] || null;
+          if (top){
+            try{ if (top.initSvg && !top.svgGroup_) top.initSvg(); }catch(e){}
+            try{ if (top.render) top.render(); }catch(e){}
+          }
+          return top;
+        }catch(e){ return null; }
+      };
+
+      if (stateObj){
+        // New format: {kind:'xml', payload:'...', json: {...}}
+        if (stateObj.kind === 'xml'){
+          b = tryXml(stateObj.payload) || tryJson(stateObj.json);
+        } else if (stateObj.kind === 'json'){
+          b = tryJson(stateObj.payload) || tryXml(stateObj.xml || stateObj.payloadXml || '');
+        } else {
+          // Unknown: attempt both
+          b = tryXml(stateObj.payload) || tryJson(stateObj.json || stateObj.payload);
+        }
       }
+
+      // 3) Fallback: create empty block of wrapType
       if (!b){
         try{
           b = ws.newBlock(wrapType);
-          b.initSvg(); b.render();
-          if (stateObj && stateObj.kind === 'xml'){
-            const dom = Blockly.Xml.textToDom(stateObj.payload);
-            ws.clear();
-            const loaded = Blockly.Xml.domToBlock(dom, ws);
-            b = loaded || b;
-            b.initSvg(); b.render();
-          }
-        }catch(e){
-          try{ b = ws.newBlock(wrapType); b.initSvg(); b.render(); }catch(_){ b=null; }
-        }
+          try{ if (b.initSvg && !b.svgGroup_) b.initSvg(); }catch(e){}
+          try{ if (b.render) b.render(); }catch(e){}
+        }catch(e){ b = null; }
       }
+
       return b;
     }
 
@@ -1193,7 +1249,10 @@ domToMutation: function(xmlElement){
 
     const wrapType = miniBlock.getFieldValue('WRAP_TYPE');
     let state = null;
-    if (!forceFresh) state = u.jparse(miniBlock.data || '', null);
+    if (!forceFresh){
+      const raw = (miniBlock.data && String(miniBlock.data)) || (miniBlock._rcMiniState && String(miniBlock._rcMiniState)) || '';
+      state = u.jparse(raw, null);
+    }
 
     let real = null;
     if (RC._miniDeserializeTo){
@@ -1221,6 +1280,7 @@ domToMutation: function(xmlElement){
 
     const ser = RC._miniSerialize ? RC._miniSerialize(top) : null;
     b.data = ser ? u.jstring(ser) : '';
+    try{ b._rcMiniState = b.data; }catch(e){}
 
     // Store wrap type as the inner block type (no dropdown меню)
     try{ if (top.type) b.setFieldValue(top.type, 'WRAP_TYPE'); }catch(e){}
@@ -1980,6 +2040,7 @@ domToMutation: function(xmlElement){
         if (t.preset.field) b.setFieldValue(t.preset.value, t.preset.field);
         const ser = RC._miniSerialize(b);
         nb.data = ser ? u.jstring(ser) : '';
+    try{ b._rcMiniState = b.data; }catch(e){}
         ws.dispose();
         tmpDiv.remove();
       }catch(e){}
