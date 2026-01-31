@@ -1,35 +1,41 @@
-/* customblock.js v2.6
-   RoboControl - Custom Blocks (Variant B) — UI back like earlier + manager + grid
-
-   User fixes:
-   1) Custom Builder: look simpler (like before) — only 2 mini blocks + visible ⚙ on each, no trashcan UI.
-   2) Bring back management: rename / recolor / delete / edit custom blocks.
-   3) Builder grid must be real grid, not just background.
-   4) Keep: 🧩 only in Scratch view (#view-builder), PC only; custom blocks PC only.
-   5) After saving: custom block appears in ⭐ Мої блоки instantly.
-
-   Notes:
-   - We DO NOT override your own blocks' mixins; we only use ContextMenuRegistry for our blocks.
-   - We keep a lightweight map of defs so rename/color updates work.
+/* customblock.js v2.8
+   RoboControl - Custom Blocks (Variant B) — "mini-blocks" builder + manager
+   Adds (requested): everything except restriction modes.
+   - Parameters for custom blocks (fields on the big block) + rc_param value block
+   - Validation (pre-pack) + warnings UI
+   - Templates / snippets (insert mini blocks)
+   - Simulator (dry-run) + Step highlighting + log + sensor sliders
+   - History (autosave snapshots + restore)
+   - Mini-block quick actions (duplicate/copy/paste/convert)
+   - Export / Import + Share link (URL hash import)
+   Keeps:
+   - PC only
+   - 🧩 button only inside Scratch view (#view-builder), not joystick
+   - Mini-config modal large, dark toolbox, no scrollbars shown, grid enabled
 */
 (function(){
   'use strict';
 
   const RC = window.RC_CUSTOMBLOCK = window.RC_CUSTOMBLOCK || {};
-  const VERSION = 'v2.6';
+  const VERSION = 'v2.8';
 
   const CFG = {
     storageKeyBlocks: 'rc_cb_blocks_v2',
+    storageKeyDraft: 'rc_cb_builder_draft_v2',
+    storageKeyHistoryPrefix: 'rc_cb_history_',
+    storageKeyClipboard: 'rc_cb_clip_v1',
+    storageKeyImportedHash: 'rc_cb_imported_hash_v1',
     customCategoryId: 'rc_custom_category',
     customCategoryName: '⭐ Мої блоки',
     customCategoryColour: '#F59E0B',
     defaultCustomBlockColour: '#FB923C',
-    uiZ: 96
+    uiZ: 96,
+    maxHistory: 14
   };
 
-  // ------------------------------
+  // ------------------------------------------------------------
   // Desktop detect (PC only)
-  // ------------------------------
+  // ------------------------------------------------------------
   function isDesktop(){
     try{
       const fine = window.matchMedia && window.matchMedia('(pointer: fine)').matches;
@@ -41,9 +47,9 @@
     }
   }
 
-  // ------------------------------
+  // ------------------------------------------------------------
   // Utils
-  // ------------------------------
+  // ------------------------------------------------------------
   const u = {
     uid(prefix='id'){
       return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
@@ -73,23 +79,59 @@
       let t=null;
       return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms); };
     },
-    downloadText(filename, text){
-      const blob = new Blob([text], { type:'application/json' });
+    clamp(n, a, b){ n = Number(n); if (!isFinite(n)) return a; return Math.max(a, Math.min(b, n)); },
+    nowLabel(){
+      const d = new Date();
+      const p = (x)=>String(x).padStart(2,'0');
+      return `${p(d.getDate())}.${p(d.getMonth()+1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    },
+    downloadText(filename, text, mime='application/json'){
+      const blob = new Blob([text], { type:mime });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = filename;
       document.body.appendChild(a);
       a.click();
       setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 0);
+    },
+    async copyText(txt){
+      try{ await navigator.clipboard.writeText(txt); return true; }
+      catch(e){
+        try{
+          const ta = document.createElement('textarea');
+          ta.value = txt;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+          return true;
+        }catch(_){ return false; }
+      }
+    },
+    b64enc(str){
+      // UTF-8 safe base64
+      const bytes = new TextEncoder().encode(str);
+      let bin='';
+      bytes.forEach(b=>bin += String.fromCharCode(b));
+      return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+    },
+    b64dec(b64url){
+      try{
+        const b64 = b64url.replace(/-/g,'+').replace(/_/g,'/');
+        const pad = b64.length % 4 ? '='.repeat(4 - (b64.length%4)) : '';
+        const bin = atob(b64 + pad);
+        const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+        return new TextDecoder().decode(bytes);
+      }catch(e){ return null; }
     }
   };
 
-  // ------------------------------
+  // ------------------------------------------------------------
   // Toast
-  // ------------------------------
+  // ------------------------------------------------------------
   let toastT=null;
   function toast(msg){
-    const id = 'rcCbToast';
+    const id='rcCbToast';
     let el = document.getElementById(id);
     if (!el){
       el = u.el('div', { id, style: `
@@ -100,7 +142,7 @@
         padding: 10px 12px;
         border-radius: 14px;
         font-weight: 900;
-        z-index: ${CFG.uiZ+8};
+        z-index: ${CFG.uiZ+100};
         display:none;
         backdrop-filter: blur(10px);
         box-shadow: 0 18px 60px rgba(0,0,0,.55);
@@ -110,22 +152,22 @@
     el.textContent = msg;
     el.style.display='block';
     clearTimeout(toastT);
-    toastT = setTimeout(()=>{ el.style.display='none'; }, 1300);
+    toastT = setTimeout(()=>{ el.style.display='none'; }, 1400);
   }
 
-  // ------------------------------
+  // ------------------------------------------------------------
   // Storage + defs map
-  // ------------------------------
+  // ------------------------------------------------------------
   RC._defsByType = RC._defsByType || new Map();
+  RC._paramCtx = null; // used during JS generation
+  RC._currentParamOptions = []; // for rc_param dropdown in config modal
 
   function loadBlocks(){
     const raw = localStorage.getItem(CFG.storageKeyBlocks);
     const data = u.jparse(raw, []);
     return Array.isArray(data) ? data : [];
   }
-  function saveBlocks(arr){
-    localStorage.setItem(CFG.storageKeyBlocks, u.jstring(arr || []));
-  }
+  function saveBlocks(arr){ localStorage.setItem(CFG.storageKeyBlocks, u.jstring(arr || [])); }
   function rebuildDefsMap(){
     RC._defsByType.clear();
     for (const d of loadBlocks()){
@@ -147,9 +189,9 @@
     rebuildDefsMap();
   }
 
-  // ------------------------------
+  // ------------------------------------------------------------
   // CSS
-  // ------------------------------
+  // ------------------------------------------------------------
   function injectCss(){
     if (document.getElementById('rc-cb-css')) return;
     const s = document.createElement('style');
@@ -196,11 +238,7 @@
   border-bottom: 1px solid rgba(148,163,184,.10);
   background: rgba(2,6,23,.28);
 }
-#rcCustomBlocksTop .lbl{
-  font-size: 11px;
-  font-weight: 900;
-  color: #cbd5e1;
-}
+#rcCustomBlocksTop .lbl{ font-size: 11px; font-weight: 900; color: #cbd5e1; }
 #rcCustomBlocksTop input[type="text"]{
   min-width: 220px;
   background: rgba(2,6,23,.55);
@@ -233,55 +271,98 @@
   color: #fff;
 }
 #rcCustomBlocksTop .btn:active{ transform: scale(.99); }
-#rcCustomBlocksDiv{
-  flex:1;
-  min-height: 0;
-  background: rgba(2,6,23,.35);
-}
+#rcCustomBlocksDiv{ flex:1; min-height:0; background: rgba(2,6,23,.35); }
 
-/* Dark toolbox for builder workspace (so it doesn't look "white") */
+/* Dark toolbox for builder workspace */
 #view-customblocks .blocklyToolboxDiv{
   background: rgba(15,23,42,.96) !important;
   border-right: 1px solid rgba(148,163,184,.12) !important;
-  width: 230px !important;
+  width: 240px !important;
 }
-#view-customblocks .blocklyTreeLabel{
-  color:#e2e8f0 !important;
-  font-weight: 900 !important;
-}
+#view-customblocks .blocklyTreeLabel{ color:#e2e8f0 !important; font-weight: 900 !important; }
 #view-customblocks .blocklyFlyoutBackground{ fill: rgba(2,6,23,.55) !important; }
 #view-customblocks .blocklyMainBackground{ fill: rgba(2,6,23,.35) !important; }
 
-/* Manager modal */
-#rcCbMgrBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.58);backdrop-filter:blur(8px);z-index:${CFG.uiZ+20};display:none;}
-#rcCbMgrModal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
-width:min(860px,calc(100vw - 20px));height:min(78vh,680px);
-background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radius:18px;overflow:hidden;
-z-index:${CFG.uiZ+21};display:none;box-shadow:0 28px 90px rgba(0,0,0,.6);}
-#rcCbMgrModal .hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(148,163,184,.14);}
-#rcCbMgrModal .hdr .ttl{display:flex;align-items:center;gap:10px;color:#e2e8f0;font-weight:950;letter-spacing:.08em;text-transform:uppercase;font-size:12px;}
-#rcCbMgrModal .hdr .ttl .dot{width:10px;height:10px;border-radius:4px;background:${CFG.customCategoryColour};box-shadow:0 0 12px rgba(245,158,11,.45);}
-#rcCbMgrModal .hdr .x{width:42px;height:42px;border-radius:14px;border:1px solid rgba(148,163,184,.15);background:rgba(30,41,59,.70);color:#e2e8f0;cursor:pointer;display:flex;align-items:center;justify-content:center;}
-#rcCbMgrModal .bar{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(148,163,184,.10);background:rgba(2,6,23,.28);}
-#rcCbMgrModal .bar .btn{padding:10px 12px;border-radius:14px;border:1px solid rgba(148,163,184,.14);background:rgba(30,41,59,.74);color:#e2e8f0;font-weight:950;cursor:pointer;}
-#rcCbMgrModal .bar .btn.primary{background:rgba(59,130,246,.85);border-color:rgba(59,130,246,.55);color:#fff;}
-#rcCbMgrList{padding:12px 14px;overflow:auto; height: calc(100% - 120px);}
-#rcCbMgrList{scrollbar-width:none;-ms-overflow-style:none;}
-#rcCbMgrList::-webkit-scrollbar{width:0!important;height:0!important;}
-.rcCbRow{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid rgba(148,163,184,.12);border-radius:14px;background:rgba(30,41,59,.35);margin-bottom:10px;}
-.rcCbRow .name{flex:1;color:#e2e8f0;font-weight:950;}
-.rcCbRow .meta{color:#94a3b8;font-size:12px;font-weight:800;}
-.rcCbRow .sw{width:16px;height:16px;border-radius:6px;border:1px solid rgba(148,163,184,.18);}
-.rcCbRow .act{display:flex;gap:8px;align-items:center;}
-.rcCbRow .act .btn{padding:8px 10px;border-radius:12px;border:1px solid rgba(148,163,184,.14);background:rgba(30,41,59,.74);color:#e2e8f0;font-weight:950;cursor:pointer;}
-.rcCbRow .act .btn.danger{border-color:rgba(248,113,113,.35);background:rgba(248,113,113,.12);color:#fecaca;}
+/* Generic modal */
+.rcModalBackdrop{
+  position:fixed; inset:0; background:rgba(0,0,0,.58);
+  backdrop-filter:blur(8px);
+  z-index:${CFG.uiZ+20}; display:none;
+}
+.rcModal{
+  position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+  width:min(980px,calc(100vw - 20px)); height:min(82vh,740px);
+  background:rgba(15,23,42,.96);
+  border:1px solid rgba(148,163,184,.16);
+  border-radius:18px; overflow:hidden;
+  z-index:${CFG.uiZ+21}; display:none;
+  box-shadow:0 28px 90px rgba(0,0,0,.6);
+}
+.rcModal .hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(148,163,184,.14);}
+.rcModal .hdr .ttl{display:flex;align-items:center;gap:10px;color:#e2e8f0;font-weight:950;letter-spacing:.08em;text-transform:uppercase;font-size:12px;}
+.rcModal .hdr .ttl .dot{width:10px;height:10px;border-radius:4px;background:${CFG.customCategoryColour};box-shadow:0 0 12px rgba(245,158,11,.45);}
+.rcModal .hdr .x{width:42px;height:42px;border-radius:14px;border:1px solid rgba(148,163,184,.15);background:rgba(30,41,59,.70);color:#e2e8f0;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.rcModal .bar{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(148,163,184,.10);background:rgba(2,6,23,.28);}
+.rcModal .bar .btn{padding:10px 12px;border-radius:14px;border:1px solid rgba(148,163,184,.14);background:rgba(30,41,59,.74);color:#e2e8f0;font-weight:950;cursor:pointer;}
+.rcModal .bar .btn.primary{background:rgba(59,130,246,.85);border-color:rgba(59,130,246,.55);color:#fff;}
+.rcModal .body{padding:12px 14px;overflow:auto;height: calc(100% - 110px);}
+.rcModal .body{scrollbar-width:none;-ms-overflow-style:none;}
+.rcModal .body::-webkit-scrollbar{width:0!important;height:0!important;}
+
+/* List rows */
+.rcRow{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid rgba(148,163,184,.12);border-radius:14px;background:rgba(30,41,59,.35);margin-bottom:10px;}
+.rcRow .name{flex:1;color:#e2e8f0;font-weight:950;}
+.rcRow .meta{color:#94a3b8;font-size:12px;font-weight:800;}
+.rcRow .sw{width:16px;height:16px;border-radius:6px;border:1px solid rgba(148,163,184,.18);}
+.rcRow .act{display:flex;gap:8px;align-items:center;}
+.rcRow .act .btn{padding:8px 10px;border-radius:12px;border:1px solid rgba(148,163,184,.14);background:rgba(30,41,59,.74);color:#e2e8f0;font-weight:950;cursor:pointer;}
+.rcRow .act .btn.danger{border-color:rgba(248,113,113,.35);background:rgba(248,113,113,.12);color:#fecaca;}
+
+/* Validation list */
+.rcIssue{padding:10px;border:1px solid rgba(148,163,184,.12);border-radius:14px;background:rgba(2,6,23,.35);margin-bottom:10px;}
+.rcIssue .t{font-weight:950;color:#e2e8f0;}
+.rcIssue .d{font-weight:800;color:#94a3b8;font-size:12px;margin-top:4px;}
+
+/* Simulator */
+#rcSimGrid{display:grid;grid-template-columns:320px 1fr;gap:12px;height:100%;min-height:0;}
+#rcSimLeft{border-right:1px solid rgba(148,163,184,.12);padding-right:12px;min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:12px;}
+#rcSimRight{min-height:0;overflow:hidden;display:flex;flex-direction:column;}
+#rcSimLog{flex:1;background:rgba(2,6,23,.55);border:1px solid rgba(148,163,184,.14);border-radius:14px;padding:10px;color:#e2e8f0;font-size:12px;line-height:1.35;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;}
+#rcSimLog{scrollbar-width:none;-ms-overflow-style:none;}
+#rcSimLog::-webkit-scrollbar{width:0!important;height:0!important;}
+
+/* Mini config modal bigger + dark toolbox */
+#rcMiniBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.58);backdrop-filter:blur(8px);z-index:${CFG.uiZ+2};display:none;}
+#rcMiniModal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(1460px,calc(100vw - 14px));height:min(92vh,880px);
+background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radius:18px;overflow:hidden;z-index:${CFG.uiZ+3};display:none;box-shadow:0 28px 90px rgba(0,0,0,.6);}
+#rcMiniModal .hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(148,163,184,.14);}
+#rcMiniModal .ttl{color:#e2e8f0;font-weight:950;letter-spacing:.08em;text-transform:uppercase;font-size:12px;display:flex;gap:10px;align-items:center;}
+#rcMiniModal .ttl .dot{width:10px;height:10px;border-radius:4px;background:${CFG.defaultCustomBlockColour};box-shadow:0 0 12px rgba(251,146,60,.5);}
+#rcMiniModal .x{width:42px;height:42px;border-radius:14px;border:1px solid rgba(148,163,184,.15);background:rgba(30,41,59,.70);color:#e2e8f0;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+#rcMiniModal .bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border-bottom:1px solid rgba(148,163,184,.10);background:rgba(2,6,23,.28);color:#cbd5e1;font-weight:800;font-size:12px;}
+#rcMiniModal code{padding:2px 7px;border-radius:999px;background:rgba(30,41,59,.75);border:1px solid rgba(148,163,184,.14);color:#e2e8f0;font-size:11px;}
+#rcMiniModal .btn{padding:10px 12px;border-radius:14px;border:1px solid rgba(148,163,184,.14);background:rgba(30,41,59,.74);color:#e2e8f0;font-weight:950;cursor:pointer;}
+#rcMiniModal .btn.primary{background:rgba(59,130,246,.85);border-color:rgba(59,130,246,.55);color:#fff;}
+#rcMiniModal .body{height:calc(100% - 100px);display:grid;grid-template-columns:360px 1fr;min-height:0;}
+#rcMiniModal .left,#rcMiniModal .right{min-height:0;overflow:hidden;}
+#rcMiniModal .left{border-right:1px solid rgba(148,163,184,.12);padding:12px 12px 12px 14px;display:flex;flex-direction:column;gap:12px;}
+#rcMiniModal .right{padding:12px;display:flex;flex-direction:column;min-height:0;}
+#rcMiniModal pre{margin:0;background:rgba(2,6,23,.55);border:1px solid rgba(148,163,184,.14);border-radius:14px;padding:10px;color:#e2e8f0;font-size:12px;line-height:1.35;overflow:auto;min-height:200px;max-height:46vh;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;}
+#rcMiniModal pre,#rcMiniModal .left,#rcMiniModal .right{scrollbar-width:none;-ms-overflow-style:none;}
+#rcMiniModal pre::-webkit-scrollbar,#rcMiniModal .left::-webkit-scrollbar,#rcMiniModal .right::-webkit-scrollbar{width:0!important;height:0!important;}
+#rcMiniBlocklyHost{flex:1;min-height:640px;border-radius:14px;border:1px solid rgba(148,163,184,.14);overflow:hidden;background:rgba(2,6,23,.35);}
+#rcMiniBlockly{width:100%;height:100%;}
+#rcMiniModal .blocklyToolboxDiv{background:rgba(15,23,42,.96)!important;border-right:1px solid rgba(148,163,184,.12)!important;width:230px!important;}
+#rcMiniModal .blocklyTreeLabel{color:#e2e8f0!important;font-weight:900!important;}
+#rcMiniModal .blocklyFlyoutBackground{fill:rgba(2,6,23,.55)!important;}
+#rcMiniModal .blocklyMainBackground{fill:rgba(2,6,23,.35)!important;}
 `;
     document.head.appendChild(s);
   }
 
-  // ------------------------------
+  // ------------------------------------------------------------
   // Toolbox category: ⭐ Мої блоки
-  // ------------------------------
+  // ------------------------------------------------------------
   function ensureCustomCategory(){
     const toolboxXml = document.getElementById('toolbox');
     if (!toolboxXml) return null;
@@ -316,9 +397,7 @@ z-index:${CFG.uiZ+21};display:none;box-shadow:0 28px 90px rgba(0,0,0,.6);}
     }
 
     try { workspace.updateToolbox(toolboxXml); }
-    catch(e){
-      try { workspace.updateToolbox(toolboxXml.outerHTML); } catch(_){}
-    }
+    catch(e){ try { workspace.updateToolbox(toolboxXml.outerHTML); } catch(_){ } }
 
     setTimeout(()=>{
       try { markCustomCategoryRow(workspace); } catch(e){}
@@ -353,12 +432,13 @@ z-index:${CFG.uiZ+21};display:none;box-shadow:0 28px 90px rgba(0,0,0,.6);}
     }catch(e){}
   }
 
-  // ------------------------------
-  // Mini blocks (rc_mini / rc_mini_value) + ⚙ on block
-  // ------------------------------
+  // ------------------------------------------------------------
+  // Mini blocks + rc_param block
+  // ------------------------------------------------------------
   const GEAR_SVG = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`
-<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24">
-  <path fill="#e2e8f0" d="M19.14,12.94a7.43,7.43,0,0,0,.05-.94,7.43,7.43,0,0,0-.05-.94l2.11-1.65a.5.5,0,0,0,.12-.64l-2-3.46a.5.5,0,0,0-.6-.22l-2.49,1a7.28,7.28,0,0,0-1.63-.94l-.38-2.65A.5.5,0,0,0,12.77,2H11.23a.5.5,0,0,0-.49.42L10.36,5.07a7.28,7.28,0,0,0-1.63.94l-2.49-1a.5.5,0,0,0-.6.22l-2,3.46a.5.5,0,0,0,.12.64L5.86,11.06a7.43,7.43,0,0,0-.05.94,7.43,7.43,0,0,0,.05.94L3.75,14.59a.5.5,0,0,0-.12.64l2,3.46a.5.5,0,0,0,.6.22l2.49-1a7.28,7.28,0,0,0,1.63.94l.38,2.65a.5.5,0,0,0,.49.42h1.54a.5.5,0,0,0,.49-.42l.38-2.65a7.28,7.28,0,0,0,1.63-.94l2.49,1a.5.5,0,0,0,.6-.22l2-3.46a.5.5,0,0,0-.12-.64ZM12,15.5A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18">
+  <rect width="18" height="18" rx="4" ry="4" fill="none"/>
+  <text x="9" y="13" text-anchor="middle" font-size="14">⚙</text>
 </svg>`);
 
   function getAllBlockTypesDropdown(){
@@ -375,7 +455,13 @@ z-index:${CFG.uiZ+21};display:none;box-shadow:0 28px 90px rgba(0,0,0,.6);}
     }
   }
 
-  function defineMiniBlocks(Blockly){
+  function getParamOptions(){
+    const opts = RC._currentParamOptions || [];
+    if (!opts.length) return [['(нема)', '']];
+    return opts.map(p => [p.name, p.name]);
+  }
+
+  function defineMiniAndParamBlocks(Blockly){
     if (Blockly.Blocks['rc_mini']) return;
 
     function addGearField(input, miniBlockRefGetter){
@@ -415,34 +501,72 @@ z-index:${CFG.uiZ+21};display:none;box-shadow:0 28px 90px rgba(0,0,0,.6);}
       }
     };
 
-    // Context menu item as fallback (right-click)
+    // Parameter block (value)
+    Blockly.Blocks['rc_param'] = {
+      init: function(){
+        this.appendDummyInput()
+          .appendField('🔧')
+          .appendField(new Blockly.FieldDropdown(getParamOptions), 'PNAME');
+        this.setOutput(true, null);
+        this.setColour('#0EA5E9');
+        this.setTooltip('Параметр кастом-блоку (значення з великого блоку)');
+      }
+    };
+
+    // Context menu items for mini blocks (quick actions)
     if (Blockly.ContextMenuRegistry && Blockly.ContextMenuRegistry.registry){
       const reg = Blockly.ContextMenuRegistry.registry;
+
+      const isMini = (b)=> b && (b.type==='rc_mini' || b.type==='rc_mini_value');
 
       if (!reg.getItem('rc_mini_config')){
         reg.register({
           id: 'rc_mini_config',
           scopeType: Blockly.ContextMenuRegistry.ScopeType.BLOCK,
-          displayText: function(){ return '⚙ Налаштувати міні-блок…'; },
-          preconditionFn: function(scope){
-            const b = scope.block;
-            return (b && (b.type === 'rc_mini' || b.type === 'rc_mini_value')) ? 'enabled' : 'hidden';
-          },
-          callback: function(scope){ openMiniConfigModal(scope.block); },
+          displayText: ()=> '⚙ Налаштувати міні-блок…',
+          preconditionFn: (scope)=> isMini(scope.block) ? 'enabled' : 'hidden',
+          callback: (scope)=> openMiniConfigModal(scope.block),
           weight: 120
         });
       }
-      if (!reg.getItem('rc_mini_clear')){
+      if (!reg.getItem('rc_mini_dup')){
         reg.register({
-          id: 'rc_mini_clear',
+          id: 'rc_mini_dup',
           scopeType: Blockly.ContextMenuRegistry.ScopeType.BLOCK,
-          displayText: function(){ return '🧹 Очистити стан'; },
-          preconditionFn: function(scope){
-            const b = scope.block;
-            return (b && (b.type === 'rc_mini' || b.type === 'rc_mini_value')) ? 'enabled' : 'hidden';
-          },
-          callback: function(scope){ scope.block.data=''; toast('Стан очищено'); },
+          displayText: ()=> '📄 Дублювати',
+          preconditionFn: (scope)=> isMini(scope.block) ? 'enabled' : 'hidden',
+          callback: (scope)=> duplicateMini(scope.block),
           weight: 121
+        });
+      }
+      if (!reg.getItem('rc_mini_copy_state')){
+        reg.register({
+          id: 'rc_mini_copy_state',
+          scopeType: Blockly.ContextMenuRegistry.ScopeType.BLOCK,
+          displayText: ()=> '📋 Копіювати стан',
+          preconditionFn: (scope)=> isMini(scope.block) ? 'enabled' : 'hidden',
+          callback: (scope)=> copyMiniState(scope.block),
+          weight: 122
+        });
+      }
+      if (!reg.getItem('rc_mini_paste_state')){
+        reg.register({
+          id: 'rc_mini_paste_state',
+          scopeType: Blockly.ContextMenuRegistry.ScopeType.BLOCK,
+          displayText: ()=> '📥 Вставити стан',
+          preconditionFn: (scope)=> isMini(scope.block) ? 'enabled' : 'hidden',
+          callback: (scope)=> pasteMiniState(scope.block),
+          weight: 123
+        });
+      }
+      if (!reg.getItem('rc_mini_convert')){
+        reg.register({
+          id: 'rc_mini_convert',
+          scopeType: Blockly.ContextMenuRegistry.ScopeType.BLOCK,
+          displayText: (scope)=> scope.block?.type==='rc_mini' ? '🔁 Зробити VALUE' : '🔁 Зробити STATEMENT',
+          preconditionFn: (scope)=> isMini(scope.block) ? 'enabled' : 'hidden',
+          callback: (scope)=> convertMini(scope.block),
+          weight: 124
         });
       }
     }
@@ -455,23 +579,16 @@ z-index:${CFG.uiZ+21};display:none;box-shadow:0 28px 90px rgba(0,0,0,.6);}
     function ensureHiddenWs(){
       if (hiddenWs) return hiddenWs;
       const div = document.createElement('div');
-      div.style.position='fixed';
-      div.style.left='-99999px';
-      div.style.top='-99999px';
-      div.style.width='10px';
-      div.style.height='10px';
-      div.style.opacity='0';
+      div.style.position='fixed'; div.style.left='-99999px'; div.style.top='-99999px';
+      div.style.width='10px'; div.style.height='10px'; div.style.opacity='0';
       document.body.appendChild(div);
       hiddenWs = Blockly.inject(div, { toolbox:'<xml></xml>', readOnly:false, scrollbars:false, trashcan:false });
       return hiddenWs;
     }
 
     function serializeBlock(block){
-      try {
-        if (Blockly.serialization?.blocks?.save){
-          return { kind:'json', payload: Blockly.serialization.blocks.save(block) };
-        }
-      } catch(e){}
+      try { if (Blockly.serialization?.blocks?.save) return { kind:'json', payload: Blockly.serialization.blocks.save(block) }; }
+      catch(e){}
       try {
         const xml = Blockly.Xml.blockToDom(block, true);
         return { kind:'xml', payload: Blockly.Xml.domToText(xml) };
@@ -501,10 +618,7 @@ z-index:${CFG.uiZ+21};display:none;box-shadow:0 28px 90px rgba(0,0,0,.6);}
             b.initSvg(); b.render();
           }
         }catch(e){
-          try{
-            b = ws.newBlock(wrapType);
-            b.initSvg(); b.render();
-          }catch(_){ b=null; }
+          try{ b = ws.newBlock(wrapType); b.initSvg(); b.render(); }catch(_){ b=null; }
         }
       }
       return b;
@@ -514,6 +628,7 @@ z-index:${CFG.uiZ+21};display:none;box-shadow:0 28px 90px rgba(0,0,0,.6);}
     RC._miniDeserializeTo = deserializeBlockTo;
 
     jsGen.forBlock = jsGen.forBlock || {};
+
     jsGen.forBlock['rc_mini'] = function(block, generator){
       const wrapType = block.getFieldValue('WRAP_TYPE');
       const state = u.jparse(block.data || '', null);
@@ -528,6 +643,7 @@ z-index:${CFG.uiZ+21};display:none;box-shadow:0 28px 90px rgba(0,0,0,.6);}
       if (code && !code.endsWith('\n')) code += '\n';
       return code;
     };
+
     jsGen.forBlock['rc_mini_value'] = function(block, generator){
       const wrapType = block.getFieldValue('WRAP_TYPE');
       const state = u.jparse(block.data || '', null);
@@ -545,11 +661,76 @@ z-index:${CFG.uiZ+21};display:none;box-shadow:0 28px 90px rgba(0,0,0,.6);}
       if (typeof out !== 'string') out = String(out || '');
       return [out, order];
     };
+
+    jsGen.forBlock['rc_param'] = function(block, generator){
+      const name = block.getFieldValue('PNAME') || '';
+      const ctx = RC._paramCtx || {};
+      const lit = ctx[name];
+      // lit is already JS literal string
+      return [ (lit !== undefined ? String(lit) : '0'), jsGen.ORDER_ATOMIC || 0 ];
+    };
   }
 
-  // ------------------------------
-  // Custom macro block types (stored) — dynamic name/color updates
-  // ------------------------------
+  // ------------------------------------------------------------
+  // Custom macro block types (stored) — dynamic fields from params
+  // ------------------------------------------------------------
+  function buildParamInputs(block, def){
+    const Blockly = window.Blockly;
+    const params = Array.isArray(def?.params) ? def.params : [];
+    if (!params.length) return;
+
+    for (const p of params){
+      const pname = (p?.name||'').trim();
+      if (!pname) continue;
+      const kind = p.kind || 'number';
+
+      const input = block.appendDummyInput('P_' + pname);
+
+      input.appendField(pname + ':');
+      if (kind === 'boolean'){
+        input.appendField(new Blockly.FieldCheckbox(p.default ? 'TRUE':'FALSE'), 'PV_' + pname);
+      } else if (kind === 'text'){
+        input.appendField(new Blockly.FieldTextInput(String(p.default ?? '')), 'PV_' + pname);
+      } else if (kind === 'dropdown'){
+        const opts = Array.isArray(p.options) && p.options.length ? p.options : ['A','B'];
+        const dd = new Blockly.FieldDropdown(opts.map(o=>[String(o), String(o)]));
+        input.appendField(dd, 'PV_' + pname);
+      } else { // number
+        // Some Blockly versions don't have FieldNumber. Use text with validator.
+        const validator = (v)=>{
+          const n = Number(v);
+          if (!isFinite(n)) return String(p.default ?? 0);
+          const mn = (p.min !== undefined ? Number(p.min) : -1e9);
+          const mx = (p.max !== undefined ? Number(p.max) :  1e9);
+          return String(u.clamp(n, mn, mx));
+        };
+        input.appendField(new Blockly.FieldTextInput(String(p.default ?? 0), validator), 'PV_' + pname);
+      }
+    }
+  }
+
+  function collectParamCtxFromBlock(block, def){
+    const params = Array.isArray(def?.params) ? def.params : [];
+    const ctx = {};
+    for (const p of params){
+      const name = (p?.name||'').trim();
+      if (!name) continue;
+      const kind = p.kind || 'number';
+      const fv = block.getFieldValue('PV_' + name);
+      if (kind === 'boolean'){
+        ctx[name] = (fv === 'TRUE' || fv === true || fv === 'true') ? 'true' : 'false';
+      } else if (kind === 'text'){
+        ctx[name] = JSON.stringify(String(fv ?? ''));
+      } else if (kind === 'dropdown'){
+        ctx[name] = JSON.stringify(String(fv ?? ''));
+      } else {
+        const n = Number(fv);
+        ctx[name] = isFinite(n) ? String(n) : String(p.default ?? 0);
+      }
+    }
+    return ctx;
+  }
+
   function defineCustomBlockType(Blockly, blockType){
     if (!blockType) return;
     if (Blockly.Blocks[blockType]) return;
@@ -557,7 +738,8 @@ z-index:${CFG.uiZ+21};display:none;box-shadow:0 28px 90px rgba(0,0,0,.6);}
     Blockly.Blocks[blockType] = {
       init: function(){
         const def = RC._defsByType.get(blockType) || {};
-        this.appendDummyInput().appendField('⭐').appendField(def.name || 'Custom');
+        this.appendDummyInput('H').appendField('⭐').appendField(def.name || 'Custom');
+        buildParamInputs(this, def);
         this.setPreviousStatement(true, null);
         this.setNextStatement(true, null);
         this.setColour(def.colour || CFG.defaultCustomBlockColour);
@@ -573,6 +755,9 @@ z-index:${CFG.uiZ+21};display:none;box-shadow:0 28px 90px rgba(0,0,0,.6);}
       if (!Blockly) return '';
       const def = RC._defsByType.get(blockType);
       if (!def) return '';
+
+      // Build param context for rc_param generator
+      RC._paramCtx = collectParamCtxFromBlock(block, def);
 
       const div = document.createElement('div');
       div.style.position='fixed';
@@ -607,62 +792,87 @@ z-index:${CFG.uiZ+21};display:none;box-shadow:0 28px 90px rgba(0,0,0,.6);}
         }
         return out;
       } finally {
+        RC._paramCtx = null;
         try { tmpWs && tmpWs.dispose(); } catch(e){}
         try { div.remove(); } catch(e){}
       }
     };
   }
 
-  // ------------------------------
-  // Mini config modal (kept like earlier screenshot; remove trashcan UI + show grid)
-  // ------------------------------
-  const miniUI = { backdrop:null, modal:null, wsDiv:null, ws:null, current:null, metaType:null, metaKind:null, pre:null, ro:null };
+  // ------------------------------------------------------------
+  // Mini-block quick actions helpers
+  // ------------------------------------------------------------
+  function copyMiniState(block){
+    if (!block) return;
+    const state = {
+      type: block.type,
+      label: block.getFieldValue('LABEL') || '',
+      wrap: block.getFieldValue('WRAP_TYPE') || '',
+      data: block.data || ''
+    };
+    localStorage.setItem(CFG.storageKeyClipboard, u.jstring(state));
+    toast('Стан скопійовано');
+  }
+  function pasteMiniState(block){
+    if (!block) return;
+    const raw = localStorage.getItem(CFG.storageKeyClipboard);
+    const st = u.jparse(raw, null);
+    if (!st) return toast('Буфер порожній');
+    if (block.type !== st.type){
+      // allow paste even if type differs (statement/value), keep wrap + data
+    }
+    try{
+      if (st.label) block.setFieldValue(st.label, 'LABEL');
+      if (st.wrap) block.setFieldValue(st.wrap, 'WRAP_TYPE');
+      block.data = st.data || '';
+      toast('Вставлено');
+    }catch(e){ toast('Не вдалось вставити'); }
+  }
+  function duplicateMini(block){
+    if (!block || !block.workspace) return;
+    const ws = block.workspace;
+    try{
+      const xy = block.getRelativeToSurfaceXY();
+      const nb = ws.newBlock(block.type);
+      nb.initSvg(); nb.render();
+      nb.moveBy(xy.x + 30, xy.y + 30);
+      nb.setFieldValue(block.getFieldValue('LABEL') || '', 'LABEL');
+      nb.setFieldValue(block.getFieldValue('WRAP_TYPE') || '', 'WRAP_TYPE');
+      nb.data = block.data || '';
+      toast('Дубль');
+    }catch(e){}
+  }
+  function convertMini(block){
+    if (!block || !block.workspace) return;
+    const ws = block.workspace;
+    const newType = (block.type === 'rc_mini') ? 'rc_mini_value' : 'rc_mini';
+    try{
+      const xy = block.getRelativeToSurfaceXY();
+      const nb = ws.newBlock(newType);
+      nb.initSvg(); nb.render();
+      nb.moveBy(xy.x + 20, xy.y + 20);
+      nb.setFieldValue(block.getFieldValue('LABEL') || '', 'LABEL');
+      nb.setFieldValue(block.getFieldValue('WRAP_TYPE') || '', 'WRAP_TYPE');
+      nb.data = block.data || '';
+      block.dispose(true);
+      toast('Конвертовано');
+    }catch(e){}
+  }
+
+  // ------------------------------------------------------------
+  // Mini config modal (large) + grid + add "Параметри" category
+  // ------------------------------------------------------------
+  const miniUI = { backdrop:null, modal:null, wsDiv:null, ws:null, current:null, metaType:null, metaKind:null, pre:null };
 
   function ensureMiniModal(){
     if (miniUI.modal) return;
     injectCss();
-    const Blockly = window.Blockly;
-    if (!Blockly) return;
-
-    const styleId='rc-mini-css-v26';
-    if (!document.getElementById(styleId)){
-      const st = document.createElement('style');
-      st.id=styleId;
-      st.textContent=`
-#rcMiniBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.58);backdrop-filter:blur(8px);z-index:${CFG.uiZ+2};display:none;}
-#rcMiniModal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(1180px,calc(100vw - 20px));height:min(88vh,800px);
-background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radius:18px;overflow:hidden;z-index:${CFG.uiZ+3};display:none;box-shadow:0 28px 90px rgba(0,0,0,.6);}
-#rcMiniModal .hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(148,163,184,.14);}
-#rcMiniModal .ttl{color:#e2e8f0;font-weight:950;letter-spacing:.08em;text-transform:uppercase;font-size:12px;display:flex;gap:10px;align-items:center;}
-#rcMiniModal .ttl .dot{width:10px;height:10px;border-radius:4px;background:${CFG.defaultCustomBlockColour};box-shadow:0 0 12px rgba(251,146,60,.5);}
-#rcMiniModal .x{width:42px;height:42px;border-radius:14px;border:1px solid rgba(148,163,184,.15);background:rgba(30,41,59,.70);color:#e2e8f0;cursor:pointer;display:flex;align-items:center;justify-content:center;}
-#rcMiniModal .bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border-bottom:1px solid rgba(148,163,184,.10);background:rgba(2,6,23,.28);color:#cbd5e1;font-weight:800;font-size:12px;}
-#rcMiniModal code{padding:2px 7px;border-radius:999px;background:rgba(30,41,59,.75);border:1px solid rgba(148,163,184,.14);color:#e2e8f0;font-size:11px;}
-#rcMiniModal .btn{padding:10px 12px;border-radius:14px;border:1px solid rgba(148,163,184,.14);background:rgba(30,41,59,.74);color:#e2e8f0;font-weight:950;cursor:pointer;}
-#rcMiniModal .btn.primary{background:rgba(59,130,246,.85);border-color:rgba(59,130,246,.55);color:#fff;}
-#rcMiniModal .body{height:calc(100% - 100px);display:grid;grid-template-columns:340px 1fr;min-height:0;}
-#rcMiniModal .left,#rcMiniModal .right{min-height:0;overflow:hidden;}
-#rcMiniModal .left{border-right:1px solid rgba(148,163,184,.12);padding:12px 12px 12px 14px;display:flex;flex-direction:column;gap:12px;}
-#rcMiniModal .right{padding:12px;display:flex;flex-direction:column;min-height:0;}
-#rcMiniModal pre{margin:0;background:rgba(2,6,23,.55);border:1px solid rgba(148,163,184,.14);border-radius:14px;padding:10px;color:#e2e8f0;font-size:12px;line-height:1.35;overflow:auto;min-height:180px;max-height:42vh;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;}
-#rcMiniModal pre,#rcMiniModal .left,#rcMiniModal .right{scrollbar-width:none;-ms-overflow-style:none;}
-#rcMiniModal pre::-webkit-scrollbar,#rcMiniModal .left::-webkit-scrollbar,#rcMiniModal .right::-webkit-scrollbar{width:0!important;height:0!important;}
-#rcMiniBlocklyHost{flex:1;min-height:560px;border-radius:14px;border:1px solid rgba(148,163,184,.14);overflow:hidden;background:rgba(2,6,23,.35);}
-#rcMiniBlockly{width:100%;height:100%;}
-/* Dark toolbox in mini modal */
-#rcMiniModal .blocklyToolboxDiv{background:rgba(15,23,42,.96)!important;border-right:1px solid rgba(148,163,184,.12)!important;width:210px!important;}
-#rcMiniModal .blocklyTreeLabel{color:#e2e8f0!important;font-weight:900!important;}
-#rcMiniModal .blocklyFlyoutBackground{fill:rgba(2,6,23,.55)!important;}
-#rcMiniModal .blocklyMainBackground{fill:rgba(2,6,23,.35)!important;}
-      `;
-      document.head.appendChild(st);
-    }
 
     miniUI.backdrop = u.el('div', { id:'rcMiniBackdrop' });
     miniUI.modal = u.el('div', { id:'rcMiniModal' });
 
     const hdr = u.el('div', { class:'hdr' }, [
-      u.el('div', { class:'ttl' }, [ u.el('span',{class:'dot'}),'НАЛАШТУВАННЯ МІНІ-БЛОКУ' ]),
+      u.el('div', { class:'ttl' }, [ u.el('span',{class:'dot'}), 'НАЛАШТУВАННЯ МІНІ-БЛОКУ' ]),
       u.el('button', { class:'x', onclick: closeMiniModal }, '✕')
     ]);
 
@@ -685,22 +895,19 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       u.el('div', { style:'font-weight:950; letter-spacing:.08em; text-transform:uppercase; font-size:11px; color:#94a3b8; margin-bottom:8px;' }, 'ПІДКАЗКИ'),
       u.el('ul', { style:'margin: 6px 0 0 16px; padding:0;' }, [
         u.el('li', {}, 'Тут справжній Blockly — можеш вставляти числа, змінні, PID, сенсори, if/цикли.'),
-        u.el('li', {}, 'Після “Зберегти” всередині міні-блоку зберігається серіалізація (JSON/XML).')
+        u.el('li', {}, 'Після “Зберегти” всередині міні-блоку зберігається серіалізація (JSON/XML).'),
+        u.el('li', {}, 'Категорія “Параметри” дає значення з великого кастом-блоку (rc_param).')
       ])
     ]);
 
-    miniUI.pre = u.el('pre', {}, '// preview…');
+    miniUI.pre = u.el('pre', {}, '// (empty)');
     const copyBtn = u.el('button', {
       class:'btn',
       style:'align-self:flex-start;',
       onclick: async ()=>{
         const txt = miniUI.pre.textContent || '';
-        try{ await navigator.clipboard.writeText(txt); toast('Скопійовано'); }
-        catch(e){
-          const ta = document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select();
-          try{ document.execCommand('copy'); toast('Скопійовано'); }catch(_){}
-          ta.remove();
-        }
+        const ok = await u.copyText(txt);
+        toast(ok ? 'Скопійовано' : 'Не вдалось');
       }
     }, 'Copy');
 
@@ -728,10 +935,10 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     miniUI.backdrop.addEventListener('click', closeMiniModal);
     document.addEventListener('keydown', (e)=>{ if (e.key==='Escape' && miniUI.modal.style.display==='block') closeMiniModal(); });
 
-    miniUI.ro = new ResizeObserver(u.debounce(()=>{
-      try { miniUI.ws && Blockly.svgResize(miniUI.ws); } catch(e){}
+    const ro = new ResizeObserver(u.debounce(()=>{
+      try { miniUI.ws && window.Blockly && window.Blockly.svgResize(miniUI.ws); } catch(e){}
     }, 30));
-    miniUI.ro.observe(host);
+    ro.observe(host);
   }
 
   function openMiniConfigModal(miniBlock){
@@ -753,10 +960,26 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     miniUI.ws = null;
     miniUI.wsDiv.innerHTML='';
 
-    const toolboxClone = (document.getElementById('toolbox')?.cloneNode(true)) || '<xml></xml>';
+    // Build toolbox = main toolbox clone + add "Параметри" category on top
+    const baseToolbox = document.getElementById('toolbox')?.cloneNode(true);
+    const toolboxXml = baseToolbox || document.createElement('xml');
+
+    // Update param options based on currently edited custom block in builder
+    RC._currentParamOptions = getBuilderParams();
+
+    try{
+      const cat = document.createElement('category');
+      cat.setAttribute('name','Параметри');
+      cat.setAttribute('colour','#0EA5E9');
+      const b = document.createElement('block');
+      b.setAttribute('type','rc_param');
+      cat.appendChild(b);
+      toolboxXml.insertBefore(cat, toolboxXml.firstChild);
+    }catch(e){}
+
     miniUI.ws = Blockly.inject(miniUI.wsDiv, {
-      toolbox: toolboxClone,
-      trashcan: false,             // <-- user asked remove trash UI
+      toolbox: toolboxXml,
+      trashcan: false,
       scrollbars: true,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
       move: { scrollbars: true, drag: true, wheel: true },
@@ -771,7 +994,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
         const jsGen = Blockly.JavaScript || Blockly.javascriptGenerator;
         miniUI.pre.textContent = (jsGen && miniUI.ws) ? ((jsGen.workspaceToCode(miniUI.ws) || '').trim() || '// (empty)') : '// (no generator)';
       }catch(e){ miniUI.pre.textContent='// (error)'; }
-    }, 90);
+    }, 100);
     miniUI.ws.addChangeListener(updatePreview);
 
     setTimeout(()=>{ try{ Blockly.svgResize(miniUI.ws); }catch(e){} }, 80);
@@ -828,16 +1051,17 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     toast('Скинуто');
   }
 
-  // ------------------------------
-  // Custom Blocks view (separate workspace like Scratch)
-  // ------------------------------
+  // ------------------------------------------------------------
+  // Custom Blocks view (separate like Scratch) + builder ws
+  // ------------------------------------------------------------
   const builder = {
-    section: null,
-    wsDiv: null,
-    ws: null,
-    nameInput: null,
-    colourInput: null,
-    editingType: null
+    section:null, wsDiv:null, ws:null,
+    nameInput:null, colourInput:null,
+    editingType:null,
+    // panels
+    btnMgr:null, btnParams:null, btnTemplates:null, btnValidate:null, btnSim:null, btnHistory:null,
+    // draft autosave
+    draftTimer:null
   };
 
   function ensureCustomBlocksView(){
@@ -852,7 +1076,6 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       class: 'absolute inset-0 flex flex-col hidden opacity-0 transition-opacity duration-300'
     });
 
-    // Top row: back
     const backBtn = u.el('button', {
       class: 'top-btn btn-exit',
       title: 'Назад до блоків',
@@ -861,7 +1084,12 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 
     const topRow = u.el('div', { class:'sensor-row' }, [ backBtn ]);
 
-    const mgrBtn = u.el('button', { class:'btn', onclick: ()=> openManager() }, 'Мої блоки');
+    builder.btnMgr = u.el('button', { class:'btn', onclick: ()=> openManager() }, 'Мої блоки');
+    builder.btnParams = u.el('button', { class:'btn', onclick: ()=> openParams() }, 'Параметри');
+    builder.btnTemplates = u.el('button', { class:'btn', onclick: ()=> openTemplates() }, 'Шаблони');
+    builder.btnValidate = u.el('button', { class:'btn', onclick: ()=> openValidation() }, 'Перевірити');
+    builder.btnSim = u.el('button', { class:'btn', onclick: ()=> openSimulator() }, 'Симулятор');
+    builder.btnHistory = u.el('button', { class:'btn', onclick: ()=> openHistory() }, 'Історія');
 
     const topBar = u.el('div', { id:'rcCustomBlocksTop' }, [
       u.el('span', { class:'lbl' }, 'Назва'),
@@ -869,7 +1097,12 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       u.el('span', { class:'lbl', style:'margin-left:10px;' }, 'Колір'),
       builder.colourInput = u.el('input', { type:'color', value: CFG.defaultCustomBlockColour }),
       u.el('div', { style:'flex:1;' }),
-      mgrBtn,
+      builder.btnMgr,
+      builder.btnParams,
+      builder.btnTemplates,
+      builder.btnValidate,
+      builder.btnSim,
+      builder.btnHistory,
       u.el('button', { class:'btn primary', onclick: ()=> packOrUpdateCustomBlock() }, 'Спакувати блок')
     ]);
 
@@ -880,11 +1113,8 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     builder.section.appendChild(builder.wsDiv);
 
     const viewBuilder = document.getElementById('view-builder');
-    if (viewBuilder && viewBuilder.parentElement === main){
-      main.insertBefore(builder.section, viewBuilder.nextSibling);
-    } else {
-      main.appendChild(builder.section);
-    }
+    if (viewBuilder && viewBuilder.parentElement === main) main.insertBefore(builder.section, viewBuilder.nextSibling);
+    else main.appendChild(builder.section);
   }
 
   function ensureBuilderWorkspace(){
@@ -893,7 +1123,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     if (!Blockly || !builder.section || !builder.wsDiv) return;
     if (builder.ws) return;
 
-    // Toolbox: ONLY 2 blocks (as user requested), with gear on each
+    // Toolbox: ONLY 2 mini blocks
     const toolbox = document.createElement('xml');
     toolbox.innerHTML = `
       <category name="Міні" colour="#64748B">
@@ -904,15 +1134,19 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 
     builder.ws = Blockly.inject(builder.wsDiv, {
       toolbox,
-      trashcan: false,  // <-- remove trash UI
+      trashcan: false,
       scrollbars: true,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
       move: { scrollbars: true, drag: true, wheel: true },
-      grid: { spacing: 24, length: 3, colour: 'rgba(148,163,184,.30)', snap: true }, // <-- real grid
+      grid: { spacing: 24, length: 3, colour: 'rgba(148,163,184,.30)', snap: true },
       renderer: 'zelos'
     });
 
-    // Resize on view show
+    // Autosave draft + history snapshots debounced
+    builder.ws.addChangeListener(u.debounce(()=>{
+      saveDraft();
+    }, 450));
+
     const ro = new ResizeObserver(u.debounce(()=>{
       try { builder.ws && Blockly.svgResize(builder.ws); } catch(e){}
     }, 40));
@@ -941,261 +1175,116 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     builder.editingType = null;
     if (builder.nameInput) builder.nameInput.value = 'Мій блок';
     if (builder.colourInput) builder.colourInput.value = CFG.defaultCustomBlockColour;
+    setBuilderParams([]);
   }
 
-  function loadProgramIntoBuilder(def){
-    const Blockly = window.Blockly;
-    ensureBuilderWorkspace();
-    if (!Blockly || !builder.ws || !def) return;
-
-    clearBuilder();
-    builder.editingType = def.blockType;
-    builder.nameInput.value = def.name || 'Мій блок';
-    builder.colourInput.value = def.colour || CFG.defaultCustomBlockColour;
-
-    builder.ws.clear();
-    if (def.program && def.program.kind === 'json' && Blockly.serialization?.workspaces?.load){
-      Blockly.serialization.workspaces.load(def.program.payload, builder.ws);
-    } else if (def.program && def.program.kind === 'xml'){
-      const dom = Blockly.Xml.textToDom(def.program.payload);
-      Blockly.Xml.domToWorkspace(dom, builder.ws);
-    }
-    setTimeout(()=>{ try{ Blockly.svgResize(builder.ws); }catch(e){} }, 80);
+  // ------------------------------------------------------------
+  // Draft + History
+  // ------------------------------------------------------------
+  function getDraftKey(){
+    return CFG.storageKeyDraft + ':' + (builder.editingType || 'new');
   }
-
-  function packOrUpdateCustomBlock(){
+  function saveDraft(){
     const Blockly = window.Blockly;
-    const mainWs = window.workspace || window._workspace;
-    if (!Blockly || !builder.ws || !mainWs) return;
-
-    const name = (builder.nameInput.value || '').trim() || 'Мій блок';
-    const colour = builder.colourInput.value || CFG.defaultCustomBlockColour;
-
-    let program = null;
-    try{
-      if (Blockly.serialization?.workspaces?.save){
-        program = { kind:'json', payload: Blockly.serialization.workspaces.save(builder.ws) };
-      }
-    }catch(e){}
-    if (!program){
+    if (!Blockly || !builder.ws) return;
+    let payload = null;
+    try{ if (Blockly.serialization?.workspaces?.save) payload = { kind:'json', payload: Blockly.serialization.workspaces.save(builder.ws) }; }catch(e){}
+    if (!payload){
       try{
         const xml = Blockly.Xml.workspaceToDom(builder.ws);
-        program = { kind:'xml', payload: Blockly.Xml.domToText(xml) };
-      }catch(e){
-        program = { kind:'xml', payload: '<xml></xml>' };
-      }
+        payload = { kind:'xml', payload: Blockly.Xml.domToText(xml) };
+      }catch(e){ payload = { kind:'xml', payload:'<xml></xml>' }; }
     }
+    const draft = {
+      ts: Date.now(),
+      name: builder.nameInput?.value || '',
+      colour: builder.colourInput?.value || CFG.defaultCustomBlockColour,
+      params: getBuilderParams(),
+      program: payload
+    };
+    localStorage.setItem(getDraftKey(), u.jstring(draft));
 
-    // If editing existing block -> update it
-    if (builder.editingType && RC._defsByType.has(builder.editingType)){
-      updateDef(builder.editingType, { name, colour, program });
-      // Refresh toolbox list + manager list, and future instances will show new name/color
-      rebuildCustomCategory(mainWs);
-      toast('Оновлено');
-      setTimeout(()=> selectCustomCategory(mainWs), 80);
-      refreshManagerList();
-      return;
-    }
-
-    // Otherwise create new
-    const blockType = 'rc_user_' + u.uid('b').replaceAll('-','_');
-    const def = { id: u.uid('def'), name, colour, blockType, program, createdAt: Date.now() };
-
-    const defs = loadBlocks();
-    defs.push(def);
-    saveBlocks(defs);
-    rebuildDefsMap();
-
-    defineCustomBlockType(Blockly, blockType);
-    rebuildCustomCategory(mainWs);
-    setTimeout(()=> selectCustomCategory(mainWs), 80);
-
-    toast('Додано в ⭐ Мої блоки');
-    refreshManagerList();
+    // Also push to short history list (only when meaningful)
+    pushHistorySnapshot(draft);
   }
 
-  // ------------------------------
-  // Manager modal: edit/rename/color/delete/export/import
-  // ------------------------------
-  const mgr = { backdrop:null, modal:null, list:null, fileInput:null };
+  function loadDraft(){
+    const raw = localStorage.getItem(getDraftKey());
+    const d = u.jparse(raw, null);
+    if (!d) return false;
+    applyDraft(d);
+    return true;
+  }
 
-  function ensureManager(){
-    if (mgr.modal) return;
-    injectCss();
+  function applyDraft(d){
+    const Blockly = window.Blockly;
+    ensureBuilderWorkspace();
+    if (!Blockly || !builder.ws || !d) return;
+    builder.nameInput.value = d.name || 'Мій блок';
+    builder.colourInput.value = d.colour || CFG.defaultCustomBlockColour;
+    setBuilderParams(Array.isArray(d.params)?d.params:[]);
 
-    mgr.backdrop = u.el('div', { id:'rcCbMgrBackdrop' });
-    mgr.modal = u.el('div', { id:'rcCbMgrModal' });
-
-    const hdr = u.el('div', { class:'hdr' }, [
-      u.el('div', { class:'ttl' }, [ u.el('span',{class:'dot'}), 'МОЇ КАСТОМНІ БЛОКИ' ]),
-      u.el('button', { class:'x', onclick: closeManager }, '✕')
-    ]);
-
-    const btnExport = u.el('button', { class:'btn', onclick: ()=>{
-      const defs = loadBlocks();
-      u.downloadText('custom_blocks.json', u.jstring({ version: VERSION, defs }));
-      toast('Export готовий');
-    }}, 'Export');
-
-    mgr.fileInput = u.el('input', { type:'file', accept:'application/json', style:'display:none;' });
-    mgr.fileInput.addEventListener('change', async (e)=>{
-      const f = e.target.files && e.target.files[0];
-      if (!f) return;
+    builder.ws.clear();
+    if (d.program?.kind === 'json' && Blockly.serialization?.workspaces?.load){
+      try{ Blockly.serialization.workspaces.load(d.program.payload, builder.ws); }catch(e){}
+    } else if (d.program?.kind === 'xml'){
       try{
-        const txt = await f.text();
-        const obj = u.jparse(txt, null);
-        const incoming = obj && (obj.defs || obj.blocks || obj);
-        if (!Array.isArray(incoming)) throw new Error('bad format');
-        const existing = loadBlocks();
-        const byType = new Map(existing.map(d=>[d.blockType,d]));
-        for (const d of incoming){
-          if (!d || !d.blockType) continue;
-          byType.set(d.blockType, d);
-        }
-        const merged = Array.from(byType.values());
-        saveBlocks(merged);
-        rebuildDefsMap();
-        // Register missing types
-        const Blockly = window.Blockly;
-        if (Blockly){
-          for (const d of merged){
-            defineCustomBlockType(Blockly, d.blockType);
-          }
-        }
-        const mainWs = window.workspace || window._workspace;
-        mainWs && rebuildCustomCategory(mainWs);
-        toast('Імпортовано');
-        refreshManagerList();
-      }catch(err){
-        toast('Помилка імпорту');
-      }finally{
-        mgr.fileInput.value='';
-      }
-    });
-
-    const btnImport = u.el('button', { class:'btn', onclick: ()=> mgr.fileInput.click() }, 'Import');
-
-    const btnNew = u.el('button', { class:'btn primary', onclick: ()=>{
-      RC.openCustomBuilder();
-      clearBuilder();
-      closeManager();
-    }}, 'Новий');
-
-    const bar = u.el('div', { class:'bar' }, [
-      u.el('div', { style:'display:flex; gap:10px; align-items:center;' }, [btnExport, btnImport, mgr.fileInput]),
-      u.el('div', { style:'display:flex; gap:10px; align-items:center;' }, [btnNew])
-    ]);
-
-    mgr.list = u.el('div', { id:'rcCbMgrList' });
-
-    mgr.modal.appendChild(hdr);
-    mgr.modal.appendChild(bar);
-    mgr.modal.appendChild(mgr.list);
-
-    document.body.appendChild(mgr.backdrop);
-    document.body.appendChild(mgr.modal);
-
-    mgr.backdrop.addEventListener('click', closeManager);
-    document.addEventListener('keydown', (e)=>{ if (e.key==='Escape' && mgr.modal.style.display==='block') closeManager(); });
-  }
-
-  function openManager(){
-    ensureManager();
-    refreshManagerList();
-    mgr.backdrop.style.display='block';
-    mgr.modal.style.display='block';
-  }
-  function closeManager(){
-    if (!mgr.modal) return;
-    mgr.backdrop.style.display='none';
-    mgr.modal.style.display='none';
-  }
-
-  function refreshManagerList(){
-    if (!mgr.list) return;
-    mgr.list.innerHTML='';
-
-    const defs = loadBlocks().sort((a,b)=>(b.updatedAt||b.createdAt||0)-(a.updatedAt||a.createdAt||0));
-    if (!defs.length){
-      mgr.list.appendChild(u.el('div',{style:'color:#94a3b8;font-weight:900;padding:10px;'},'Нема кастомних блоків. Натисни "Новий".'));
-      return;
+        const dom = Blockly.Xml.textToDom(d.program.payload);
+        Blockly.Xml.domToWorkspace(dom, builder.ws);
+      }catch(e){}
     }
-
-    for (const d of defs){
-      const sw = u.el('div', { class:'sw', style:`background:${d.colour || CFG.defaultCustomBlockColour};` });
-      const name = u.el('div', { class:'name' }, d.name || d.blockType);
-
-      const meta = u.el('div', { class:'meta' }, (d.blockType||'').slice(0,24));
-
-      const btnEdit = u.el('button', { class:'btn', onclick: ()=>{
-        closeManager();
-        RC.openCustomBuilder();
-        setTimeout(()=> loadProgramIntoBuilder(d), 120);
-      }}, 'Редаг.');
-
-      const btnRename = u.el('button', { class:'btn', onclick: ()=>{
-        const n = prompt('Нова назва блоку:', d.name || '');
-        if (n === null) return;
-        const newName = (n || '').trim();
-        if (!newName) return toast('Порожня назва');
-        updateDef(d.blockType, { name: newName });
-        toast('Перейменовано');
-        // Rebuild toolbox so new instances show new label
-        const mainWs = window.workspace || window._workspace;
-        mainWs && rebuildCustomCategory(mainWs);
-        refreshManagerList();
-      }}, 'Назва');
-
-      const colorInput = u.el('input', { type:'color', value: d.colour || CFG.defaultCustomBlockColour, style:'width:38px;height:34px;border:none;background:transparent;cursor:pointer;' });
-      colorInput.addEventListener('input', ()=>{
-        updateDef(d.blockType, { colour: colorInput.value });
-        const mainWs = window.workspace || window._workspace;
-        mainWs && rebuildCustomCategory(mainWs);
-        refreshManagerList();
-      });
-
-      const btnDel = u.el('button', { class:'btn danger', onclick: ()=>{
-        if (!confirm('Видалити цей блок?')) return;
-        deleteDef(d.blockType);
-        const mainWs = window.workspace || window._workspace;
-        mainWs && rebuildCustomCategory(mainWs);
-        toast('Видалено');
-        refreshManagerList();
-      }}, 'Видал.');
-
-      mgr.list.appendChild(
-        u.el('div', { class:'rcCbRow' }, [
-          sw,
-          name,
-          meta,
-          u.el('div', { class:'act' }, [btnEdit, btnRename, colorInput, btnDel])
-        ])
-      );
-    }
+    setTimeout(()=>{ try{ Blockly.svgResize(builder.ws); }catch(e){} }, 60);
   }
 
-  // ------------------------------
-  // Public: open/close custom builder view
-  // ------------------------------
+  function historyKey(){
+    return CFG.storageKeyHistoryPrefix + (builder.editingType || 'new');
+  }
+  function getHistory(){
+    const raw = localStorage.getItem(historyKey());
+    const arr = u.jparse(raw, []);
+    return Array.isArray(arr) ? arr : [];
+  }
+  function setHistory(arr){
+    localStorage.setItem(historyKey(), u.jstring(arr || []));
+  }
+  function pushHistorySnapshot(draft){
+    // push only if changed enough (basic hash)
+    const arr = getHistory();
+    const sig = u.jstring({ name:draft.name, colour:draft.colour, params:draft.params, program:draft.program });
+    const last = arr[0];
+    if (last && last.sig === sig) return;
+    arr.unshift({ ts: draft.ts, label: u.nowLabel(), sig, draft });
+    if (arr.length > CFG.maxHistory) arr.length = CFG.maxHistory;
+    setHistory(arr);
+  }
+
+  // ------------------------------------------------------------
+  // Parameters (builder state)
+  // ------------------------------------------------------------
+  let builderParams = [];
+  function setBuilderParams(arr){
+    builderParams = Array.isArray(arr) ? arr : [];
+    // update current param options for rc_param dropdown
+    RC._currentParamOptions = builderParams.map(p => ({ name: String(p.name||'').trim(), kind:p.kind }))
+      .filter(p=>p.name);
+  }
+  function getBuilderParams(){ return builderParams.slice(); }
+
+  // ------------------------------------------------------------
+  // Open/close custom builder view
+  // ------------------------------------------------------------
   RC.openCustomBuilder = function(){
     if (!isDesktop()) return;
     ensureBuilderWorkspace();
     const el = document.getElementById('view-customblocks');
     if (!el) return;
 
-    if (typeof window.switchView === 'function'){
-      window.switchView('view-customblocks');
-    } else {
-      showView(el);
-    }
+    if (typeof window.switchView === 'function') window.switchView('view-customblocks');
+    else showView(el);
 
-    if (typeof window.toggleScratchMode === 'function'){
-      window.toggleScratchMode(true);
-    }
+    if (typeof window.toggleScratchMode === 'function') window.toggleScratchMode(true);
 
-    setTimeout(()=>{
-      try { window.Blockly && builder.ws && window.Blockly.svgResize(builder.ws); } catch(e){}
-    }, 140);
+    setTimeout(()=>{ try { window.Blockly && builder.ws && window.Blockly.svgResize(builder.ws); } catch(e){} }, 140);
   };
 
   RC.closeCustomBuilder = function(){
@@ -1209,14 +1298,12 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       const vb = document.getElementById('view-builder');
       showView(vb);
     }
-    setTimeout(()=>{
-      try { window.Blockly && window.workspace && window.Blockly.svgResize(window.workspace); } catch(e){}
-    }, 120);
+    setTimeout(()=>{ try { window.Blockly && window.workspace && window.Blockly.svgResize(window.workspace); } catch(e){} }, 120);
   };
 
-  // ------------------------------
+  // ------------------------------------------------------------
   // Floating 🧩 button in Scratch view only
-  // ------------------------------
+  // ------------------------------------------------------------
   function ensureOpenButton(){
     if (!isDesktop()) return;
     injectCss();
@@ -1247,9 +1334,9 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     hookSwitchView();
   }
 
-  // ------------------------------
-  // Hook switchView: make view-customblocks behave like others
-  // ------------------------------
+  // ------------------------------------------------------------
+  // Hook switchView to show/hide view-customblocks
+  // ------------------------------------------------------------
   let switchHooked = false;
   function hookSwitchView(){
     if (switchHooked) return;
@@ -1260,35 +1347,966 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 
     window.switchView = function(viewId, btnElement){
       const custom = document.getElementById('view-customblocks');
-      if (custom && viewId !== 'view-customblocks'){
-        hideView(custom);
-      }
+      if (custom && viewId !== 'view-customblocks') hideView(custom);
 
       const res = orig.call(this, viewId, btnElement);
 
       if (viewId === 'view-customblocks'){
         ensureBuilderWorkspace();
         showView(custom);
-        if (typeof window.toggleScratchMode === 'function'){
-          window.toggleScratchMode(true);
-        }
-        setTimeout(()=>{
-          try { window.Blockly && builder.ws && window.Blockly.svgResize(builder.ws); } catch(e){}
-        }, 120);
+        if (typeof window.toggleScratchMode === 'function') window.toggleScratchMode(true);
+        setTimeout(()=>{ try { window.Blockly && builder.ws && window.Blockly.svgResize(builder.ws); } catch(e){} }, 120);
       } else {
         if (typeof window.toggleScratchMode === 'function'){
-          if (viewId !== 'view-builder'){
-            window.toggleScratchMode(false);
-          }
+          if (viewId !== 'view-builder') window.toggleScratchMode(false);
         }
       }
       return res;
     };
   }
 
-  // ------------------------------
+  // ------------------------------------------------------------
+  // Manager modal (existing blocks) + share link
+  // ------------------------------------------------------------
+  const mgr = { backdrop:null, modal:null, list:null, fileInput:null };
+
+  function ensureManager(){
+    if (mgr.modal) return;
+    injectCss();
+
+    mgr.backdrop = u.el('div', { class:'rcModalBackdrop', id:'rcCbMgrBackdrop' });
+    mgr.modal = u.el('div', { class:'rcModal', id:'rcCbMgrModal' });
+
+    const hdr = u.el('div', { class:'hdr' }, [
+      u.el('div', { class:'ttl' }, [ u.el('span',{class:'dot'}), 'МОЇ КАСТОМНІ БЛОКИ' ]),
+      u.el('button', { class:'x', onclick: closeManager }, '✕')
+    ]);
+
+    const btnExport = u.el('button', { class:'btn', onclick: ()=>{
+      const defs = loadBlocks();
+      u.downloadText('custom_blocks.json', u.jstring({ version: VERSION, defs }));
+      toast('Export готовий');
+    }}, 'Export');
+
+    const btnShare = u.el('button', { class:'btn', onclick: async ()=>{
+      const defs = loadBlocks();
+      const payload = u.jstring({ version: VERSION, defs });
+      const b64 = u.b64enc(payload);
+      const url = location.origin + location.pathname + '#cb=' + b64;
+      const ok = await u.copyText(url);
+      toast(ok ? 'Лінк скопійовано' : 'Не вдалось');
+    }}, 'Share');
+
+    mgr.fileInput = u.el('input', { type:'file', accept:'application/json', style:'display:none;' });
+    mgr.fileInput.addEventListener('change', async (e)=>{
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      await importDefsFromText(await f.text());
+      mgr.fileInput.value='';
+    });
+
+    const btnImport = u.el('button', { class:'btn', onclick: ()=> mgr.fileInput.click() }, 'Import');
+
+    const btnNew = u.el('button', { class:'btn primary', onclick: ()=>{
+      RC.openCustomBuilder();
+      clearBuilder();
+      closeManager();
+      // Try load last draft for new
+      setTimeout(()=> loadDraft(), 120);
+    }}, 'Новий');
+
+    const bar = u.el('div', { class:'bar' }, [
+      u.el('div', { style:'display:flex; gap:10px; align-items:center;' }, [btnExport, btnShare, btnImport, mgr.fileInput]),
+      u.el('div', { style:'display:flex; gap:10px; align-items:center;' }, [btnNew])
+    ]);
+
+    mgr.list = u.el('div', { class:'body', style:'height: calc(100% - 110px);' });
+
+    mgr.modal.appendChild(hdr);
+    mgr.modal.appendChild(bar);
+    mgr.modal.appendChild(mgr.list);
+
+    document.body.appendChild(mgr.backdrop);
+    document.body.appendChild(mgr.modal);
+
+    mgr.backdrop.addEventListener('click', closeManager);
+    document.addEventListener('keydown', (e)=>{ if (e.key==='Escape' && mgr.modal.style.display==='block') closeManager(); });
+  }
+
+  async function importDefsFromText(txt){
+    try{
+      const obj = u.jparse(txt, null);
+      const incoming = obj && (obj.defs || obj.blocks || obj);
+      if (!Array.isArray(incoming)) throw new Error('bad format');
+      const existing = loadBlocks();
+      const byType = new Map(existing.map(d=>[d.blockType,d]));
+      for (const d of incoming){
+        if (!d || !d.blockType) continue;
+        byType.set(d.blockType, d);
+      }
+      const merged = Array.from(byType.values());
+      saveBlocks(merged);
+      rebuildDefsMap();
+      // Register missing types
+      const Blockly = window.Blockly;
+      if (Blockly){
+        for (const d of merged) defineCustomBlockType(Blockly, d.blockType);
+      }
+      const mainWs = window.workspace || window._workspace;
+      mainWs && rebuildCustomCategory(mainWs);
+      toast('Імпортовано');
+      refreshManagerList();
+    }catch(err){
+      toast('Помилка імпорту');
+    }
+  }
+
+  function openManager(){
+    ensureManager();
+    refreshManagerList();
+    mgr.backdrop.style.display='block';
+    mgr.modal.style.display='block';
+  }
+  function closeManager(){
+    if (!mgr.modal) return;
+    mgr.backdrop.style.display='none';
+    mgr.modal.style.display='none';
+  }
+
+  function refreshManagerList(){
+    if (!mgr.list) return;
+    mgr.list.innerHTML='';
+
+    const defs = loadBlocks().sort((a,b)=>(b.updatedAt||b.createdAt||0)-(a.updatedAt||a.createdAt||0));
+    if (!defs.length){
+      mgr.list.appendChild(u.el('div',{style:'color:#94a3b8;font-weight:900;padding:10px;'},'Нема кастомних блоків. Натисни "Новий".'));
+      return;
+    }
+
+    for (const d of defs){
+      const sw = u.el('div', { class:'sw', style:`background:${d.colour || CFG.defaultCustomBlockColour};` });
+      const name = u.el('div', { class:'name' }, d.name || d.blockType);
+      const meta = u.el('div', { class:'meta' }, (d.blockType||'').slice(0,26));
+
+      const btnEdit = u.el('button', { class:'btn', onclick: ()=>{
+        closeManager();
+        RC.openCustomBuilder();
+        setTimeout(()=> loadProgramIntoBuilder(d), 120);
+      }}, 'Редаг.');
+
+      const btnRename = u.el('button', { class:'btn', onclick: ()=>{
+        const n = prompt('Нова назва блоку:', d.name || '');
+        if (n === null) return;
+        const newName = (n || '').trim();
+        if (!newName) return toast('Порожня назва');
+        updateDef(d.blockType, { name: newName });
+        toast('Перейменовано');
+        const mainWs = window.workspace || window._workspace;
+        mainWs && rebuildCustomCategory(mainWs);
+        refreshManagerList();
+      }}, 'Назва');
+
+      const colorInput = u.el('input', { type:'color', value: d.colour || CFG.defaultCustomBlockColour, style:'width:38px;height:34px;border:none;background:transparent;cursor:pointer;' });
+      colorInput.addEventListener('input', ()=>{
+        updateDef(d.blockType, { colour: colorInput.value });
+        const mainWs = window.workspace || window._workspace;
+        mainWs && rebuildCustomCategory(mainWs);
+        refreshManagerList();
+      });
+
+      const btnDel = u.el('button', { class:'btn danger', onclick: ()=>{
+        if (!confirm('Видалити цей блок?')) return;
+        deleteDef(d.blockType);
+        const mainWs = window.workspace || window._workspace;
+        mainWs && rebuildCustomCategory(mainWs);
+        toast('Видалено');
+        refreshManagerList();
+      }}, 'Видал.');
+
+      mgr.list.appendChild(
+        u.el('div', { class:'rcRow' }, [
+          sw, name, meta,
+          u.el('div', { class:'act' }, [btnEdit, btnRename, colorInput, btnDel])
+        ])
+      );
+    }
+  }
+
+  // ------------------------------------------------------------
+  // Params modal (for current builder block)
+  // ------------------------------------------------------------
+  const paramsUI = { backdrop:null, modal:null, body:null };
+
+  function ensureParams(){
+    if (paramsUI.modal) return;
+    injectCss();
+    paramsUI.backdrop = u.el('div', { class:'rcModalBackdrop', id:'rcParamsBackdrop' });
+    paramsUI.modal = u.el('div', { class:'rcModal', id:'rcParamsModal' });
+
+    const hdr = u.el('div', { class:'hdr' }, [
+      u.el('div', { class:'ttl' }, [ u.el('span',{class:'dot'}), 'ПАРАМЕТРИ БЛОКУ' ]),
+      u.el('button', { class:'x', onclick: closeParams }, '✕')
+    ]);
+
+    const btnAdd = u.el('button', { class:'btn primary', onclick: ()=> addParamRow() }, '+ Додати');
+    const btnClear = u.el('button', { class:'btn', onclick: ()=>{ if(confirm('Очистити параметри?')){ setBuilderParams([]); renderParams(); } } }, 'Очистити');
+
+    const bar = u.el('div', { class:'bar' }, [
+      u.el('div', { style:'color:#94a3b8;font-weight:900;' }, 'Параметри з’являються як поля на великому ⭐-блоці.'),
+      u.el('div', { style:'display:flex; gap:10px; align-items:center;' }, [btnClear, btnAdd])
+    ]);
+
+    paramsUI.body = u.el('div', { class:'body' });
+
+    paramsUI.modal.appendChild(hdr);
+    paramsUI.modal.appendChild(bar);
+    paramsUI.modal.appendChild(paramsUI.body);
+
+    document.body.appendChild(paramsUI.backdrop);
+    document.body.appendChild(paramsUI.modal);
+
+    paramsUI.backdrop.addEventListener('click', closeParams);
+  }
+
+  function openParams(){
+    ensureParams();
+    renderParams();
+    paramsUI.backdrop.style.display='block';
+    paramsUI.modal.style.display='block';
+  }
+  function closeParams(){
+    if (!paramsUI.modal) return;
+    paramsUI.backdrop.style.display='none';
+    paramsUI.modal.style.display='none';
+    saveDraft(); // keep params in draft
+  }
+
+  function renderParams(){
+    if (!paramsUI.body) return;
+    paramsUI.body.innerHTML='';
+
+    const params = getBuilderParams();
+    const head = u.el('div',{style:'display:grid;grid-template-columns: 1fr 160px 220px 120px; gap:10px; padding:8px 10px; color:#94a3b8; font-weight:900; font-size:12px;'},
+      ['Назва','Тип','Default/Options','Дії'].map(t=>u.el('div',{},t))
+    );
+    paramsUI.body.appendChild(head);
+
+    if (!params.length){
+      paramsUI.body.appendChild(u.el('div',{style:'padding:10px;color:#94a3b8;font-weight:900;'},'Нема параметрів. Натисни “+ Додати”.'));
+      return;
+    }
+
+    params.forEach((p, idx)=>{
+      const row = u.el('div',{style:'display:grid;grid-template-columns: 1fr 160px 220px 120px; gap:10px; align-items:center; padding:10px; border:1px solid rgba(148,163,184,.12); border-radius:14px; background:rgba(30,41,59,.35); margin:8px 0;'});
+
+      const name = u.el('input',{type:'text', value:p.name||'', style:'background:rgba(2,6,23,.55); border:1px solid rgba(148,163,184,.16); border-radius:12px; padding:10px; color:#fff; font-weight:900; outline:none;'});
+      const type = u.el('select',{style:'background:rgba(2,6,23,.55); border:1px solid rgba(148,163,184,.16); border-radius:12px; padding:10px; color:#fff; font-weight:900; outline:none;'},
+        ['number','boolean','text','dropdown'].map(k=>u.el('option',{value:k, selected:(p.kind||'number')===k},k))
+      );
+      const extra = u.el('input',{type:'text', value: p.kind==='dropdown' ? (Array.isArray(p.options)?p.options.join(','):(p.options||'')) : (p.default ?? ''),
+        placeholder: p.kind==='dropdown' ? 'opt1,opt2' : 'default',
+        style:'background:rgba(2,6,23,.55); border:1px solid rgba(148,163,184,.16); border-radius:12px; padding:10px; color:#fff; font-weight:900; outline:none;'});
+
+      const btnUp = u.el('button',{class:'btn', style:'padding:8px 10px;', onclick:()=> moveParam(idx,-1)},'↑');
+      const btnDn = u.el('button',{class:'btn', style:'padding:8px 10px;', onclick:()=> moveParam(idx, 1)},'↓');
+      const btnDel = u.el('button',{class:'btn', style:'padding:8px 10px; border-color:rgba(248,113,113,.35); background:rgba(248,113,113,.12); color:#fecaca;', onclick:()=> removeParam(idx)},'✕');
+
+      const act = u.el('div',{style:'display:flex; gap:8px; justify-content:flex-end;'},[btnUp, btnDn, btnDel]);
+
+      const commit = ()=>{
+        const params2 = getBuilderParams();
+        const nn = (name.value||'').trim();
+        const kk = type.value;
+        let defv = null;
+        let options = null;
+        if (kk === 'dropdown'){
+          options = (extra.value||'').split(',').map(s=>s.trim()).filter(Boolean);
+          if (!options.length) options = ['A','B'];
+        } else if (kk === 'boolean'){
+          defv = String(extra.value||'').toLowerCase().includes('t');
+        } else if (kk === 'text'){
+          defv = String(extra.value||'');
+        } else { // number
+          const n = Number(extra.value);
+          defv = isFinite(n) ? n : 0;
+        }
+        params2[idx] = { name: nn || ('p'+(idx+1)), kind: kk, default: defv, options };
+        setBuilderParams(params2);
+      };
+
+      name.addEventListener('input', u.debounce(()=>{ commit(); }, 180));
+      type.addEventListener('change', ()=>{ commit(); renderParams(); });
+      extra.addEventListener('input', u.debounce(()=>{ commit(); }, 180));
+
+      row.appendChild(name);
+      row.appendChild(type);
+      row.appendChild(extra);
+      row.appendChild(act);
+      paramsUI.body.appendChild(row);
+    });
+  }
+
+  function addParamRow(){
+    const params = getBuilderParams();
+    params.push({ name:'param'+(params.length+1), kind:'number', default:0 });
+    setBuilderParams(params);
+    renderParams();
+  }
+  function removeParam(idx){
+    const params = getBuilderParams();
+    params.splice(idx,1);
+    setBuilderParams(params);
+    renderParams();
+  }
+  function moveParam(idx, dir){
+    const params = getBuilderParams();
+    const j = idx + dir;
+    if (j<0 || j>=params.length) return;
+    const t = params[idx]; params[idx]=params[j]; params[j]=t;
+    setBuilderParams(params);
+    renderParams();
+  }
+
+  // ------------------------------------------------------------
+  // Templates modal
+  // ------------------------------------------------------------
+  const tplUI = { backdrop:null, modal:null, body:null };
+
+  function ensureTemplates(){
+    if (tplUI.modal) return;
+    injectCss();
+    tplUI.backdrop = u.el('div', { class:'rcModalBackdrop', id:'rcTplBackdrop' });
+    tplUI.modal = u.el('div', { class:'rcModal', id:'rcTplModal' });
+
+    const hdr = u.el('div', { class:'hdr' }, [
+      u.el('div', { class:'ttl' }, [ u.el('span',{class:'dot'}), 'ШАБЛОНИ' ]),
+      u.el('button', { class:'x', onclick: closeTemplates }, '✕')
+    ]);
+
+    const bar = u.el('div', { class:'bar' }, [
+      u.el('div', { style:'color:#94a3b8;font-weight:900;' }, 'Швидко додає міні-блоки (без зайвих кліків).'),
+      u.el('div', { style:'display:flex; gap:10px; align-items:center;' }, [
+        u.el('button', { class:'btn', onclick: ()=>{ insertTemplate('if'); } }, 'IF'),
+        u.el('button', { class:'btn', onclick: ()=>{ insertTemplate('repeat'); } }, 'REPEAT'),
+        u.el('button', { class:'btn', onclick: ()=>{ insertTemplate('while'); } }, 'WHILE'),
+        u.el('button', { class:'btn', onclick: ()=>{ insertTemplate('number'); } }, 'NUMBER')
+      ])
+    ]);
+
+    tplUI.body = u.el('div', { class:'body' });
+    tplUI.modal.appendChild(hdr);
+    tplUI.modal.appendChild(bar);
+    tplUI.modal.appendChild(tplUI.body);
+    document.body.appendChild(tplUI.backdrop);
+    document.body.appendChild(tplUI.modal);
+    tplUI.backdrop.addEventListener('click', closeTemplates);
+  }
+
+  function openTemplates(){
+    ensureTemplates();
+    renderTemplates();
+    tplUI.backdrop.style.display='block';
+    tplUI.modal.style.display='block';
+  }
+  function closeTemplates(){
+    if (!tplUI.modal) return;
+    tplUI.backdrop.style.display='none';
+    tplUI.modal.style.display='none';
+  }
+
+  function renderTemplates(){
+    if (!tplUI.body) return;
+    tplUI.body.innerHTML='';
+    const Blockly = window.Blockly;
+    const available = Blockly && Blockly.Blocks ? new Set(Object.keys(Blockly.Blocks)) : new Set();
+
+    const templates = [
+      { id:'if', name:'IF (умова)', desc:'Додає міні-блок з controls_if', wrap:'controls_if', kind:'stmt' },
+      { id:'repeat', name:'REPEAT N', desc:'Додає міні-блок з controls_repeat_ext', wrap:'controls_repeat_ext', kind:'stmt' },
+      { id:'while', name:'WHILE/UNTIL', desc:'Додає міні-блок з controls_whileUntil', wrap:'controls_whileUntil', kind:'stmt' },
+      { id:'number', name:'NUMBER 0', desc:'Додає value міні-блок з math_number', wrap:'math_number', kind:'val', preset:{ field:'NUM', value:'0' } },
+    ];
+
+    // Try to detect project blocks to offer
+    const extra = [];
+    for (const t of Array.from(available)){
+      if (/pid/i.test(t)) extra.push({ id:'pid', name:'PID блок', desc:`Знайдений: ${t}`, wrap:t, kind:'stmt' });
+      if (/distance/i.test(t)) extra.push({ id:'dist', name:'Distance блок', desc:`Знайдений: ${t}`, wrap:t, kind:'stmt' });
+    }
+
+    const all = templates.concat(extra.slice(0,6));
+
+    for (const t of all){
+      const ok = t.wrap ? available.has(t.wrap) : true;
+      const row = u.el('div', { class:'rcRow', style: ok ? '' : 'opacity:.45;' }, [
+        u.el('div', { class:'sw', style:`background:${ok?'rgba(59,130,246,.55)':'rgba(148,163,184,.25)'};` }),
+        u.el('div', { class:'name' }, t.name),
+        u.el('div', { class:'meta' }, t.desc),
+        u.el('div', { class:'act' }, [
+          u.el('button', { class:'btn', onclick: ()=> ok && insertTemplate(t.id, t) }, ok ? 'Додати' : 'Нема')
+        ])
+      ]);
+      tplUI.body.appendChild(row);
+    }
+  }
+
+  function insertTemplate(id, tmpl=null){
+    const Blockly = window.Blockly;
+    ensureBuilderWorkspace();
+    if (!Blockly || !builder.ws) return;
+
+    const t = tmpl || ({ id });
+    const kind = t.kind || (id==='number'?'val':'stmt');
+    const type = (kind==='val') ? 'rc_mini_value' : 'rc_mini';
+    const wrap = t.wrap || (id==='if'?'controls_if': id==='repeat'?'controls_repeat_ext': id==='while'?'controls_whileUntil':'math_number');
+
+    try{
+      const xy = builder.ws.getMetrics ? builder.ws.getMetrics().viewLeft : 0;
+    }catch(e){}
+
+    const nb = builder.ws.newBlock(type);
+    nb.initSvg(); nb.render();
+    nb.setFieldValue(kind==='val'?'val':'mini', 'LABEL');
+    if (wrap) nb.setFieldValue(wrap, 'WRAP_TYPE');
+
+    // preset inner state for math_number
+    if (t.preset && RC._miniSerialize && RC._miniDeserializeTo){
+      try{
+        const tmpDiv = document.createElement('div');
+        tmpDiv.style.position='fixed'; tmpDiv.style.left='-99999px'; tmpDiv.style.top='-99999px';
+        tmpDiv.style.width='10px'; tmpDiv.style.height='10px'; tmpDiv.style.opacity='0';
+        document.body.appendChild(tmpDiv);
+        const ws = Blockly.inject(tmpDiv, { toolbox:'<xml></xml>', readOnly:false, scrollbars:false, trashcan:false });
+        const b = ws.newBlock(wrap);
+        b.initSvg(); b.render();
+        if (t.preset.field) b.setFieldValue(t.preset.value, t.preset.field);
+        const ser = RC._miniSerialize(b);
+        nb.data = ser ? u.jstring(ser) : '';
+        ws.dispose();
+        tmpDiv.remove();
+      }catch(e){}
+    }
+
+    const m = builder.ws.getMetrics && builder.ws.getMetrics();
+    const x = (m ? m.viewLeft + m.viewWidth/2 : 120);
+    const y = (m ? m.viewTop + 120 : 120);
+    nb.moveBy(x, y);
+
+    toast('Шаблон додано');
+  }
+
+  // ------------------------------------------------------------
+  // Validation modal
+  // ------------------------------------------------------------
+  const valUI = { backdrop:null, modal:null, body:null };
+
+  function ensureValidation(){
+    if (valUI.modal) return;
+    injectCss();
+    valUI.backdrop = u.el('div', { class:'rcModalBackdrop', id:'rcValBackdrop' });
+    valUI.modal = u.el('div', { class:'rcModal', id:'rcValModal' });
+
+    const hdr = u.el('div', { class:'hdr' }, [
+      u.el('div', { class:'ttl' }, [ u.el('span',{class:'dot'}), 'ПЕРЕВІРКА' ]),
+      u.el('button', { class:'x', onclick: closeValidation }, '✕')
+    ]);
+
+    const bar = u.el('div', { class:'bar' }, [
+      u.el('div', { style:'color:#94a3b8;font-weight:900;' }, 'Показує помилки, які часто ламають кастом-блоки.'),
+      u.el('div', { style:'display:flex; gap:10px; align-items:center;' }, [
+        u.el('button', { class:'btn', onclick: ()=>{ renderValidation(); } }, 'Оновити')
+      ])
+    ]);
+
+    valUI.body = u.el('div', { class:'body' });
+    valUI.modal.appendChild(hdr);
+    valUI.modal.appendChild(bar);
+    valUI.modal.appendChild(valUI.body);
+    document.body.appendChild(valUI.backdrop);
+    document.body.appendChild(valUI.modal);
+    valUI.backdrop.addEventListener('click', closeValidation);
+  }
+
+  function openValidation(){
+    ensureValidation();
+    renderValidation();
+    valUI.backdrop.style.display='block';
+    valUI.modal.style.display='block';
+  }
+  function closeValidation(){
+    if (!valUI.modal) return;
+    valUI.backdrop.style.display='none';
+    valUI.modal.style.display='none';
+  }
+
+  function validateBuilder(){
+    const issues = [];
+    const Blockly = window.Blockly;
+    if (!Blockly || !builder.ws) return [{ level:'error', title:'Blockly не готовий', detail:'Нема builder workspace.' }];
+
+    const tops = builder.ws.getTopBlocks(true);
+    if (!tops.length){
+      issues.push({ level:'error', title:'Порожньо', detail:'Додай хоча б один міні-блок.' });
+    }
+
+    // orphan mini blocks: value mini without connection and not top? (all top blocks are allowed)
+    const all = builder.ws.getAllBlocks(false);
+    for (const b of all){
+      if (b.type === 'rc_mini' || b.type === 'rc_mini_value'){
+        const wrap = b.getFieldValue('WRAP_TYPE') || '';
+        if (!wrap) issues.push({ level:'warn', title:'WRAP_TYPE порожній', detail:`Міні-блок без вибраного типу.` });
+        const st = u.jparse(b.data || '', null);
+        if (!st) issues.push({ level:'warn', title:'Міні-блок без збереження', detail:`Використай ⚙ і натисни “Зберегти”.` });
+      }
+    }
+
+    // params: duplicate names
+    const params = getBuilderParams();
+    const names = params.map(p=>String(p.name||'').trim()).filter(Boolean);
+    const dup = names.filter((n,i)=>names.indexOf(n)!==i);
+    if (dup.length) issues.push({ level:'warn', title:'Дубль параметрів', detail:`Однакові назви: ${Array.from(new Set(dup)).join(', ')}` });
+
+    // simulator risk: detect while(true) in generated code
+    const code = generateBuilderCodeSafe();
+    if (code && /while\s*\(\s*true\s*\)/.test(code) && !/(_shouldStop|shouldStop)/.test(code)){
+      issues.push({ level:'warn', title:'Можливий зависон', detail:'Є while(true) без перевірки stop. У симуляторі може підвиснути.' });
+    }
+
+    return issues;
+  }
+
+  function renderValidation(){
+    if (!valUI.body) return;
+    valUI.body.innerHTML='';
+
+    const issues = validateBuilder();
+    if (!issues.length){
+      valUI.body.appendChild(u.el('div',{style:'color:#94a3b8;font-weight:900;padding:10px;'},'Все ок ✅'));
+      return;
+    }
+
+    for (const it of issues){
+      const tag = it.level === 'error' ? '❌' : it.level === 'warn' ? '⚠️' : 'ℹ️';
+      valUI.body.appendChild(u.el('div',{class:'rcIssue'},[
+        u.el('div',{class:'t'}, `${tag} ${it.title}`),
+        u.el('div',{class:'d'}, it.detail || '')
+      ]));
+    }
+  }
+
+  // ------------------------------------------------------------
+  // Simulator modal (dry-run) + step highlight
+  // ------------------------------------------------------------
+  const simUI = { backdrop:null, modal:null, log:null, sliders:[], running:false, stepIdx:0, stop:false, lastCode:'' };
+
+  function ensureSimulator(){
+    if (simUI.modal) return;
+    injectCss();
+    simUI.backdrop = u.el('div', { class:'rcModalBackdrop', id:'rcSimBackdrop' });
+    simUI.modal = u.el('div', { class:'rcModal', id:'rcSimModal', style:'width:min(1180px,calc(100vw - 20px));height:min(86vh,780px);' });
+
+    const hdr = u.el('div', { class:'hdr' }, [
+      u.el('div', { class:'ttl' }, [ u.el('span',{class:'dot'}), 'СИМУЛЯТОР' ]),
+      u.el('button', { class:'x', onclick: closeSimulator }, '✕')
+    ]);
+
+    const btnRun = u.el('button', { class:'btn primary', onclick: ()=> simRunAll() }, 'Run');
+    const btnStep = u.el('button', { class:'btn', onclick: ()=> simStep() }, 'Step');
+    const btnStop = u.el('button', { class:'btn', onclick: ()=> simStop() }, 'Stop');
+    const btnClear = u.el('button', { class:'btn', onclick: ()=>{ simUI.log.textContent=''; } }, 'Clear log');
+
+    const bar = u.el('div', { class:'bar' }, [
+      u.el('div', { style:'color:#94a3b8;font-weight:900;' }, 'Виконує міні-блоки по черзі і логить “команди”.'),
+      u.el('div', { style:'display:flex; gap:10px; align-items:center;' }, [btnClear, btnStop, btnStep, btnRun])
+    ]);
+
+    const body = u.el('div', { class:'body', style:'padding:12px; height: calc(100% - 110px);' });
+    const grid = u.el('div', { id:'rcSimGrid' });
+
+    const left = u.el('div', { id:'rcSimLeft' });
+    left.appendChild(u.el('div',{style:'color:#e2e8f0;font-weight:950;letter-spacing:.08em;text-transform:uppercase;font-size:12px;'},'Сенсори'));
+
+    const makeSlider = (i)=>{
+      const wrap = u.el('div',{style:'display:flex;flex-direction:column;gap:6px; padding:10px; border:1px solid rgba(148,163,184,.12); border-radius:14px; background:rgba(30,41,59,.35);'});
+      const top = u.el('div',{style:'display:flex;align-items:center;justify-content:space-between;gap:10px;'},[
+        u.el('div',{style:'color:#e2e8f0;font-weight:950;'},`S${i+1}`),
+        u.el('div',{style:'color:#94a3b8;font-weight:900;', id:`rcSimVal${i}`},'0')
+      ]);
+      const s = u.el('input',{type:'range', min:'0', max:'400', value:'0', style:'width:100%;'});
+      s.addEventListener('input', ()=>{
+        document.getElementById(`rcSimVal${i}`).textContent = s.value;
+      });
+      wrap.appendChild(top);
+      wrap.appendChild(s);
+      simUI.sliders[i]=s;
+      return wrap;
+    };
+    for (let i=0;i<4;i++) left.appendChild(makeSlider(i));
+
+    left.appendChild(u.el('div',{style:'color:#94a3b8;font-weight:900;font-size:12px;line-height:1.35;'},'Порада: якщо всередині є while(true) без stop — симулятор може підвиснути.'));
+
+    const right = u.el('div', { id:'rcSimRight' });
+    right.appendChild(u.el('div',{style:'display:flex;align-items:center;justify-content:space-between;gap:10px; margin-bottom:10px;'},[
+      u.el('div',{style:'color:#e2e8f0;font-weight:950;letter-spacing:.08em;text-transform:uppercase;font-size:12px;'},'LOG'),
+      u.el('div',{style:'color:#94a3b8;font-weight:900;font-size:12px;'},'Step підсвічує міні-блок')
+    ]));
+    simUI.log = u.el('div', { id:'rcSimLog' }, '');
+    right.appendChild(simUI.log);
+
+    grid.appendChild(left);
+    grid.appendChild(right);
+    body.appendChild(grid);
+
+    simUI.modal.appendChild(hdr);
+    simUI.modal.appendChild(bar);
+    simUI.modal.appendChild(body);
+
+    document.body.appendChild(simUI.backdrop);
+    document.body.appendChild(simUI.modal);
+    simUI.backdrop.addEventListener('click', closeSimulator);
+  }
+
+  function openSimulator(){
+    ensureSimulator();
+    simUI.stepIdx = 0;
+    simUI.stop = false;
+    simUI.backdrop.style.display='block';
+    simUI.modal.style.display='block';
+    toast('Симулятор готовий');
+  }
+  function closeSimulator(){
+    if (!simUI.modal) return;
+    simUI.stop = true;
+    simUI.backdrop.style.display='none';
+    simUI.modal.style.display='none';
+  }
+  function simStop(){
+    simUI.stop = true;
+    window._shouldStop = true;
+    logSim('== STOP ==');
+  }
+
+  function getSimSensorData(){
+    const arr = [];
+    for (let i=0;i<4;i++) arr[i] = Number(simUI.sliders[i]?.value || 0);
+    return arr;
+  }
+
+  function logSim(line){
+    if (!simUI.log) return;
+    const ts = new Date().toLocaleTimeString();
+    simUI.log.textContent += `[${ts}] ${line}\n`;
+    simUI.log.scrollTop = simUI.log.scrollHeight;
+  }
+
+  function highlightMiniAt(idx){
+    try{
+      const tops = builder.ws.getTopBlocks(true)
+        .filter(b=>b.type==='rc_mini' || b.type==='rc_mini_value')
+        .sort((a,b)=>a.getRelativeToSurfaceXY().y - b.getRelativeToSurfaceXY().y);
+      const b = tops[idx];
+      if (!b) return;
+      builder.ws.highlightBlock(null);
+      builder.ws.highlightBlock(b.id);
+      b.select && b.select();
+    }catch(e){}
+  }
+
+  function generateBuilderCodeSafe(){
+    const Blockly = window.Blockly;
+    if (!Blockly || !builder.ws) return '';
+    try{
+      const jsGen = Blockly.JavaScript || Blockly.javascriptGenerator;
+      if (!jsGen) return '';
+      const code = (jsGen.workspaceToCode(builder.ws) || '').trim();
+      return code;
+    }catch(e){ return ''; }
+  }
+
+  async function runSnippet(code){
+    // Sandbox: patch common functions to log instead of send
+    const old = {
+      sendDrivePacket: window.sendDrivePacket,
+      sendMotorPacket: window.sendMotorPacket,
+      sendPacket: window.sendPacket,
+      btSend: window.btSend,
+      bluetoothSend: window.bluetoothSend,
+      sendToRobot: window.sendToRobot
+    };
+
+    try{
+      window.sensorData = getSimSensorData();
+      window._shouldStop = false;
+
+      const stub = (...args)=> logSim(`send(${args.map(a=>u.jstring(a)).join(', ')})`);
+      window.sendDrivePacket = stub;
+      window.sendMotorPacket = stub;
+      window.sendPacket = stub;
+      window.btSend = stub;
+      window.bluetoothSend = stub;
+      window.sendToRobot = stub;
+
+      // Provide helpers
+      window.wait = (ms)=> new Promise(res=>setTimeout(res, Number(ms)||0));
+      window.delay = window.wait;
+
+      // Execute as async function (supports await)
+      const fn = new Function(`return (async()=>{\n${code}\n})()`);
+      await fn();
+      return true;
+    }catch(e){
+      logSim('ERROR: ' + (e?.message || e));
+      return false;
+    }finally{
+      // restore
+      window.sendDrivePacket = old.sendDrivePacket;
+      window.sendMotorPacket = old.sendMotorPacket;
+      window.sendPacket = old.sendPacket;
+      window.btSend = old.btSend;
+      window.bluetoothSend = old.bluetoothSend;
+      window.sendToRobot = old.sendToRobot;
+    }
+  }
+
+  async function simStep(){
+    ensureBuilderWorkspace();
+    simUI.stop = false;
+    const Blockly = window.Blockly;
+    if (!Blockly || !builder.ws) return;
+
+    const tops = builder.ws.getTopBlocks(true)
+      .filter(b=>b.type==='rc_mini' || b.type==='rc_mini_value')
+      .sort((a,b)=>a.getRelativeToSurfaceXY().y - b.getRelativeToSurfaceXY().y);
+
+    if (simUI.stepIdx >= tops.length){
+      simUI.stepIdx = 0;
+      logSim('== END, reset step ==');
+      return;
+    }
+
+    highlightMiniAt(simUI.stepIdx);
+
+    const jsGen = Blockly.JavaScript || Blockly.javascriptGenerator;
+    let snippet = '';
+    try{
+      snippet = jsGen.blockToCode(tops[simUI.stepIdx]);
+      if (Array.isArray(snippet)) snippet = snippet[0] || '';
+      snippet = String(snippet||'').trim();
+    }catch(e){ snippet = ''; }
+
+    if (!snippet){
+      logSim(`Step ${simUI.stepIdx+1}: empty`);
+      simUI.stepIdx++;
+      return;
+    }
+
+    logSim(`Step ${simUI.stepIdx+1}: run`);
+    await runSnippet(snippet);
+    simUI.stepIdx++;
+  }
+
+  async function simRunAll(){
+    ensureBuilderWorkspace();
+    simUI.stop = false;
+    const Blockly = window.Blockly;
+    if (!Blockly || !builder.ws) return;
+
+    const tops = builder.ws.getTopBlocks(true)
+      .filter(b=>b.type==='rc_mini' || b.type==='rc_mini_value')
+      .sort((a,b)=>a.getRelativeToSurfaceXY().y - b.getRelativeToSurfaceXY().y);
+
+    if (!tops.length){ logSim('No blocks'); return; }
+
+    simUI.stepIdx = 0;
+    for (let i=0;i<tops.length;i++){
+      if (simUI.stop) { logSim('== STOPPED =='); break; }
+      highlightMiniAt(i);
+      const jsGen = Blockly.JavaScript || Blockly.javascriptGenerator;
+      let snippet = '';
+      try{
+        snippet = jsGen.blockToCode(tops[i]);
+        if (Array.isArray(snippet)) snippet = snippet[0] || '';
+        snippet = String(snippet||'').trim();
+      }catch(e){ snippet = ''; }
+      if (!snippet){ logSim(`Block ${i+1}: empty`); continue; }
+      logSim(`Block ${i+1}: run`);
+      await runSnippet(snippet);
+      await new Promise(r=>setTimeout(r, 30));
+    }
+    builder.ws.highlightBlock(null);
+    logSim('== DONE ==');
+  }
+
+  // ------------------------------------------------------------
+  // History modal
+  // ------------------------------------------------------------
+  const histUI = { backdrop:null, modal:null, body:null };
+
+  function ensureHistory(){
+    if (histUI.modal) return;
+    injectCss();
+    histUI.backdrop = u.el('div', { class:'rcModalBackdrop', id:'rcHistBackdrop' });
+    histUI.modal = u.el('div', { class:'rcModal', id:'rcHistModal' });
+
+    const hdr = u.el('div', { class:'hdr' }, [
+      u.el('div', { class:'ttl' }, [ u.el('span',{class:'dot'}), 'ІСТОРІЯ' ]),
+      u.el('button', { class:'x', onclick: closeHistory }, '✕')
+    ]);
+
+    const btnSave = u.el('button',{class:'btn primary', onclick: ()=>{ saveDraft(); toast('Збережено'); renderHistory(); }}, 'Зберегти точку');
+    const btnClear = u.el('button',{class:'btn', onclick: ()=>{ if(confirm('Очистити історію?')){ setHistory([]); renderHistory(); } }}, 'Очистити');
+
+    const bar = u.el('div', { class:'bar' }, [
+      u.el('div',{style:'color:#94a3b8;font-weight:900;'},'Автозбереження. Натисни на запис, щоб відновити.'),
+      u.el('div',{style:'display:flex;gap:10px;align-items:center;'},[btnClear, btnSave])
+    ]);
+
+    histUI.body = u.el('div', { class:'body' });
+    histUI.modal.appendChild(hdr);
+    histUI.modal.appendChild(bar);
+    histUI.modal.appendChild(histUI.body);
+    document.body.appendChild(histUI.backdrop);
+    document.body.appendChild(histUI.modal);
+    histUI.backdrop.addEventListener('click', closeHistory);
+  }
+
+  function openHistory(){
+    ensureHistory();
+    renderHistory();
+    histUI.backdrop.style.display='block';
+    histUI.modal.style.display='block';
+  }
+  function closeHistory(){
+    if (!histUI.modal) return;
+    histUI.backdrop.style.display='none';
+    histUI.modal.style.display='none';
+  }
+
+  function renderHistory(){
+    if (!histUI.body) return;
+    histUI.body.innerHTML='';
+    const arr = getHistory();
+    if (!arr.length){
+      histUI.body.appendChild(u.el('div',{style:'color:#94a3b8;font-weight:900;padding:10px;'},'Історія порожня.'));
+      return;
+    }
+    for (const it of arr){
+      const row = u.el('div',{class:'rcRow'},[
+        u.el('div',{class:'sw', style:'background:rgba(34,197,94,.35);'}),
+        u.el('div',{class:'name'}, it.label),
+        u.el('div',{class:'meta'}, new Date(it.ts).toLocaleString()),
+        u.el('div',{class:'act'},[
+          u.el('button',{class:'btn', onclick: ()=>{ applyDraft(it.draft); toast('Відновлено'); closeHistory(); }}, 'Відновити')
+        ])
+      ]);
+      histUI.body.appendChild(row);
+    }
+  }
+
+  // ------------------------------------------------------------
+  // Load program into builder for editing
+  // ------------------------------------------------------------
+  function loadProgramIntoBuilder(def){
+    const Blockly = window.Blockly;
+    ensureBuilderWorkspace();
+    if (!Blockly || !builder.ws || !def) return;
+
+    clearBuilder();
+    builder.editingType = def.blockType;
+    builder.nameInput.value = def.name || 'Мій блок';
+    builder.colourInput.value = def.colour || CFG.defaultCustomBlockColour;
+    setBuilderParams(Array.isArray(def.params)?def.params:[]);
+
+    builder.ws.clear();
+    if (def.program && def.program.kind === 'json' && Blockly.serialization?.workspaces?.load){
+      try{ Blockly.serialization.workspaces.load(def.program.payload, builder.ws); }catch(e){}
+    } else if (def.program && def.program.kind === 'xml'){
+      try{
+        const dom = Blockly.Xml.textToDom(def.program.payload);
+        Blockly.Xml.domToWorkspace(dom, builder.ws);
+      }catch(e){}
+    }
+    setTimeout(()=>{ try{ Blockly.svgResize(builder.ws); }catch(e){} }, 80);
+  }
+
+  // ------------------------------------------------------------
+  // Pack / update custom block def
+  // ------------------------------------------------------------
+  function packOrUpdateCustomBlock(){
+    const Blockly = window.Blockly;
+    const mainWs = window.workspace || window._workspace;
+    if (!Blockly || !builder.ws || !mainWs) return;
+
+    const issues = validateBuilder();
+    const hasError = issues.some(i=>i.level==='error');
+    if (hasError){
+      openValidation();
+      toast('Є помилки');
+      return;
+    }
+
+    const name = (builder.nameInput.value || '').trim() || 'Мій блок';
+    const colour = builder.colourInput.value || CFG.defaultCustomBlockColour;
+    const params = getBuilderParams();
+
+    let program = null;
+    try{ if (Blockly.serialization?.workspaces?.save) program = { kind:'json', payload: Blockly.serialization.workspaces.save(builder.ws) }; }catch(e){}
+    if (!program){
+      try{
+        const xml = Blockly.Xml.workspaceToDom(builder.ws);
+        program = { kind:'xml', payload: Blockly.Xml.domToText(xml) };
+      }catch(e){ program = { kind:'xml', payload: '<xml></xml>' }; }
+    }
+
+    if (builder.editingType && RC._defsByType.has(builder.editingType)){
+      // update existing
+      updateDef(builder.editingType, { name, colour, params, program });
+      rebuildCustomCategory(mainWs);
+      toast('Оновлено');
+      setTimeout(()=> selectCustomCategory(mainWs), 80);
+      refreshManagerList();
+      return;
+    }
+
+    // create new
+    const blockType = 'rc_user_' + u.uid('b').replaceAll('-','_');
+    const def = { id: u.uid('def'), name, colour, params, blockType, program, createdAt: Date.now() };
+
+    const defs = loadBlocks();
+    defs.push(def);
+    saveBlocks(defs);
+    rebuildDefsMap();
+
+    defineCustomBlockType(Blockly, blockType);
+    rebuildCustomCategory(mainWs);
+    setTimeout(()=> selectCustomCategory(mainWs), 80);
+
+    toast('Додано в ⭐ Мої блоки');
+    refreshManagerList();
+    builder.editingType = blockType;
+  }
+
+  // ------------------------------------------------------------
+  // Hash import (share link)
+  // ------------------------------------------------------------
+  function maybeImportFromHash(){
+    const h = location.hash || '';
+    const m = h.match(/#cb=([A-Za-z0-9\-_]+)/);
+    if (!m) return;
+    const b64 = m[1];
+    const already = localStorage.getItem(CFG.storageKeyImportedHash);
+    if (already === b64) return;
+    const txt = u.b64dec(b64);
+    if (!txt) return;
+    const ok = confirm('Імпортувати кастомні блоки з лінка?');
+    if (!ok) return;
+    importDefsFromText(txt);
+    localStorage.setItem(CFG.storageKeyImportedHash, b64);
+  }
+
+  // ------------------------------------------------------------
   // Init
-  // ------------------------------
+  // ------------------------------------------------------------
   function initWhenReady(){
     if (!isDesktop()){
       RC.version = VERSION;
@@ -1308,7 +2326,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 
     // Ensure category + define blocks
     ensureCustomCategory();
-    defineMiniBlocks(Blockly);
+    defineMiniAndParamBlocks(Blockly);
 
     // Register existing custom blocks
     for (const d of loadBlocks()){
@@ -1316,15 +2334,17 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     }
 
     rebuildCustomCategory(ws);
-    setTimeout(()=>{
-      try{ markCustomCategoryRow(ws); }catch(e){}
-    }, 140);
+    setTimeout(()=>{ try{ markCustomCategoryRow(ws); }catch(e){} }, 140);
 
     ensureOpenButton();
+
+    // Try import from hash link if present
+    setTimeout(()=>{ try{ maybeImportFromHash(); }catch(e){} }, 200);
 
     RC.version = VERSION;
     RC.enabled = true;
     RC.openManager = openManager;
+
     return true;
   }
 
