@@ -62,6 +62,39 @@
     return undefined;
   }
 
+  // ------------------------------------------------------------
+  // Theme helper for Custom Blocks UI (force dark toolbox + flyout)
+  // ------------------------------------------------------------
+  let __rcCbTheme = null;
+  function getCBTheme(Blockly){
+    if (__rcCbTheme) return __rcCbTheme;
+    const base = getMainTheme(Blockly) || (Blockly && Blockly.Themes && (Blockly.Themes.Classic || Blockly.Themes.Zelos || Blockly.Themes.Modern));
+    try{
+      if (Blockly && Blockly.Theme && typeof Blockly.Theme.defineTheme === 'function'){
+        __rcCbTheme = Blockly.Theme.defineTheme('rcCbDark', {
+          base: base || undefined,
+          componentStyles: {
+            workspaceBackgroundColour: 'rgba(2,6,23,.35)',
+            toolboxBackgroundColour: '#0b1220',
+            toolboxForegroundColour: '#e2e8f0',
+            flyoutBackgroundColour: '#0b1220',
+            flyoutForegroundColour: '#e2e8f0',
+            flyoutOpacity: 0.96,
+            scrollbarColour: '#334155',
+            scrollbarOpacity: 0.55,
+            insertionMarkerColour: '#60a5fa',
+            insertionMarkerOpacity: 0.35,
+            cursorColour: '#60a5fa'
+          }
+        });
+        return __rcCbTheme;
+      }
+    }catch(e){}
+    __rcCbTheme = base;
+    return __rcCbTheme;
+  }
+
+
 // ------------------------------------------------------------
   // Utils
   // ------------------------------------------------------------
@@ -252,10 +285,21 @@
   padding: 10px 12px;
   border-bottom: 1px solid rgba(148,163,184,.10);
   background: rgba(2,6,23,.28);
+
+  /* force single-row topbar (no wrapping); scroll horizontally if needed */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: none;
 }
-#rcCustomBlocksTop .lbl{ font-size: 11px; font-weight: 900; color: #cbd5e1; }
+#rcCustomBlocksTop::-webkit-scrollbar{ height:0; width:0; }
+#rcCustomBlocksTop .lbl{ font-size: 11px; font-weight: 900; color: #cbd5e1; flex:0 0 auto; }
 #rcCustomBlocksTop input[type="text"]{
-  min-width: 220px;
+  min-width: 140px;
+  max-width: 280px;
+  flex: 0 1 240px;
+  height: 42px;
   background: rgba(2,6,23,.55);
   border: 1px solid rgba(148,163,184,.16);
   border-radius: 12px;
@@ -266,11 +310,16 @@
 }
 #rcCustomBlocksTop input[type="color"]{
   width: 48px;
-  height: 40px;
+  height: 42px;
   border: none;
   background: transparent;
+  flex: 0 0 auto;
 }
 #rcCustomBlocksTop .btn{
+  height: 42px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
   padding: 10px 12px;
   border-radius: 14px;
   border: 1px solid rgba(148,163,184,.14);
@@ -279,16 +328,34 @@
   font-weight: 950;
   cursor: pointer;
   user-select:none;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  gap:8px;
+}
+#rcCustomBlocksTop .btn:hover{
+  filter: brightness(1.06);
+  box-shadow: 0 0 0 1px rgba(148,163,184,.12), 0 0 12px rgba(59,130,246,.12);
 }
 #rcCustomBlocksTop .btn.primary{
-  background: rgba(59,130,246,.85);
+  background: rgba(59,130,246,.86);
   border-color: rgba(59,130,246,.55);
   color: #fff;
+  box-shadow: 0 0 0 1px rgba(96,165,250,.40), 0 0 18px rgba(59,130,246,.22);
 }
 #rcCustomBlocksTop .btn:active{ transform: scale(.99); }
 #rcCustomBlocksTop .btn.rcBackBtn{ padding:10px 12px; background: rgba(15,23,42,.55); }
 #rcCustomBlocksTop .btn.rcBackBtn i{ font-size: 14px; }
 #rcCustomBlocksDiv{ flex:1; min-height:0; background: rgba(2,6,23,.35); }
+
+/* Dot-grid background (visible "сітка") */
+#view-customblocks .blocklySvg{
+  background: radial-gradient(circle at 1px 1px, rgba(148,163,184,.18) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+#rcMiniModal .blocklySvg{
+  background: radial-gradient(circle at 1px 1px, rgba(148,163,184,.18) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
 
 /* Dark toolbox for builder workspace (isolate from global toolbox styles) */
 #view-customblocks .blocklyToolboxDiv{
@@ -356,7 +423,7 @@
 .rcModal .hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(148,163,184,.14);}
 .rcModal .hdr .ttl{display:flex;align-items:center;gap:10px;color:#e2e8f0;font-weight:950;letter-spacing:.08em;text-transform:uppercase;font-size:12px;}
 .rcModal .hdr .ttl .dot{width:10px;height:10px;border-radius:4px;background:${CFG.customCategoryColour};box-shadow:0 0 12px rgba(245,158,11,.45);}
-.rcModal .hdr .x{width:42px;height:42px;border-radius:14px;border:1px solid rgba(148,163,184,.15);background:rgba(30,41,59,.70);color:#e2e8f0;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.rcModal .hdr .x{width:42px;height:42px;margin-left:10px;margin-right:6px;border-radius:14px;border:1px solid rgba(148,163,184,.15);background:rgba(30,41,59,.70);color:#e2e8f0;cursor:pointer;display:flex;align-items:center;justify-content:center;}
 .rcModal .bar{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(148,163,184,.10);background:rgba(2,6,23,.28);}
 .rcModal .bar .btn{padding:10px 12px;border-radius:14px;border:1px solid rgba(148,163,184,.14);background:rgba(30,41,59,.74);color:#e2e8f0;font-weight:950;cursor:pointer;}
 .rcModal .bar .btn.primary{background:rgba(59,130,246,.85);border-color:rgba(59,130,246,.55);color:#fff;}
@@ -1041,15 +1108,25 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 
     miniUI.ws = Blockly.inject(miniUI.wsDiv, {
       toolbox: toolboxXml,
-      theme: getMainTheme(Blockly),
+      theme: getCBTheme(Blockly),
       toolboxPosition: 'start',
       trashcan: false,
       scrollbars: true,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
       move: { scrollbars: true, drag: true, wheel: true },
-      grid: { spacing: 22, length: 1, colour: 'rgba(148,163,184,.55)', snap: true },
+      grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
+
+    // Force dark toolbox/flyout for Mini-Blockly too
+    try{
+      const tb = miniUI.ws && miniUI.ws.getToolbox && miniUI.ws.getToolbox();
+      if (tb && tb.HtmlDiv) tb.HtmlDiv.style.background = 'rgba(2,6,23,.94)';
+    }catch(e){}
+    try{
+      const fl = miniUI.ws && miniUI.ws.getFlyout && miniUI.ws.getFlyout();
+      if (fl && fl.svgBackground_) fl.svgBackground_.setAttribute('fill', 'rgba(2,6,23,.94)');
+    }catch(e){}
 
     restoreMiniInner(miniBlock);
 
@@ -1152,7 +1229,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     builder.btnValidate = u.el('button', { class:'btn', onclick: ()=> openValidation() }, 'Перевірити');
     builder.btnSim = u.el('button', { class:'btn', onclick: ()=> openSimulator() }, 'Симулятор');
     builder.btnHistory = u.el('button', { class:'btn', onclick: ()=> openHistory() }, 'Історія');
-    builder.btnC = u.el('button', { class:'btn', onclick: ()=> openCPreviewForBuilder() }, 'C (STM32)');
+    builder.btnC = u.el('button', { class:'btn', onclick: ()=> openCPreviewForBuilder() }, 'C STM32');
 
     const topBar = u.el('div', { id:'rcCustomBlocksTop' }, [
       builder.backBtn,
@@ -1198,15 +1275,25 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 
     builder.ws = Blockly.inject(builder.wsDiv, {
       toolbox,
-      theme: getMainTheme(Blockly),
+      theme: getCBTheme(Blockly),
       toolboxPosition: 'start',
       trashcan: false,
       scrollbars: true,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
       move: { scrollbars: true, drag: true, wheel: true },
-      grid: { spacing: 22, length: 1, colour: 'rgba(148,163,184,.55)', snap: true },
+      grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
+
+    // Force dark toolbox/flyout in case global styles override theme (index styles can be aggressive)
+    try{
+      const tb = builder.ws && builder.ws.getToolbox && builder.ws.getToolbox();
+      if (tb && tb.HtmlDiv) tb.HtmlDiv.style.background = 'rgba(2,6,23,.94)';
+    }catch(e){}
+    try{
+      const fl = builder.ws && builder.ws.getFlyout && builder.ws.getFlyout();
+      if (fl && fl.svgBackground_) fl.svgBackground_.setAttribute('fill', 'rgba(2,6,23,.94)');
+    }catch(e){}
 
     // Autosave draft + history snapshots debounced
     builder.ws.addChangeListener(u.debounce(()=>{
@@ -2413,15 +2500,27 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     ensureCModal();
     const name = (builder.nameInput && builder.nameInput.value ? builder.nameInput.value : 'custom_block').trim() || 'custom_block';
     const params = getBuilderParams();
-    const js = generateBuilderCodeSafe();
 
-    _cArtifacts = generateSTM32Artifacts(name, params, js);
+    // Prefer dedicated STM32 generator (stm32_cgen.js) if it exists.
+    if (window.RC_STM32_CGEN && typeof window.RC_STM32_CGEN.generateArtifacts === 'function'){
+      try{
+        _cArtifacts = window.RC_STM32_CGEN.generateArtifacts(builder.ws, { name, params });
+      }catch(e){
+        const js = generateBuilderCodeSafe();
+        _cArtifacts = generateSTM32Artifacts(name, params, js);
+      }
+    }else{
+      const js = generateBuilderCodeSafe();
+      _cArtifacts = generateSTM32Artifacts(name, params, js);
+    }
+
     _cTab = 'c';
     renderCTab();
 
     cUI.backdrop.style.display='block';
     cUI.modal.style.display='block';
   }
+
 
   function closeCModal(){
     if (!cUI.modal) return;
