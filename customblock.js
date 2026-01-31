@@ -1,1195 +1,1326 @@
-/* customblock.js v2.2
-   RoboControl - Custom Blocks (Variant B)
-   UI fixes:
-   - Mini-block config modal: non-clipped workspace, responsive layout
-   - Darker toolbox in modal (less eye strain)
-   - Hide scrollbars inside modal panes (still scrollable)
-   - Open button (puzzle) only visible inside Scratch/Blocks view (#view-builder)
+/* customblock.js (v2.1)
+   ==========================================================
+   RoboControl / Blockly: "ВАРІАНТ B" — міні‑блоки з коду існуючих блоків
+   ----------------------------------------------------------
+   Що ти хотів:
+     "Взяти всі блоки → витягнути з них код → зробити міні‑блоки → скласти великий блок → спакувати"
 
-   Note: This file is designed to be loaded AFTER Blockly + main workspace are created.
+   Якщо робити буквально:
+     • для кожного існуючого блоку створити окремий mini_* тип
+     • це означає сотні/тисячі нових блоків у Blockly.Blocks
+     • toolbox стане величезним, важким, і все почне лагати
+
+   Тому тут кращий підхід (той самий ефект, без хаосу):
+     ✅ Є 1 універсальний міні‑блок rc_mini (statement) і rc_mini_value (value).
+     ✅ Він "обгортає" будь‑який існуючий block type.
+     ✅ Всередині зберігається серіалізований реальний блок (JSON або XML).
+     ✅ Генерація коду береться з офіційного javascriptGenerator (тобто ми реально "витягуємо код").
+
+   Далі:
+     • ти складаєш багато rc_mini у шаблон (builder workspace)
+     • тиснеш "Спакувати блок"
+     • створюється компактний rc_user_* блок (іншого кольору), який з’являється у категорії "⭐ Мої блоки"
+     • зберігається в localStorage (не зникає після F5)
+
+   Примітка про PID:
+     У твоєму index PID є як block type `math_pid` (в toolbox). Див. index.
+   ==========================================================
 */
 (function(){
   'use strict';
 
-  // ------------------------------
-  // Basic guards
-  // ------------------------------
-  const RC = window.RC_CUSTOMBLOCK = window.RC_CUSTOMBLOCK || {};
-  const VERSION = 'v2.2';
-
+  // ==========================================================
+  // 0) Конфіг
+  // ==========================================================
   const CFG = {
-    storageKeyBlocks: 'rc_cb_blocks_v2',
-    storageKeySnippets: 'rc_cb_snippets_v2',
-    customCategoryId: 'rc_custom_category',
-    customCategoryName: '⭐ Мої блоки',
-    customCategoryColour: '#F59E0B', // amber
-    customBlockColour: '#FB923C', // orange
-    uiZ: 96
+    STORAGE_KEY: 'rc_custom_blocks_v2_1',
+
+    CATEGORY_NAME: '⭐ Мої блоки',
+    CATEGORY_COLOUR: '#F97316',   // помаранчевий
+
+    MINI_COLOUR_STMT: '#F59E0B',  // amber
+    MINI_COLOUR_VAL:  '#38BDF8',  // sky
+
+    MODAL_Z: 2000,
+
+    HIDDEN_DIV_ID: 'rc_hidden_ws_root',
+    FAB_ID: 'rc_custom_fab',
+
+    MODAL_ID: 'rc_custom_modal',
+    TAB_CREATE_ID: 'rc_tab_create',
+    TAB_LIST_ID: 'rc_tab_list',
+    VIEW_CREATE_ID: 'rc_view_create',
+    VIEW_LIST_ID: 'rc_view_list',
+
+    BUILDER_DIV_ID: 'rc_builder_ws',
+    BUILDER_CODE_ID: 'rc_builder_code',
+    BUILDER_COPY_ID: 'rc_builder_copy',
+
+    CONFIG_MODAL_ID: 'rc_config_modal',
+    CONFIG_WS_DIV_ID: 'rc_config_ws',
+    CONFIG_CODE_ID: 'rc_cfg_code',
+    CONFIG_COPY_ID: 'rc_cfg_copy',
+
+    MAX_CUSTOM_BLOCKS: 250,
+
+    DEBUG: false
   };
 
-  // ------------------------------
-  // Small utils
-  // ------------------------------
-  const u = {
+  // ==========================================================
+  // 1) Утиліти
+  // ==========================================================
+  const U = {
+    log(...a){ if(CFG.DEBUG) console.log('[customblock]', ...a); },
     uid(prefix='id'){
       return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
     },
-    jparse(str, fallback){
-      try { return JSON.parse(str); } catch(e){ return fallback; }
+    qs(sel, root=document){ return root.querySelector(sel); },
+    qsa(sel, root=document){ return Array.from(root.querySelectorAll(sel)); },
+    html(s){
+      return String(s)
+        .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
+        .replaceAll('"','&quot;').replaceAll("'",'&#039;');
     },
-    jstring(obj){
-      try { return JSON.stringify(obj); } catch(e){ return 'null'; }
+    safeJsonParse(s, fallback){
+      try{ return JSON.parse(s); }catch(e){ return fallback; }
     },
-    el(tag, attrs={}, children=[]){
-      const n = document.createElement(tag);
-      for (const [k,v] of Object.entries(attrs||{})){
-        if (k === 'class') n.className = v;
-        else if (k === 'style') n.setAttribute('style', v);
-        else if (k.startsWith('on') && typeof v === 'function') n.addEventListener(k.slice(2), v);
-        else if (v !== null && v !== undefined) n.setAttribute(k, String(v));
-      }
-      for (const c of (Array.isArray(children)?children:[children])){
-        if (c === null || c === undefined) continue;
-        if (typeof c === 'string') n.appendChild(document.createTextNode(c));
-        else n.appendChild(c);
-      }
-      return n;
+    safeJsonStringify(obj, fallback='{}'){
+      try{ return JSON.stringify(obj); }catch(e){ return fallback; }
     },
-    cssEscape(s){ return (window.CSS && CSS.escape) ? CSS.escape(s) : String(s).replace(/[^\w-]/g,'\\$&'); },
+    sleep(ms){ return new Promise(r=>setTimeout(r, ms)); },
+    sortByXY(blocks){
+      return blocks.slice().sort((a,b)=>{
+        const A = a.getRelativeToSurfaceXY ? a.getRelativeToSurfaceXY() : {x:0,y:0};
+        const B = b.getRelativeToSurfaceXY ? b.getRelativeToSurfaceXY() : {x:0,y:0};
+        if (A.y !== B.y) return A.y - B.y;
+        return A.x - B.x;
+      });
+    },
+    hasSerialization(){
+      return !!(window.Blockly && Blockly.serialization && Blockly.serialization.workspaces && Blockly.serialization.blocks);
+    },
+    xmlTextToDom(text){
+      if(!window.Blockly || !Blockly.Xml) return null;
+      try{ return Blockly.Xml.textToDom(text); }catch(e){ return null; }
+    },
+    domToXmlText(dom){
+      if(!window.Blockly || !Blockly.Xml) return '';
+      try{ return Blockly.Xml.domToText(dom); }catch(e){ return ''; }
+    },
+    // simple debounce
     debounce(fn, ms){
-      let t=null;
-      return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms); };
+      let t = null;
+      return function(...args){
+        clearTimeout(t);
+        t = setTimeout(()=>fn.apply(this,args), ms);
+      };
     }
   };
 
-  // ------------------------------
-  // Storage
-  // ------------------------------
-  function loadBlocks(){
-    const raw = localStorage.getItem(CFG.storageKeyBlocks);
-    const data = u.jparse(raw, []);
-    return Array.isArray(data) ? data : [];
+  // ==========================================================
+  // 2) State
+  // ==========================================================
+  const S = {
+    workspace: null,   // main workspace (from index)
+    hiddenWs: null,    // hidden for generation
+    builderWs: null,   // inside create modal
+    configWs: null,    // config modal
+    customBlocks: [],
+    availableTypes: [],
+    genStack: []
+  };
+
+  // ==========================================================
+  // 3) Storage
+  // ==========================================================
+  function loadCustomBlocks(){
+    const raw = localStorage.getItem(CFG.STORAGE_KEY);
+    const arr = U.safeJsonParse(raw, []);
+    if(!Array.isArray(arr)) return [];
+    return arr.filter(x => x && typeof x === 'object')
+      .slice(0, CFG.MAX_CUSTOM_BLOCKS)
+      .map(x => ({
+        id: String(x.id || U.uid('rc_user')),
+        name: String(x.name || 'Мій блок'),
+        colour: String(x.colour || CFG.CATEGORY_COLOUR),
+        template: x.template || null,
+        templateFormat: (x.templateFormat === 'xml') ? 'xml' : 'json',
+        output: !!x.output,
+        outputCheck: Array.isArray(x.outputCheck) ? x.outputCheck : null,
+        createdAt: Number(x.createdAt || Date.now())
+      }));
   }
-  function saveBlocks(arr){
-    localStorage.setItem(CFG.storageKeyBlocks, u.jstring(arr || []));
+
+  function saveCustomBlocks(){
+    localStorage.setItem(CFG.STORAGE_KEY, U.safeJsonStringify(S.customBlocks, '[]'));
   }
 
-  // ------------------------------
-  // Toolbox XML helper (adds ⭐ category once)
-  // ------------------------------
-  function ensureCustomCategory(){
-    const toolboxXml = document.getElementById('toolbox');
-    if (!toolboxXml) return null;
+  // ==========================================================
+  // 4) Collect types (from toolbox + Blockly.Blocks)
+  // ==========================================================
+  function collectBlockTypes(){
+    const set = new Set();
 
-    const exists = Array.from(toolboxXml.children).find(n => n.tagName?.toLowerCase()==='category' && (n.getAttribute('id')||'')===CFG.customCategoryId);
-    if (exists) return exists;
-
-    const cat = document.createElement('category');
-    cat.setAttribute('id', CFG.customCategoryId);
-    cat.setAttribute('name', CFG.customCategoryName);
-    cat.setAttribute('colour', CFG.customCategoryColour);
-    toolboxXml.appendChild(cat);
-    return cat;
-  }
-
-  function rebuildCustomCategory(workspace){
-    const toolboxXml = document.getElementById('toolbox');
-    if (!toolboxXml) return;
-
-    const cat = ensureCustomCategory();
-    if (!cat) return;
-
-    // clear old
-    while (cat.firstChild) cat.removeChild(cat.firstChild);
-
-    const blocks = loadBlocks();
-    for (const b of blocks){
-      const blockEl = document.createElement('block');
-      blockEl.setAttribute('type', b.blockType);
-      cat.appendChild(blockEl);
+    const toolbox = document.getElementById('toolbox');
+    if(toolbox){
+      U.qsa('block[type]', toolbox).forEach(b=>{
+        const t = b.getAttribute('type');
+        if(t) set.add(t);
+      });
     }
 
-    try {
-      if (workspace && workspace.getToolbox) {
-        workspace.updateToolbox(toolboxXml);
+    if(window.Blockly && Blockly.Blocks){
+      Object.keys(Blockly.Blocks).forEach(t=>set.add(t));
+    }
+
+    let types = Array.from(set).filter(t => typeof t === 'string' && t.trim().length);
+    // remove our own wrappers from selection
+    types = types.filter(t => !t.startsWith('rc_user_') && t !== 'rc_mini' && t !== 'rc_mini_value');
+
+    // stable sort
+    types.sort((a,b)=>a.localeCompare(b));
+    S.availableTypes = types;
+    return types;
+  }
+
+  // ==========================================================
+  // 5) Hidden workspace (for code generation)
+  // ==========================================================
+  function ensureHiddenWorkspace(){
+    if(!window.Blockly) return null;
+    if(S.hiddenWs) return S.hiddenWs;
+
+    let root = document.getElementById(CFG.HIDDEN_DIV_ID);
+    if(!root){
+      root = document.createElement('div');
+      root.id = CFG.HIDDEN_DIV_ID;
+      root.style.position = 'fixed';
+      root.style.left = '-99999px';
+      root.style.top = '0';
+      root.style.width = '10px';
+      root.style.height = '10px';
+      root.style.opacity = '0';
+      root.style.pointerEvents = 'none';
+      document.body.appendChild(root);
+    }
+
+    const toolboxXml = document.createElement('xml');
+    const theme = window.CustomTheme || (Blockly.Themes ? Blockly.Themes.Classic : null);
+
+    S.hiddenWs = Blockly.inject(root, {
+      toolbox: toolboxXml,
+      renderer: 'zelos',
+      theme,
+      scrollbars: false,
+      trashcan: false,
+      grid: { spacing: 40, length: 2, colour: '#334155', snap: true },
+      zoom: { controls: false, wheel: false, startScale: 1, maxScale: 1, minScale: 1 }
+    });
+
+    return S.hiddenWs;
+  }
+
+  // ==========================================================
+  // 6) Code gen helpers
+  // ==========================================================
+  function blockToCodeNormalized(gen, block){
+    let out = gen.blockToCode(block);
+    if(Array.isArray(out)) out = out[0];
+    out = (out == null) ? '' : String(out);
+    return out;
+  }
+
+  function codeFromWorkspace(gen, ws){
+    // Generate in XY order for stability
+    const tops = U.sortByXY(ws.getTopBlocks(true));
+    let code = '';
+    for(const tb of tops){
+      code += blockToCodeNormalized(gen, tb);
+    }
+    return code;
+  }
+
+  function generateCodeFromSerializedWorkspace(serialized, format){
+    const ws = ensureHiddenWorkspace();
+    if(!ws) return '';
+    ws.clear();
+
+    if(!window.javascript || !javascript.javascriptGenerator) return '';
+    const gen = javascript.javascriptGenerator;
+
+    try{
+      if(format === 'xml'){
+        const dom = U.xmlTextToDom(serialized || '');
+        if(dom) Blockly.Xml.domToWorkspace(dom, ws);
+      }else{
+        if(U.hasSerialization() && serialized){
+          Blockly.serialization.workspaces.load(serialized, ws);
+        }
       }
-    } catch(e){
-      // ignore
+    }catch(e){
+      U.log('generateCodeFromSerializedWorkspace load failed', e);
+    }
+
+    return codeFromWorkspace(gen, ws);
+  }
+
+  function serializeWorkspace(ws){
+    if(U.hasSerialization()){
+      return { format:'json', state: Blockly.serialization.workspaces.save(ws) };
+    }
+    const dom = Blockly.Xml.workspaceToDom(ws);
+    return { format:'xml', state: U.domToXmlText(dom) };
+  }
+
+  function loadWorkspace(ws, payload){
+    ws.clear();
+    if(!payload || !payload.format) return;
+    if(payload.format === 'xml'){
+      const dom = U.xmlTextToDom(payload.state || '');
+      if(dom) Blockly.Xml.domToWorkspace(dom, ws);
+      return;
+    }
+    if(U.hasSerialization() && payload.state){
+      Blockly.serialization.workspaces.load(payload.state, ws);
     }
   }
 
-  // ------------------------------
-  // Universal wrapper: mini blocks (rc_mini / rc_mini_value)
-  // - They wrap ANY existing block type + serialized state
-  // - Generator reconstructs the real block in hidden workspace and uses JS generator
-  // ------------------------------
-  function defineMiniBlocks(Blockly){
-    if (Blockly.Blocks['rc_mini']) return; // already
+  // ==========================================================
+  // 7) Gear field (clickable) + mini blocks
+  // ==========================================================
+  function defineMiniBlocks(){
+    if(!window.Blockly) return;
+    if(Blockly.Blocks['rc_mini']) return; // already
 
+    // Clickable image field with "⚙" (SVG text - short & safe)
+    class RcGearField extends Blockly.FieldImage {
+      constructor(kind){
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18">
+          <rect x="0" y="0" width="18" height="18" rx="4" ry="4" fill="rgba(255,255,255,0.15)"/>
+          <text x="9" y="13" text-anchor="middle" font-size="12">⚙</text>
+        </svg>`;
+        super('data:image/svg+xml;utf8,'+encodeURIComponent(svg), 18, 18, '⚙', () => {});
+        this._kind = kind || 'stmt';
+      }
+      showEditor_(){
+        const src = this.getSourceBlock();
+        if(src) openConfigModalForMini(src, this._kind);
+      }
+    }
+
+    const makeDropdown = ()=> new Blockly.FieldDropdown(()=>{
+      const types = S.availableTypes.length ? S.availableTypes : collectBlockTypes();
+      const opts = types.map(t => [t, t]);
+      return opts.length ? opts : [['(нема блоків)', '']];
+    });
+
+    // --------------------------
+    // rc_mini (statement wrapper)
+    // --------------------------
     Blockly.Blocks['rc_mini'] = {
       init: function(){
         this.appendDummyInput()
           .appendField('🧩')
-          .appendField(new Blockly.FieldTextInput('mini'), 'LABEL')
-          .appendField(new Blockly.FieldDropdown(getAllBlockTypesDropdown), 'WRAP_TYPE');
+          .appendField(makeDropdown(), 'TYPE')
+          .appendField(new RcGearField('stmt'), 'CFG');
+
         this.setPreviousStatement(true, null);
         this.setNextStatement(true, null);
-        this.setColour('#64748B'); // slate
-        this.setTooltip('Міні-блок: обгортає існуючий блок і зберігає його стан');
-        this.setHelpUrl('');
-        this.setMutator(null);
-        this.setOnChange(function(){
-          // no-op
-        });
-
-        // store wrapped state in data (json string)
-        if (!this.data) this.data = '';
+        this.setColour(CFG.MINI_COLOUR_STMT);
+        this.setTooltip('Міні‑блок (statement): всередині реальний блок. Налаштування через ⚙.');
       }
     };
 
+    // --------------------------
+    // rc_mini_value (value wrapper)
+    // --------------------------
     Blockly.Blocks['rc_mini_value'] = {
       init: function(){
         this.appendDummyInput()
           .appendField('🔹')
-          .appendField(new Blockly.FieldTextInput('val'), 'LABEL')
-          .appendField(new Blockly.FieldDropdown(getAllBlockTypesDropdown), 'WRAP_TYPE');
+          .appendField(makeDropdown(), 'TYPE')
+          .appendField(new RcGearField('value'), 'CFG');
+
         this.setOutput(true, null);
-        this.setColour('#475569'); // slate darker
-        this.setTooltip('Міні-значення: обгортає value-блок і зберігає його стан');
-        this.setHelpUrl('');
-        if (!this.data) this.data = '';
+        this.setColour(CFG.MINI_COLOUR_VAL);
+        this.setTooltip('Міні‑блок (value): обгортає value‑блок. Налаштування через ⚙.');
       }
     };
 
-    // Context menu: configure (opens modal)
-    const oldCustomContextMenu = Blockly.Block.prototype.customContextMenu;
-    Blockly.Block.prototype.customContextMenu = function(options){
-      if (oldCustomContextMenu) oldCustomContextMenu.call(this, options);
-      if (this.type === 'rc_mini' || this.type === 'rc_mini_value'){
-        options.push({
-          text: '⚙ Налаштувати міні-блок…',
-          enabled: true,
-          callback: ()=> openMiniConfigModal(this)
-        });
-        options.push({
-          text: '🧹 Очистити стан',
-          enabled: true,
-          callback: ()=> { this.data=''; toast('Стан міні-блоку очищено'); }
-        });
-      }
-    };
+    // --------------------------
+    // Generators
+    // --------------------------
+    if(window.javascript && javascript.javascriptGenerator){
+      const gen = javascript.javascriptGenerator;
+      gen.forBlock = gen.forBlock || {};
 
-    // Generator (JS): reconstruct wrapped block and call JS generator on it
-    // NOTE: We use Blockly.JavaScript if present, else Blockly.javascriptGenerator (newer)
-    const jsGen = Blockly.JavaScript || Blockly.javascriptGenerator;
-    if (!jsGen) return;
+      gen.forBlock['rc_mini'] = function(block){
+        const guardKey = block.id || 'rc_mini';
+        if(S.genStack.includes(guardKey)) return `// [rc_mini] recursion guard\n`;
+        S.genStack.push(guardKey);
 
-    // hidden workspace for generation
-    let hiddenWs = null;
-    function ensureHiddenWs(){
-      if (hiddenWs) return hiddenWs;
-      const div = document.createElement('div');
-      div.style.position='fixed';
-      div.style.left='-99999px';
-      div.style.top='-99999px';
-      div.style.width='10px';
-      div.style.height='10px';
-      div.style.opacity='0';
-      document.body.appendChild(div);
-      hiddenWs = Blockly.inject(div, { toolbox: '<xml></xml>', readOnly:false, scrollbars:false, trashcan:false });
-      return hiddenWs;
-    }
-
-    function serializeBlock(block){
-      // Prefer built-in serialization (newer Blockly)
-      try {
-        if (Blockly.serialization && Blockly.serialization.blocks && Blockly.serialization.blocks.save){
-          return { kind:'json', payload: Blockly.serialization.blocks.save(block) };
-        }
-      } catch(e){}
-      // fallback XML
-      try {
-        const xml = Blockly.Xml.blockToDom(block, true);
-        return { kind:'xml', payload: Blockly.Xml.domToText(xml) };
-      } catch(e){}
-      return null;
-    }
-
-    function deserializeBlockTo(ws, wrapType, stateObj){
-      ws.clear();
-      let b = null;
-      if (stateObj && stateObj.kind === 'json' && Blockly.serialization?.blocks?.load){
-        try {
-          Blockly.serialization.blocks.load(stateObj.payload, ws);
-          // the loaded top block is first in list
-          b = ws.getTopBlocks(true)[0] || null;
-        } catch(e){
-          b = null;
-        }
-      }
-      if (!b){
-        try {
-          b = ws.newBlock(wrapType);
-          b.initSvg(); b.render();
-          if (stateObj && stateObj.kind === 'xml'){
-            const dom = Blockly.Xml.textToDom(stateObj.payload);
-            // Replace b with loaded block
-            ws.clear();
-            const loaded = Blockly.Xml.domToBlock(dom, ws);
-            b = loaded || b;
-            b.initSvg(); b.render();
+        try{
+          let payload = block.data ? U.safeJsonParse(block.data, null) : null;
+          let code = '';
+          if(payload && payload.format){
+            code = generateCodeFromSerializedWorkspace(payload.state, payload.format);
+          }else{
+            const t = block.getFieldValue('TYPE') || '';
+            code = `// [rc_mini] no config for ${t}\n`;
           }
-        } catch(e){
-          // fallback: empty block
-          try {
-            b = ws.newBlock(wrapType);
-            b.initSvg(); b.render();
-          } catch(_){ b=null; }
+
+          const next = block.getNextBlock();
+          if(next) code += gen.blockToCode(next);
+          return code;
+        } finally {
+          S.genStack.pop();
         }
-      }
-      return b;
-    }
+      };
 
-    // Export helpers used by UI
-    RC._miniSerialize = serializeBlock;
-    RC._miniDeserializeTo = deserializeBlockTo;
-    RC._ensureHiddenWs = ensureHiddenWs;
+      gen.forBlock['rc_mini_value'] = function(block){
+        const guardKey = block.id || 'rc_mini_value';
+        if(S.genStack.includes(guardKey)) return ['0', gen.ORDER_ATOMIC];
+        S.genStack.push(guardKey);
 
-    // Define generator functions
-    jsGen.forBlock = jsGen.forBlock || {};
-    jsGen.forBlock['rc_mini'] = function(block, generator){
-      const wrapType = block.getFieldValue('WRAP_TYPE');
-      const state = u.jparse(block.data || '', null);
-      const ws = ensureHiddenWs();
-      const real = deserializeBlockTo(ws, wrapType, state);
-      let code = '';
-      if (real){
-        try {
-          code = (jsGen.blockToCode ? jsGen.blockToCode(real) : generator.blockToCode(real)) || '';
-        } catch(e){
-          code = '';
+        try{
+          let payload = block.data ? U.safeJsonParse(block.data, null) : null;
+          if(payload && payload.format){
+            const code = generateCodeFromSerializedWorkspace(payload.state, payload.format);
+            // For value wrapper we want only first expression. If config workspace has statements too,
+            // generator will output full code; that's not ideal, but user should keep it value‑only.
+            const expr = (code || '').trim().replace(/;\s*$/,'');
+            return [expr || '0', gen.ORDER_ATOMIC];
+          }
+          return ['0', gen.ORDER_ATOMIC];
+        } finally {
+          S.genStack.pop();
         }
-      }
-      // Some generators return [code, order] for value blocks. Ensure statement string.
-      if (Array.isArray(code)) code = code[0] || '';
-      if (typeof code !== 'string') code = String(code || '');
-      if (code && !code.endsWith('\n')) code += '\n';
-      return code;
-    };
-
-    jsGen.forBlock['rc_mini_value'] = function(block, generator){
-      const wrapType = block.getFieldValue('WRAP_TYPE');
-      const state = u.jparse(block.data || '', null);
-      const ws = ensureHiddenWs();
-      const real = deserializeBlockTo(ws, wrapType, state);
-      let out = '';
-      let order = 0;
-      if (real){
-        try {
-          const r = (jsGen.blockToCode ? jsGen.blockToCode(real) : generator.blockToCode(real));
-          if (Array.isArray(r)){ out = r[0] || ''; order = r[1] || 0; }
-          else out = r || '';
-        } catch(e){
-          out = '';
-        }
-      }
-      if (typeof out !== 'string') out = String(out || '');
-      return [out, order];
-    };
-  }
-
-  function getAllBlockTypesDropdown(){
-    // Called in Blockly context; 'this' is FieldDropdown if needed.
-    try {
-      const Blockly = window.Blockly;
-      if (!Blockly || !Blockly.Blocks) return [['(нема)', '']];
-      const types = Object.keys(Blockly.Blocks)
-        .filter(t => !t.startsWith('rc_')) // hide internal
-        .sort((a,b)=>a.localeCompare(b,'en'));
-      // Also allow selecting internal blocks if user wants (like procedures)
-      const extra = Object.keys(Blockly.Blocks).filter(t => t.startsWith('procedures_'));
-      const all = Array.from(new Set(types.concat(extra))).sort((a,b)=>a.localeCompare(b,'en'));
-      const res = all.map(t => [t, t]);
-      // Put some common ones on top if they exist
-      const top = ['math_number','math_arithmetic','controls_if','controls_repeat_ext','logic_compare','variables_set','variables_get'];
-      const topPairs = top.filter(t=>all.includes(t)).map(t=>[t, t]);
-      const final = topPairs.concat(res.filter(([t])=>!top.includes(t)));
-      return final.length ? final : [['(нема)', '']];
-    } catch(e){
-      return [['(нема)', '']];
-    }
-  }
-
-  // ------------------------------
-  // Custom macro blocks
-  // Each saved custom block becomes a new Blockly block type that generates code from its internal mini-program.
-  // ------------------------------
-  function defineCustomBlockType(Blockly, def){
-    if (!def || !def.blockType) return;
-    if (Blockly.Blocks[def.blockType]) return; // already
-
-    Blockly.Blocks[def.blockType] = {
-      init: function(){
-        this.appendDummyInput()
-          .appendField('⭐')
-          .appendField(def.name || 'Custom')
-        this.setPreviousStatement(true, null);
-        this.setNextStatement(true, null);
-        this.setColour(def.colour || CFG.customBlockColour);
-        this.setTooltip('Користувацький блок (збережений)');
-        this.setHelpUrl('');
-      }
-    };
-
-    const jsGen = Blockly.JavaScript || Blockly.javascriptGenerator;
-    if (!jsGen) return;
-    jsGen.forBlock = jsGen.forBlock || {};
-    jsGen.forBlock[def.blockType] = function(block, generator){
-      // Build a temporary workspace that contains the saved mini XML/JSON, then generate code from its top chain.
-      const Blockly = window.Blockly;
-      if (!Blockly) return '';
-      let tmpWs = null;
-      const div = document.createElement('div');
-      div.style.position='fixed';
-      div.style.left='-99999px';
-      div.style.top='-99999px';
-      div.style.width='10px';
-      div.style.height='10px';
-      div.style.opacity='0';
-      document.body.appendChild(div);
-      try{
-        tmpWs = Blockly.inject(div, { toolbox:'<xml></xml>', readOnly:false, scrollbars:false, trashcan:false });
-        // Load saved mini program
-        if (def.program && def.program.kind==='json' && Blockly.serialization?.blocks?.load){
-          Blockly.serialization.blocks.load(def.program.payload, tmpWs);
-        } else if (def.program && def.program.kind==='xml'){
-          const dom = Blockly.Xml.textToDom(def.program.payload);
-          Blockly.Xml.domToWorkspace(dom, tmpWs);
-        }
-        const tops = tmpWs.getTopBlocks(true);
-        // Try generate from each top statement in deterministic order (y ascending)
-        tops.sort((a,b)=>a.getRelativeToSurfaceXY().y - b.getRelativeToSurfaceXY().y);
-        let out = '';
-        for (const t of tops){
-          let c = '';
-          try { c = (jsGen.blockToCode ? jsGen.blockToCode(t) : generator.blockToCode(t)) || ''; } catch(e){ c=''; }
-          if (Array.isArray(c)) c = c[0] || '';
-          if (typeof c !== 'string') c = String(c||'');
-          out += c;
-          if (out && !out.endsWith('\n')) out += '\n';
-        }
-        return out;
-      } finally {
-        try { tmpWs?.dispose(); } catch(e){}
-        try { div.remove(); } catch(e){}
-      }
-    };
-  }
-
-  // ------------------------------
-  // UI: Floating open button (ONLY in blocks view)
-  // ------------------------------
-  function injectCss(){
-    if (document.getElementById('rc-cb-css')) return;
-    const s = document.createElement('style');
-    s.id='rc-cb-css';
-    s.textContent = `
-/* === CustomBlock global button (only in #view-builder) === */
-#rcCbOpenBtn{
-  position: absolute;
-  right: 14px;
-  bottom: 14px;
-  width: 56px;
-  height: 56px;
-  border-radius: 18px;
-  border: 1px solid rgba(148,163,184,.16);
-  background: rgba(30,41,59,.78);
-  color: #e2e8f0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  user-select: none;
-  box-shadow: 0 20px 45px rgba(0,0,0,.45);
-  z-index: 20;
-  backdrop-filter: blur(8px);
-}
-#rcCbOpenBtn:hover{ filter: brightness(1.05); }
-#rcCbOpenBtn:active{ transform: scale(.97); }
-
-/* === Mini config modal === */
-#rcMiniBackdrop{
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,.58);
-  backdrop-filter: blur(8px);
-  z-index: ${CFG.uiZ};
-  display: none;
-}
-#rcMiniModal{
-  position: fixed;
-  left: 50%; top: 50%;
-  transform: translate(-50%,-50%);
-  width: min(1080px, calc(100vw - 20px));
-  height: min(86vh, 760px);
-  background: rgba(15,23,42,.96);
-  border: 1px solid rgba(148,163,184,.16);
-  border-radius: 18px;
-  overflow: hidden;
-  z-index: ${CFG.uiZ + 1};
-  display: none;
-  box-shadow: 0 28px 90px rgba(0,0,0,.6);
-}
-#rcMiniModal .hdr{
-  display:flex; align-items:center; justify-content:space-between;
-  padding: 12px 14px;
-  border-bottom: 1px solid rgba(148,163,184,.14);
-}
-#rcMiniModal .hdr .title{
-  display:flex; align-items:center; gap:10px;
-  font-weight: 950;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  font-size: 12px;
-  color: #e2e8f0;
-}
-#rcMiniModal .hdr .title .dot{
-  width: 10px; height: 10px;
-  border-radius: 4px;
-  background: ${CFG.customBlockColour};
-  box-shadow: 0 0 12px rgba(251,146,60,.5);
-}
-#rcMiniModal .hdr .xbtn{
-  width: 42px; height: 42px;
-  border-radius: 14px;
-  border: 1px solid rgba(148,163,184,.15);
-  background: rgba(30,41,59,.70);
-  color: #e2e8f0;
-  cursor:pointer;
-  display:flex; align-items:center; justify-content:center;
-}
-#rcMiniModal .hdr .xbtn:active{ transform: scale(.97); }
-
-#rcMiniModal .subhdr{
-  display:flex; align-items:center; justify-content:space-between;
-  gap: 10px;
-  padding: 10px 14px;
-  border-bottom: 1px solid rgba(148,163,184,.10);
-  background: rgba(2,6,23,.28);
-  font-size: 12px;
-  color: #cbd5e1;
-  font-weight: 800;
-}
-#rcMiniModal .subhdr .meta{
-  display:flex; gap: 10px; align-items:center; flex-wrap: wrap;
-  opacity: .92;
-}
-#rcMiniModal .subhdr code{
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: rgba(30,41,59,.75);
-  border: 1px solid rgba(148,163,184,.14);
-  color: #e2e8f0;
-  font-size: 11px;
-}
-#rcMiniModal .subhdr .actions{
-  display:flex; gap:10px; align-items:center;
-}
-#rcMiniModal .btn{
-  padding: 10px 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(148,163,184,.14);
-  background: rgba(30,41,59,.74);
-  color: #e2e8f0;
-  font-weight: 950;
-  cursor:pointer;
-  user-select:none;
-}
-#rcMiniModal .btn.primary{
-  background: rgba(59,130,246,.85);
-  border-color: rgba(59,130,246,.55);
-}
-#rcMiniModal .btn.ghost{
-  background: rgba(30,41,59,.48);
-}
-#rcMiniModal .btn:active{ transform: scale(.98); }
-
-#rcMiniModal .body{
-  height: calc(100% - 108px);
-  display: grid;
-  grid-template-columns: 360px 1fr;
-  min-height: 0;
-}
-@media (max-width: 980px){
-  #rcMiniModal .body{ grid-template-columns: 1fr; height: calc(100% - 108px); }
-}
-#rcMiniModal .left, #rcMiniModal .right{
-  min-height: 0;
-  overflow: hidden; /* no browser scrollbars */
-}
-#rcMiniModal .left{
-  border-right: 1px solid rgba(148,163,184,.12);
-  padding: 12px 12px 12px 14px;
-  display:flex;
-  flex-direction:column;
-  gap: 12px;
-}
-#rcMiniModal .right{
-  padding: 12px;
-  display:flex;
-  flex-direction:column;
-  min-height: 0;
-}
-#rcMiniModal .card{
-  background: rgba(30,41,59,.42);
-  border: 1px solid rgba(148,163,184,.12);
-  border-radius: 14px;
-  padding: 12px;
-}
-#rcMiniModal .card h4{
-  margin:0 0 8px 0;
-  font-size: 11px;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-  color: #a5b4fc;
-  font-weight: 950;
-}
-#rcMiniModal .tips{
-  font-size: 12px;
-  color: #cbd5e1;
-  line-height: 1.35;
-}
-#rcMiniModal .tips ul{ margin: 6px 0 0 16px; padding: 0; }
-#rcMiniModal .tips li{ margin: 6px 0; color: #cbd5e1; }
-#rcMiniModal .codeHead{
-  display:flex; align-items:center; justify-content:space-between; gap:10px;
-}
-#rcMiniModal .copyBtn{
-  padding: 8px 10px;
-  border-radius: 12px;
-  border: 1px solid rgba(148,163,184,.14);
-  background: rgba(30,41,59,.74);
-  color: #e2e8f0;
-  font-weight: 950;
-  cursor:pointer;
-}
-#rcMiniModal pre{
-  margin: 10px 0 0 0;
-  background: rgba(2,6,23,.55);
-  border: 1px solid rgba(148,163,184,.14);
-  border-radius: 14px;
-  padding: 10px 10px;
-  color: #e2e8f0;
-  font-size: 12px;
-  line-height: 1.35;
-  overflow: auto; /* still scrollable */
-  min-height: 140px;
-  max-height: 42vh;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
-}
-
-/* Hide scrollbars (still scroll) */
-#rcMiniModal pre, #rcMiniModal .tips, #rcMiniModal .left, #rcMiniModal .right{
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-#rcMiniModal pre::-webkit-scrollbar,
-#rcMiniModal .tips::-webkit-scrollbar,
-#rcMiniModal .left::-webkit-scrollbar,
-#rcMiniModal .right::-webkit-scrollbar{
-  width: 0 !important; height: 0 !important;
-}
-
-/* Mini Blockly host: fill available space (fix clipping) */
-#rcMiniBlocklyHost{
-  flex: 1;
-  min-height: 320px;
-  height: auto;
-  border-radius: 14px;
-  border: 1px solid rgba(148,163,184,.14);
-  overflow: hidden;
-  background: rgba(2,6,23,.35);
-}
-#rcMiniBlockly{
-  width: 100%;
-  height: 100%;
-}
-
-/* Darker toolbox in mini modal (less eye strain) */
-#rcMiniModal .blocklyToolboxDiv{
-  background: rgba(15,23,42,.96) !important;
-  border-right: 1px solid rgba(148,163,184,.12) !important;
-}
-#rcMiniModal .blocklyTreeRow{
-  height: 36px !important;
-  border-radius: 10px !important;
-  margin: 6px 8px !important;
-  color: #e2e8f0 !important;
-}
-#rcMiniModal .blocklyTreeRow:hover{
-  background: rgba(59,130,246,.12) !important;
-}
-#rcMiniModal .blocklyTreeSelected{
-  background: rgba(59,130,246,.22) !important;
-}
-#rcMiniModal .blocklyTreeLabel{
-  color: #e2e8f0 !important;
-  font-weight: 900 !important;
-}
-#rcMiniModal .blocklyTreeIcon{
-  filter: saturate(1.2) brightness(1.05);
-}
-#rcMiniModal .blocklyFlyoutBackground{
-  fill: rgba(2,6,23,.55) !important;
-}
-#rcMiniModal .blocklyMainBackground{
-  fill: rgba(2,6,23,.35) !important;
-}
-/* Less visible browser scrollbars in the flyout (not Blockly scrollbars) */
-#rcMiniModal .blocklyFlyout{
-  scrollbar-width: none;
-}
-#rcMiniModal .blocklyFlyout::-webkit-scrollbar{ width:0 !important; height:0 !important; }
-
-/* Footer tag */
-#rcMiniModal .foot{
-  position: absolute;
-  right: 14px;
-  bottom: 10px;
-  font-size: 11px;
-  color: rgba(148,163,184,.6);
-  font-weight: 800;
-  letter-spacing: .04em;
-}
-`;
-    document.head.appendChild(s);
-  }
-
-  // small toast
-  let toastT=null;
-  function toast(msg){
-    const id = 'rcCbToast';
-    let el = document.getElementById(id);
-    if (!el){
-      el = u.el('div', { id, style: `
-        position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
-        background: rgba(2,6,23,.85);
-        border: 1px solid rgba(148,163,184,.18);
-        color: #e2e8f0;
-        padding: 10px 12px;
-        border-radius: 14px;
-        font-weight: 900;
-        z-index: ${CFG.uiZ+5};
-        display:none;
-        backdrop-filter: blur(10px);
-        box-shadow: 0 18px 60px rgba(0,0,0,.55);
-      `});
-      document.body.appendChild(el);
-    }
-    el.textContent = msg;
-    el.style.display='block';
-    clearTimeout(toastT);
-    toastT = setTimeout(()=>{ el.style.display='none'; }, 1300);
-  }
-
-  // ------------------------------
-  // Mini config modal (the one in your screenshots)
-  // ------------------------------
-  const miniUI = {
-    backdrop: null,
-    modal: null,
-    metaType: null,
-    metaKind: null,
-    wsHost: null,
-    wsDiv: null,
-    tips: null,
-    codePre: null,
-    copyBtn: null,
-    btnSave: null,
-    btnReset: null,
-    currentMiniBlock: null,
-    miniWorkspace: null,
-    ro: null
-  };
-
-  function ensureMiniModal(){
-    injectCss();
-    if (miniUI.modal) return;
-
-    miniUI.backdrop = u.el('div', { id:'rcMiniBackdrop' });
-    miniUI.modal = u.el('div', { id:'rcMiniModal' });
-
-    const hdr = u.el('div', { class:'hdr' }, [
-      u.el('div', { class:'title' }, [
-        u.el('span', { class:'dot' }),
-        document.createTextNode('НАЛАШТУВАННЯ МІНІ-БЛОКУ')
-      ]),
-      u.el('button', { class:'xbtn', onclick: closeMiniModal, title:'Закрити (Esc)' }, '✕')
-    ]);
-
-    miniUI.metaType = u.el('code', {}, '—');
-    miniUI.metaKind = u.el('code', {}, '—');
-
-    miniUI.btnReset = u.el('button', { class:'btn ghost', onclick: ()=> resetMiniBlockConfig() }, 'Скинути');
-    miniUI.btnSave  = u.el('button', { class:'btn primary', onclick: ()=> saveMiniBlockConfig() }, 'Зберегти');
-
-    const sub = u.el('div', { class:'subhdr' }, [
-      u.el('div', { class:'meta' }, [
-        document.createTextNode('Block type:'),
-        miniUI.metaType,
-        miniUI.metaKind
-      ]),
-      u.el('div', { class:'actions' }, [
-        miniUI.btnReset,
-        miniUI.btnSave
-      ])
-    ]);
-
-    // left: tips + code preview
-    miniUI.tips = u.el('div', { class:'tips' }, [
-      u.el('div', { style:'font-weight:950; letter-spacing:.08em; text-transform:uppercase; font-size:11px; color:#94a3b8; margin-bottom:8px;' }, 'ПІДКАЗКИ'),
-      u.el('ul', {}, [
-        u.el('li', {}, 'Тут справжній Blockly — можеш вставляти числа, змінні, PID, сенсори, if/цикли.'),
-        u.el('li', {}, 'Після “Зберегти” всередині міні-блоку зберігається серіалізація (JSON/XML).'),
-        u.el('li', {}, 'Для value-міні блоку краще зберігати один value-вираз (без зайвих statement-блоків).')
-      ])
-    ]);
-
-    miniUI.codePre = u.el('pre', {}, '// preview…');
-    miniUI.copyBtn = u.el('button', { class:'copyBtn', onclick: ()=> copyMiniPreview() }, 'Copy');
-
-    const left = u.el('div', { class:'left' }, [
-      u.el('div', { class:'card' }, [ miniUI.tips ]),
-      u.el('div', { class:'card' }, [
-        u.el('div', { class:'codeHead' }, [
-          u.el('h4', { style:'margin:0; font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:#a5b4fc; font-weight:950;' }, 'PREVIEW JS'),
-          miniUI.copyBtn
-        ]),
-        miniUI.codePre
-      ])
-    ]);
-
-    // right: blockly host
-    miniUI.wsHost = u.el('div', { id:'rcMiniBlocklyHost' }, [
-      miniUI.wsDiv = u.el('div', { id:'rcMiniBlockly' })
-    ]);
-    const right = u.el('div', { class:'right' }, [
-      miniUI.wsHost
-    ]);
-
-    const body = u.el('div', { class:'body' }, [left, right]);
-
-    const foot = u.el('div', { class:'foot' }, `customblock.js ${VERSION}`);
-
-    miniUI.modal.appendChild(hdr);
-    miniUI.modal.appendChild(sub);
-    miniUI.modal.appendChild(body);
-    miniUI.modal.appendChild(foot);
-
-    document.body.appendChild(miniUI.backdrop);
-    document.body.appendChild(miniUI.modal);
-
-    // backdrop close
-    miniUI.backdrop.addEventListener('click', closeMiniModal);
-    document.addEventListener('keydown', (e)=>{
-      if (e.key === 'Escape' && miniUI.modal.style.display === 'block') closeMiniModal();
-    });
-
-    // Resize observer to fix clipping/resizing
-    miniUI.ro = new ResizeObserver(u.debounce(()=>{
-      try { if (miniUI.miniWorkspace) window.Blockly.svgResize(miniUI.miniWorkspace); } catch(e){}
-    }, 30));
-    miniUI.ro.observe(miniUI.wsHost);
-  }
-
-  function openMiniConfigModal(miniBlock){
-    ensureMiniModal();
-    miniUI.currentMiniBlock = miniBlock;
-
-    const wrapType = miniBlock.getFieldValue('WRAP_TYPE') || '(none)';
-    const kind = miniBlock.type === 'rc_mini_value' ? 'VALUE' : 'STATEMENT';
-    miniUI.metaType.textContent = wrapType;
-    miniUI.metaKind.textContent = kind;
-
-    miniUI.backdrop.style.display = 'block';
-    miniUI.modal.style.display = 'block';
-
-    // (Re)create mini workspace each time (safe, avoids leaks)
-    try { miniUI.miniWorkspace?.dispose(); } catch(e){}
-    miniUI.miniWorkspace = null;
-    miniUI.wsDiv.innerHTML = '';
-
-    const Blockly = window.Blockly;
-    if (!Blockly) return;
-
-    // Use the same toolbox xml, but in dark style in modal
-    const toolboxXml = document.getElementById('toolbox');
-    const opts = {
-      toolbox: toolboxXml || '<xml></xml>',
-      trashcan: true,
-      scrollbars: true,
-      move: { scrollbars: true, drag: true, wheel: true },
-      zoom: { controls: true, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      renderer: 'zelos'
-    };
-    miniUI.miniWorkspace = Blockly.inject(miniUI.wsDiv, opts);
-
-    // Put wrapped block into mini workspace
-    restoreMiniInnerBlock(miniBlock);
-
-    // Update code preview when changes happen
-    miniUI.miniWorkspace.addChangeListener(u.debounce(()=>{
-      updateMiniPreview();
-    }, 90));
-
-    // Initial resize fix (avoids "cut" view)
-    setTimeout(()=>{ try{ Blockly.svgResize(miniUI.miniWorkspace); }catch(e){} }, 50);
-    setTimeout(()=>{ try{ Blockly.svgResize(miniUI.miniWorkspace); }catch(e){} }, 200);
-
-    updateMiniPreview();
-  }
-
-  function closeMiniModal(){
-    if (!miniUI.modal) return;
-    miniUI.backdrop.style.display = 'none';
-    miniUI.modal.style.display = 'none';
-    miniUI.currentMiniBlock = null;
-    // keep workspace to reuse? disposing saves memory; do it
-    try { miniUI.miniWorkspace?.dispose(); } catch(e){}
-    miniUI.miniWorkspace = null;
-  }
-
-  function resetMiniBlockConfig(){
-    const b = miniUI.currentMiniBlock;
-    if (!b || !miniUI.miniWorkspace) return;
-    b.data = '';
-    restoreMiniInnerBlock(b, true);
-    updateMiniPreview();
-    toast('Скинуто');
-  }
-
-  function restoreMiniInnerBlock(miniBlock, forceFresh=false){
-    const Blockly = window.Blockly;
-    if (!Blockly || !miniUI.miniWorkspace) return;
-
-    miniUI.miniWorkspace.clear();
-
-    const wrapType = miniBlock.getFieldValue('WRAP_TYPE');
-    let state = null;
-    if (!forceFresh){
-      state = u.jparse(miniBlock.data || '', null);
-    }
-
-    // Deserialize into the mini workspace
-    let real = null;
-    if (RC._miniDeserializeTo){
-      try {
-        real = RC._miniDeserializeTo(miniUI.miniWorkspace, wrapType, state);
-      } catch(e){ real = null; }
-    }
-    if (!real){
-      try {
-        real = miniUI.miniWorkspace.newBlock(wrapType);
-        real.initSvg(); real.render();
-        real.moveBy(40, 40);
-      } catch(e){}
-    }
-    // Position top block nicely
-    const top = miniUI.miniWorkspace.getTopBlocks(true)[0];
-    if (top){
-      try { top.moveBy(60, 60); } catch(e){}
-    }
-    try { Blockly.svgResize(miniUI.miniWorkspace); } catch(e){}
-  }
-
-  function saveMiniBlockConfig(){
-    const b = miniUI.currentMiniBlock;
-    if (!b || !miniUI.miniWorkspace) return;
-    const Blockly = window.Blockly;
-
-    // Take first top block as the "wrapped" block
-    const top = miniUI.miniWorkspace.getTopBlocks(true)[0];
-    if (!top){
-      b.data = '';
-      toast('Порожньо');
-      closeMiniModal();
-      return;
-    }
-
-    // Save serialized state
-    const ser = RC._miniSerialize ? RC._miniSerialize(top) : null;
-    b.data = ser ? u.jstring(ser) : '';
-    toast('Збережено');
-    closeMiniModal();
-  }
-
-  function updateMiniPreview(){
-    const Blockly = window.Blockly;
-    if (!Blockly || !miniUI.miniWorkspace) return;
-    const jsGen = Blockly.JavaScript || Blockly.javascriptGenerator;
-    if (!jsGen) { miniUI.codePre.textContent = '// (нема JS generator)'; return; }
-
-    const top = miniUI.miniWorkspace.getTopBlocks(true)[0];
-    if (!top){
-      miniUI.codePre.textContent = '// (порожньо)';
-      return;
-    }
-
-    let code = '';
-    try {
-      code = jsGen.workspaceToCode(miniUI.miniWorkspace) || '';
-    } catch(e){
-      try { code = (jsGen.blockToCode ? jsGen.blockToCode(top) : '') || ''; } catch(_){ code=''; }
-    }
-    if (Array.isArray(code)) code = code[0] || '';
-    if (typeof code !== 'string') code = String(code || '');
-    miniUI.codePre.textContent = code.trim() ? code : '// (empty)';
-  }
-
-  async function copyMiniPreview(){
-    const txt = miniUI.codePre?.textContent || '';
-    try {
-      await navigator.clipboard.writeText(txt);
-      toast('Скопійовано');
-    } catch(e){
-      // fallback
-      const ta = document.createElement('textarea');
-      ta.value = txt;
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand('copy'); toast('Скопійовано'); } catch(_){}
-      ta.remove();
-    }
-  }
-
-  // ------------------------------
-  // Builder modal to create "packed" blocks from mini blocks
-  // (Simplified: create a macro block that stores a mini-workspace program)
-  // ------------------------------
-  const builderUI = {
-    modal: null,
-    backdrop: null,
-    ws: null,
-    wsDiv: null,
-    nameInput: null,
-    colourInput: null,
-    saveBtn: null
-  };
-
-  function ensureBuilderModal(workspace){
-    injectCss();
-    if (builderUI.modal) return;
-
-    builderUI.backdrop = u.el('div', { id:'rcCbBackdrop', style:`display:none; position:fixed; inset:0; z-index:${CFG.uiZ}; background: rgba(0,0,0,.55); backdrop-filter: blur(8px);` });
-    builderUI.modal = u.el('div', { id:'rcCbModal', style:`display:none; position:fixed; left:50%; top:50%; transform: translate(-50%,-50%);
-      width:min(980px,calc(100vw - 20px)); height:min(86vh,760px); z-index:${CFG.uiZ+1};
-      background: rgba(15,23,42,.96); border:1px solid rgba(148,163,184,.16); border-radius:18px; overflow:hidden;
-      box-shadow: 0 28px 90px rgba(0,0,0,.6);
-    `});
-
-    const head = u.el('div', { style:'display:flex; align-items:center; justify-content:space-between; padding:12px 14px; border-bottom:1px solid rgba(148,163,184,.14);' }, [
-      u.el('div', { style:'display:flex; align-items:center; gap:10px; color:#e2e8f0; font-weight:950; letter-spacing:.08em; text-transform:uppercase; font-size:12px;' }, [
-        u.el('span', { style:`width:10px;height:10px;border-radius:4px;background:${CFG.customCategoryColour};box-shadow:0 0 12px rgba(245,158,11,.45);` }),
-        'CUSTOM BLOCK BUILDER'
-      ]),
-      u.el('button', { class:'xbtn', style:'width:42px;height:42px;border-radius:14px;border:1px solid rgba(148,163,184,.15);background:rgba(30,41,59,.70);color:#e2e8f0;cursor:pointer;', onclick: closeBuilderModal }, '✕')
-    ]);
-
-    const topBar = u.el('div', { style:'display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid rgba(148,163,184,.10); background:rgba(2,6,23,.28);' }, [
-      u.el('div', { style:'flex:1; display:flex; gap:10px; align-items:center; flex-wrap:wrap;' }, [
-        u.el('label', { style:'font-size:11px;color:#cbd5e1;font-weight:900;' }, 'Назва'),
-        builderUI.nameInput = u.el('input', { type:'text', value:'Мій блок', style:'min-width:220px; background:rgba(2,6,23,.55); border:1px solid rgba(148,163,184,.16); border-radius:12px; padding:10px 10px; color:#fff; outline:none; font-weight:900;' }),
-        u.el('label', { style:'font-size:11px;color:#cbd5e1;font-weight:900;' }, 'Колір'),
-        builderUI.colourInput = u.el('input', { type:'color', value: CFG.customBlockColour, style:'width:48px;height:40px;border:none;background:transparent;' })
-      ]),
-      builderUI.saveBtn = u.el('button', { class:'btn primary', style:'padding:10px 12px;border-radius:14px;border:1px solid rgba(59,130,246,.55);background:rgba(59,130,246,.85);color:#fff;font-weight:950;cursor:pointer;', onclick: ()=> saveCustomBlockFromBuilder(workspace) }, 'Спакувати блок')
-    ]);
-
-    builderUI.wsDiv = u.el('div', { id:'rcBuilderBlockly', style:'width:100%; height: calc(100% - 108px); background: rgba(2,6,23,.35);' });
-    const foot = u.el('div', { style:'position:absolute; right:14px; bottom:10px; font-size:11px; color: rgba(148,163,184,.6); font-weight:800; letter-spacing:.04em;' }, `customblock.js ${VERSION}`);
-
-    builderUI.modal.appendChild(head);
-    builderUI.modal.appendChild(topBar);
-    builderUI.modal.appendChild(builderUI.wsDiv);
-    builderUI.modal.appendChild(foot);
-
-    document.body.appendChild(builderUI.backdrop);
-    document.body.appendChild(builderUI.modal);
-
-    builderUI.backdrop.addEventListener('click', closeBuilderModal);
-
-    // Create builder workspace
-    const Blockly = window.Blockly;
-    const toolbox = document.createElement('xml');
-    // Small toolbox for builder: only our mini blocks + common controls
-    toolbox.innerHTML = `
-      <category name="Міні" colour="#64748B">
-        <block type="rc_mini"></block>
-        <block type="rc_mini_value"></block>
-      </category>
-      <category name="Логіка" colour="#60a5fa">
-        <block type="controls_if"></block>
-        <block type="logic_compare"></block>
-        <block type="logic_operation"></block>
-        <block type="logic_boolean"></block>
-      </category>
-      <category name="Математика" colour="#a78bfa">
-        <block type="math_number"></block>
-        <block type="math_arithmetic"></block>
-      </category>
-      <category name="Змінні" colour="#f87171" custom="VARIABLE"></category>
-    `;
-
-    builderUI.ws = Blockly.inject(builderUI.wsDiv, {
-      toolbox,
-      trashcan: true,
-      scrollbars: true,
-      move: { scrollbars: true, drag: true, wheel: true },
-      zoom: { controls: true, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      renderer: 'zelos'
-    });
-
-    setTimeout(()=>{ try{ Blockly.svgResize(builderUI.ws); }catch(e){} }, 80);
-  }
-
-  function openBuilderModal(workspace){
-    ensureBuilderModal(workspace);
-    builderUI.backdrop.style.display='block';
-    builderUI.modal.style.display='block';
-    setTimeout(()=>{ try{ window.Blockly.svgResize(builderUI.ws); }catch(e){} }, 80);
-  }
-  function closeBuilderModal(){
-    if (!builderUI.modal) return;
-    builderUI.backdrop.style.display='none';
-    builderUI.modal.style.display='none';
-  }
-
-  function saveCustomBlockFromBuilder(mainWs){
-    const Blockly = window.Blockly;
-    if (!Blockly || !builderUI.ws) return;
-
-    const name = (builderUI.nameInput.value || '').trim() || 'Мій блок';
-    const colour = builderUI.colourInput.value || CFG.customBlockColour;
-
-    // Save the whole builder workspace program as JSON or XML
-    let program = null;
-    try {
-      if (Blockly.serialization?.workspaces?.save){
-        program = { kind:'json', payload: Blockly.serialization.workspaces.save(builderUI.ws) };
-      }
-    } catch(e){}
-    if (!program){
-      try {
-        const xml = Blockly.Xml.workspaceToDom(builderUI.ws);
-        program = { kind:'xml', payload: Blockly.Xml.domToText(xml) };
-      } catch(e){
-        program = { kind:'xml', payload: '<xml></xml>' };
-      }
-    }
-
-    const blockType = 'rc_user_' + u.uid('b').replaceAll('-','_');
-    const def = { id: u.uid('def'), name, colour, blockType, program, createdAt: Date.now() };
-
-    const blocks = loadBlocks();
-    blocks.push(def);
-    saveBlocks(blocks);
-
-    // Define and add to toolbox
-    defineCustomBlockType(Blockly, def);
-    rebuildCustomCategory(mainWs);
-
-    toast('Блок додано в ⭐ Мої блоки');
-    closeBuilderModal();
-  }
-
-  // ------------------------------
-  // Open button logic: mount inside #view-builder only
-  // ------------------------------
-  function ensureOpenButton(mainWs){
-    injectCss();
-    const host = document.getElementById('view-builder') || document.body;
-    let btn = document.getElementById('rcCbOpenBtn');
-    if (!btn){
-      btn = u.el('button', { id:'rcCbOpenBtn', title:'Custom Blocks (Builder)' }, '🧩');
-      btn.addEventListener('click', ()=> openBuilderModal(mainWs));
-      // Ensure host is positioned to allow absolute
-      const cs = getComputedStyle(host);
-      if (cs.position === 'static') host.style.position = 'relative';
-      host.appendChild(btn);
-    } else {
-      // move into builder host if needed
-      if (host !== btn.parentElement){
-        try {
-          const cs = getComputedStyle(host);
-          if (cs.position === 'static') host.style.position = 'relative';
-          host.appendChild(btn);
-        } catch(e){}
-      }
-    }
-
-    // Visibility gating: only show in blocks view
-    const updateVis = ()=>{
-      const inBuilder = (window.activeView === 'view-builder') || (host && !host.classList.contains('hidden'));
-      btn.style.display = inBuilder ? 'flex' : 'none';
-    };
-    updateVis();
-
-    // Observe changes to view-builder class list
-    const vb = document.getElementById('view-builder');
-    if (vb){
-      const mo = new MutationObserver(u.debounce(updateVis, 30));
-      mo.observe(vb, { attributes:true, attributeFilter:['class','style'] });
-    }
-    // Hook switchView if exists
-    if (typeof window.switchView === 'function' && !window.__rcCbSwitchHooked){
-      window.__rcCbSwitchHooked = true;
-      const orig = window.switchView;
-      window.switchView = function(viewId, btnEl){
-        const r = orig.call(this, viewId, btnEl);
-        setTimeout(updateVis, 10);
-        return r;
       };
     }
   }
 
-  // ------------------------------
-  // Init
-  // ------------------------------
-  function initWhenReady(){
-    const Blockly = window.Blockly;
-    const ws = window.workspace || window._workspace || null;
-    if (!Blockly || !ws || !Blockly.inject) return false;
+  // ==========================================================
+  // 8) Config modal for a mini block (edit underlying real block)
+  // ==========================================================
+  function ensureConfigModal(){
+    if(U.qs('#'+CFG.CONFIG_MODAL_ID)) return;
 
-    // Ensure custom category exists and rebuild it
-    ensureCustomCategory();
-    defineMiniBlocks(Blockly);
+    const mask = document.createElement('div');
+    mask.id = CFG.CONFIG_MODAL_ID;
+    mask.style.cssText = `
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.65);
+      z-index: ${CFG.MODAL_Z+1};
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 14px;
+      backdrop-filter: blur(6px);
+    `;
 
-    // Define existing saved blocks
-    const defs = loadBlocks();
-    for (const d of defs) defineCustomBlockType(Blockly, d);
+    mask.innerHTML = `
+      <div style="
+        width: min(1000px, 96vw);
+        height: min(760px, 92vh);
+        background: rgba(15,23,42,0.98);
+        border: 1px solid rgba(148,163,184,0.25);
+        border-radius: 16px;
+        box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      ">
+        <div style="
+          display:flex; align-items:center; justify-content:space-between;
+          padding: 10px 14px; border-bottom: 1px solid rgba(148,163,184,0.18);
+        ">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div style="width:10px; height:10px; border-radius:50%; background:#F59E0B;"></div>
+            <div style="font-weight:900; letter-spacing:0.08em; text-transform:uppercase; font-size:12px; color:#FCD34D;">
+              Налаштування міні‑блоку
+            </div>
+          </div>
+          <button id="rc_cfg_close" style="
+            width: 40px; height: 40px; border-radius: 12px;
+            border: 1px solid rgba(148,163,184,0.25);
+            background: rgba(30,41,59,0.6);
+            color: #e2e8f0; font-weight:900; cursor:pointer;
+          ">✕</button>
+        </div>
 
-    rebuildCustomCategory(ws);
+        <div style="display:flex; gap:12px; padding: 10px 14px; border-bottom:1px solid rgba(148,163,184,0.12); align-items:center; flex-wrap:wrap;">
+          <div style="display:flex; gap:10px; align-items:center; flex:1;">
+            <div style="font-size:12px; color:#94a3b8; font-weight:800;">Block type:</div>
+            <div id="rc_cfg_type" style="font-family:monospace; color:#e2e8f0; font-weight:900;">--</div>
+            <div id="rc_cfg_kind" style="margin-left:8px; font-size:11px; color:#94a3b8; font-weight:900; letter-spacing:0.12em; text-transform:uppercase;">--</div>
+          </div>
+          <div style="display:flex; gap:10px;">
+            <button id="rc_cfg_reset" style="
+              padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(148,163,184,0.25);
+              background: rgba(30,41,59,0.6); color:#e2e8f0; font-weight:900; cursor:pointer;
+            ">Скинути</button>
+            <button id="rc_cfg_save" style="
+              padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(59,130,246,0.4);
+              background: rgba(37,99,235,0.92); color:white; font-weight:900; cursor:pointer;
+            ">Зберегти</button>
+          </div>
+        </div>
 
-    // Install open button
-    ensureOpenButton(ws);
+        <div style="flex:1; display:flex; min-height:0;">
+          <div style="width: 320px; border-right:1px solid rgba(148,163,184,0.12); padding: 12px; overflow:auto;">
+            <div style="font-size:11px; color:#94a3b8; font-weight:900; letter-spacing:0.1em; text-transform:uppercase; margin-bottom:8px;">
+              Підказки
+            </div>
+            <div style="font-size:12px; color:#cbd5e1; line-height:1.45;">
+              • Тут справжній Blockly — можеш вставляти числа, змінні, PID, сенсори, IF/цикли.<br>
+              • Після “Зберегти” всередині міні‑блоку зберігається серіалізація (JSON/XML).<br>
+              • Для value‑міні блоку краще зберігати один value‑вираз (без зайвих statement‑блоків).
+            </div>
 
-    // expose for debugging
-    RC.version = VERSION;
-    RC.rebuild = ()=> rebuildCustomCategory(ws);
-    RC.openBuilder = ()=> openBuilderModal(ws);
+            <div style="height:12px;"></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+              <div style="font-size:11px; color:#94a3b8; font-weight:900; letter-spacing:0.1em; text-transform:uppercase;">
+                Preview JS
+              </div>
+              <button id="${CFG.CONFIG_COPY_ID}" style="
+                padding: 8px 10px; border-radius: 12px;
+                border: 1px solid rgba(148,163,184,0.25);
+                background: rgba(30,41,59,0.6);
+                color:#e2e8f0; font-weight:900; cursor:pointer;
+              ">Copy</button>
+            </div>
+            <pre id="${CFG.CONFIG_CODE_ID}" style="
+              margin-top:8px;
+              background: rgba(2,6,23,0.75);
+              border: 1px solid rgba(148,163,184,0.18);
+              border-radius: 14px;
+              padding: 10px;
+              color: #e2e8f0;
+              font-size: 12px;
+              overflow:auto;
+              max-height: 280px;
+              white-space: pre-wrap;
+              word-break: break-word;
+            ">(код з’явиться тут)</pre>
+          </div>
 
-    return true;
+          <div style="flex:1; position:relative; min-height:0;">
+            <div id="${CFG.CONFIG_WS_DIV_ID}" style="position:absolute; inset:0;"></div>
+          </div>
+        </div>
+
+        <div style="
+          padding: 10px 14px;
+          border-top: 1px solid rgba(148,163,184,0.12);
+          display:flex; justify-content:space-between; align-items:center;
+          font-size: 12px; color:#94a3b8;
+        ">
+          <div>Esc — закрити</div>
+          <div style="font-family:monospace;">customblock.js v2.1</div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(mask);
+
+    const close = ()=> mask.style.display = 'none';
+    U.qs('#rc_cfg_close', mask).addEventListener('click', close);
+    mask.addEventListener('click', (e)=>{ if(e.target === mask) close(); });
+    window.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && mask.style.display !== 'none') close(); });
+
+    // init ws lazily
+    function ensureConfigWs(){
+      if(S.configWs) return S.configWs;
+      const theme = window.CustomTheme || (Blockly.Themes ? Blockly.Themes.Classic : null);
+      const toolbox = document.getElementById('toolbox') || document.createElement('xml');
+      S.configWs = Blockly.inject(CFG.CONFIG_WS_DIV_ID, {
+        toolbox,
+        theme,
+        renderer: 'zelos',
+        scrollbars: true,
+        trashcan: true,
+        grid: { spacing: 40, length: 2, colour: '#334155', snap: true },
+        zoom: { controls: true, wheel: true, startScale: 0.9, maxScale: 2.2, minScale: 0.2 }
+      });
+      return S.configWs;
+    }
+
+    mask._ensureConfigWs = ensureConfigWs;
   }
 
-  // Try fast, then poll
-  if (!initWhenReady()){
-    let tries = 0;
-    const t = setInterval(()=>{
-      tries++;
-      if (initWhenReady() || tries > 120){
-        clearInterval(t);
+  // Create default payload for a block type
+  function defaultPayloadForType(type){
+    const tmpWs = ensureHiddenWorkspace();
+    if(!tmpWs) return null;
+    tmpWs.clear();
+    try{
+      const b = tmpWs.newBlock(type);
+      b.initSvg(); b.render();
+      const payload = serializeWorkspace(tmpWs);
+      b.dispose(false);
+      return payload;
+    }catch(e){
+      U.log('defaultPayloadForType failed', type, e);
+      return null;
+    }
+  }
+
+  // Update preview code in config modal
+  function updateConfigPreview(){
+    const pre = U.qs('#'+CFG.CONFIG_CODE_ID);
+    if(!pre || !S.configWs) return;
+    if(!window.javascript || !javascript.javascriptGenerator) return;
+
+    const gen = javascript.javascriptGenerator;
+    const tops = U.sortByXY(S.configWs.getTopBlocks(true));
+    const root = tops[0] || null;
+    if(!root){
+      pre.textContent = '(нема блоку)';
+      return;
+    }
+
+    // blockToCode: include nested + next inside root
+    let code = blockToCodeNormalized(gen, root);
+    // show trimmed but keep readability
+    pre.textContent = (code || '').trim() || '(порожній код)';
+  }
+
+  const updateConfigPreviewDebounced = U.debounce(updateConfigPreview, 200);
+
+  async function openConfigModalForMini(miniBlock, kind){
+    ensureConfigModal();
+    const modal = U.qs('#'+CFG.CONFIG_MODAL_ID);
+    const ws = modal._ensureConfigWs();
+
+    // clear
+    ws.clear();
+
+    const type = miniBlock.getFieldValue('TYPE') || '';
+    U.qs('#rc_cfg_type', modal).textContent = type || '--';
+    U.qs('#rc_cfg_kind', modal).textContent = (kind === 'value') ? 'VALUE' : 'STATEMENT';
+
+    // load payload from miniBlock.data
+    let payload = miniBlock.data ? U.safeJsonParse(miniBlock.data, null) : null;
+    if(!payload || !payload.format){
+      payload = defaultPayloadForType(type);
+    }
+    if(payload) loadWorkspace(ws, payload);
+
+    // buttons
+    const btnReset = U.qs('#rc_cfg_reset', modal);
+    const btnSave = U.qs('#rc_cfg_save', modal);
+    const btnCopy = U.qs('#'+CFG.CONFIG_COPY_ID, modal);
+
+    btnReset.onclick = ()=>{
+      ws.clear();
+      const p = defaultPayloadForType(type);
+      if(p) loadWorkspace(ws, p);
+      updateConfigPreview();
+    };
+
+    btnSave.onclick = ()=>{
+      // Save full workspace payload
+      const p = serializeWorkspace(ws);
+      miniBlock.data = U.safeJsonStringify(p, '{}');
+      modal.style.display = 'none';
+    };
+
+    btnCopy.onclick = async ()=>{
+      const pre = U.qs('#'+CFG.CONFIG_CODE_ID, modal);
+      const txt = pre ? pre.textContent : '';
+      try{
+        await navigator.clipboard.writeText(txt || '');
+        btnCopy.textContent = 'Copied';
+        setTimeout(()=>btnCopy.textContent='Copy', 600);
+      }catch(e){
+        alert('Не вдалося скопіювати (браузер заборонив).');
       }
-    }, 150);
+    };
+
+    // auto preview on ws changes
+    ws.removeChangeListener(updateConfigPreviewDebounced);
+    ws.addChangeListener(updateConfigPreviewDebounced);
+
+    updateConfigPreview();
+
+    // show
+    modal.style.display = 'flex';
+
+    // resize fix
+    setTimeout(()=>{ try{ ws.resize(); }catch(e){} }, 50);
   }
+
+  // ==========================================================
+  // 9) Main modal (builder + list)
+  // ==========================================================
+  function ensureMainModal(){
+    if(U.qs('#'+CFG.MODAL_ID)) return;
+
+    const mask = document.createElement('div');
+    mask.id = CFG.MODAL_ID;
+    mask.style.cssText = `
+      position: fixed; inset: 0;
+      z-index: ${CFG.MODAL_Z};
+      background: rgba(0,0,0,0.65);
+      backdrop-filter: blur(6px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 14px;
+    `;
+
+    mask.innerHTML = `
+      <div style="
+        width: min(1180px, 98vw);
+        height: min(860px, 94vh);
+        background: rgba(15,23,42,0.98);
+        border: 1px solid rgba(148,163,184,0.22);
+        border-radius: 18px;
+        box-shadow: 0 30px 90px rgba(0,0,0,0.65);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      ">
+        <div style="
+          display:flex; align-items:center; justify-content:space-between;
+          padding: 10px 14px; border-bottom: 1px solid rgba(148,163,184,0.16);
+        ">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div style="width:10px; height:10px; border-radius:50%; background:${CFG.CATEGORY_COLOUR};"></div>
+            <div style="font-weight:900; letter-spacing:0.12em; text-transform:uppercase; font-size:12px; color:#fdba74;">
+              Кастом‑блоки
+            </div>
+          </div>
+
+          <div style="display:flex; gap:10px; align-items:center;">
+            <button id="${CFG.TAB_CREATE_ID}" style="padding:8px 12px; border-radius:12px; border:1px solid rgba(148,163,184,0.18); background: rgba(30,41,59,0.6); color:#e2e8f0; font-weight:900; cursor:pointer;">Створити</button>
+            <button id="${CFG.TAB_LIST_ID}" style="padding:8px 12px; border-radius:12px; border:1px solid rgba(148,163,184,0.18); background: rgba(30,41,59,0.35); color:#cbd5e1; font-weight:900; cursor:pointer;">Мої</button>
+
+            <button id="rc_modal_close" style="
+              width: 40px; height: 40px; border-radius: 12px;
+              border: 1px solid rgba(148,163,184,0.25);
+              background: rgba(30,41,59,0.6);
+              color: #e2e8f0; font-weight:900; cursor:pointer;
+            ">✕</button>
+          </div>
+        </div>
+
+        <div style="flex:1; min-height:0;">
+          <!-- Create -->
+          <div id="${CFG.VIEW_CREATE_ID}" style="height:100%; display:flex; flex-direction:column;">
+            <div style="display:flex; gap:12px; padding: 12px 14px; border-bottom: 1px solid rgba(148,163,184,0.12); flex-wrap: wrap; align-items:end;">
+              <div style="display:flex; flex-direction:column; gap:6px;">
+                <div style="font-size:11px; font-weight:900; letter-spacing:0.12em; text-transform:uppercase; color:#94a3b8;">Назва блоку</div>
+                <input id="rc_new_name" value="Мій блок" style="
+                  width: 280px; max-width: 80vw;
+                  background: rgba(2,6,23,0.65);
+                  border: 1px solid rgba(148,163,184,0.22);
+                  border-radius: 14px;
+                  padding: 10px 12px;
+                  color: white;
+                  font-weight: 900;
+                "/>
+              </div>
+
+              <div style="display:flex; flex-direction:column; gap:6px;">
+                <div style="font-size:11px; font-weight:900; letter-spacing:0.12em; text-transform:uppercase; color:#94a3b8;">Колір</div>
+                <input id="rc_new_colour" type="color" value="${CFG.CATEGORY_COLOUR}" style="
+                  width: 96px;
+                  height: 42px;
+                  background: rgba(2,6,23,0.65);
+                  border: 1px solid rgba(148,163,184,0.22);
+                  border-radius: 14px;
+                  padding: 6px;
+                "/>
+              </div>
+
+              <div style="flex:1; display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;">
+                <button id="rc_builder_clear" style="
+                  padding: 10px 12px; border-radius: 14px;
+                  border: 1px solid rgba(148,163,184,0.22);
+                  background: rgba(30,41,59,0.6);
+                  color: #e2e8f0; font-weight:900; cursor:pointer;
+                ">Очистити шаблон</button>
+
+                <button id="rc_builder_pack" style="
+                  padding: 10px 12px; border-radius: 14px;
+                  border: 1px solid rgba(59,130,246,0.5);
+                  background: rgba(37,99,235,0.92);
+                  color: white; font-weight:900; cursor:pointer;
+                ">Спакувати блок</button>
+              </div>
+            </div>
+
+            <div style="flex:1; min-height:0; display:flex;">
+              <div style="width: 360px; border-right: 1px solid rgba(148,163,184,0.12); padding: 12px; overflow:auto;">
+                <div style="font-size:11px; font-weight:900; letter-spacing:0.12em; text-transform:uppercase; color:#94a3b8; margin-bottom:10px;">
+                  Пам'ятка
+                </div>
+
+                <div style="font-size:12px; color:#cbd5e1; line-height:1.45;">
+                  • Додаєш 🧩 <b>rc_mini</b> (statement) або 🔹 <b>rc_mini_value</b> (value).<br>
+                  • Обираєш тип блоку.<br>
+                  • Тиснеш ⚙ та налаштовуєш реальний блок всередині.<br>
+                  • Складаєш ланцюжок — натискаєш <b>Спакувати блок</b>.<br><br>
+
+                  <span style="color:#fdba74; font-weight:900;">PID:</span> у тебе є <code style="background:#0b1220; padding:2px 6px; border-radius:8px;">math_pid</code>.
+                </div>
+
+                <div style="height:12px;"></div>
+
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                  <div style="font-size:11px; color:#94a3b8; font-weight:900; letter-spacing:0.1em; text-transform:uppercase;">
+                    Preview JS (шаблон)
+                  </div>
+                  <button id="${CFG.BUILDER_COPY_ID}" style="
+                    padding: 8px 10px; border-radius: 12px;
+                    border: 1px solid rgba(148,163,184,0.25);
+                    background: rgba(30,41,59,0.6);
+                    color:#e2e8f0; font-weight:900; cursor:pointer;
+                  ">Copy</button>
+                </div>
+                <pre id="${CFG.BUILDER_CODE_ID}" style="
+                  margin-top:8px;
+                  background: rgba(2,6,23,0.75);
+                  border: 1px solid rgba(148,163,184,0.18);
+                  border-radius: 14px;
+                  padding: 10px;
+                  color: #e2e8f0;
+                  font-size: 12px;
+                  overflow:auto;
+                  max-height: 280px;
+                  white-space: pre-wrap;
+                  word-break: break-word;
+                ">(з’явиться коли додаси блоки у шаблон)</pre>
+              </div>
+
+              <div style="flex:1; position:relative; min-height:0;">
+                <div id="${CFG.BUILDER_DIV_ID}" style="position:absolute; inset:0;"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- List -->
+          <div id="${CFG.VIEW_LIST_ID}" style="height:100%; display:none; flex-direction:column;">
+            <div style="padding: 12px 14px; border-bottom: 1px solid rgba(148,163,184,0.12); display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+              <div style="font-size:12px; color:#94a3b8; font-weight:900; letter-spacing:0.12em; text-transform:uppercase;">
+                Мої блоки (localStorage)
+              </div>
+              <div style="display:flex; gap:10px;">
+                <button id="rc_export_json" style="padding:10px 12px; border-radius:14px; border:1px solid rgba(148,163,184,0.22); background: rgba(30,41,59,0.6); color:#e2e8f0; font-weight:900; cursor:pointer;">Експорт JSON</button>
+                <button id="rc_import_json" style="padding:10px 12px; border-radius:14px; border:1px solid rgba(148,163,184,0.22); background: rgba(30,41,59,0.6); color:#e2e8f0; font-weight:900; cursor:pointer;">Імпорт JSON</button>
+                <button id="rc_reset_all" style="padding:10px 12px; border-radius:14px; border:1px solid rgba(239,68,68,0.35); background: rgba(127,29,29,0.8); color:#fee2e2; font-weight:900; cursor:pointer;">Скинути все</button>
+              </div>
+            </div>
+            <div id="rc_list_container" style="flex:1; overflow:auto; padding: 14px;"></div>
+          </div>
+        </div>
+
+        <div style="
+          padding: 10px 14px;
+          border-top: 1px solid rgba(148,163,184,0.12);
+          display:flex; justify-content:space-between; align-items:center;
+          font-size: 12px; color:#94a3b8;
+        ">
+          <div>Esc — закрити • Ctrl+M — відкрити</div>
+          <div style="font-family:monospace;">customblock.js v2.1</div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(mask);
+
+    // close / click outside
+    const close = ()=> mask.style.display = 'none';
+    U.qs('#rc_modal_close', mask).addEventListener('click', close);
+    mask.addEventListener('click', (e)=>{ if(e.target === mask) close(); });
+    window.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && mask.style.display !== 'none') close(); });
+
+    // tabs
+    const btnCreate = U.qs('#'+CFG.TAB_CREATE_ID, mask);
+    const btnList = U.qs('#'+CFG.TAB_LIST_ID, mask);
+    const viewCreate = U.qs('#'+CFG.VIEW_CREATE_ID, mask);
+    const viewList = U.qs('#'+CFG.VIEW_LIST_ID, mask);
+
+    function setTab(which){
+      const isCreate = which === 'create';
+      viewCreate.style.display = isCreate ? 'flex' : 'none';
+      viewList.style.display = isCreate ? 'none' : 'flex';
+      btnCreate.style.background = isCreate ? 'rgba(30,41,59,0.6)' : 'rgba(30,41,59,0.35)';
+      btnList.style.background = isCreate ? 'rgba(30,41,59,0.35)' : 'rgba(30,41,59,0.6)';
+      btnCreate.style.color = isCreate ? '#e2e8f0' : '#cbd5e1';
+      btnList.style.color = isCreate ? '#cbd5e1' : '#e2e8f0';
+
+      if(!isCreate) renderCustomBlockList();
+    }
+
+    btnCreate.addEventListener('click', ()=>setTab('create'));
+    btnList.addEventListener('click', ()=>setTab('list'));
+
+    // init builder ws lazily
+    function ensureBuilderWs(){
+      if(S.builderWs) return S.builderWs;
+      const theme = window.CustomTheme || (Blockly.Themes ? Blockly.Themes.Classic : null);
+
+      // Minimal toolbox: our two mini blocks
+      const toolbox = document.createElement('xml');
+
+      const cat = document.createElement('category');
+      cat.setAttribute('name', '🧩 Міні');
+      cat.setAttribute('colour', CFG.MINI_COLOUR_STMT);
+
+      const b1 = document.createElement('block');
+      b1.setAttribute('type', 'rc_mini');
+      cat.appendChild(b1);
+
+      const b2 = document.createElement('block');
+      b2.setAttribute('type', 'rc_mini_value');
+      cat.appendChild(b2);
+
+      toolbox.appendChild(cat);
+
+      S.builderWs = Blockly.inject(CFG.BUILDER_DIV_ID, {
+        toolbox,
+        theme,
+        renderer: 'zelos',
+        scrollbars: true,
+        trashcan: true,
+        grid: { spacing: 40, length: 2, colour: '#334155', snap: true },
+        zoom: { controls: true, wheel: true, startScale: 0.9, maxScale: 2.2, minScale: 0.2 }
+      });
+
+      // update preview on changes
+      S.builderWs.addChangeListener(U.debounce(updateBuilderPreview, 250));
+
+      return S.builderWs;
+    }
+
+    mask._ensureBuilderWs = ensureBuilderWs;
+    mask._setTab = setTab;
+
+    // buttons
+    U.qs('#rc_builder_clear', mask).addEventListener('click', ()=>{
+      ensureBuilderWs().clear();
+      updateBuilderPreview();
+    });
+
+    U.qs('#rc_builder_pack', mask).addEventListener('click', ()=>{
+      packFromBuilder(ensureBuilderWs());
+      setTab('list');
+    });
+
+    U.qs('#'+CFG.BUILDER_COPY_ID, mask).addEventListener('click', async ()=>{
+      const pre = U.qs('#'+CFG.BUILDER_CODE_ID, mask);
+      const txt = pre ? pre.textContent : '';
+      try{
+        await navigator.clipboard.writeText(txt || '');
+        const b = U.qs('#'+CFG.BUILDER_COPY_ID, mask);
+        b.textContent = 'Copied';
+        setTimeout(()=>b.textContent='Copy', 600);
+      }catch(e){
+        alert('Не вдалося скопіювати (браузер заборонив).');
+      }
+    });
+
+    U.qs('#rc_export_json', mask).addEventListener('click', exportAll);
+    U.qs('#rc_import_json', mask).addEventListener('click', importAll);
+    U.qs('#rc_reset_all', mask).addEventListener('click', ()=>{
+      if(confirm('Точно стерти всі кастом‑блоки?')){
+        S.customBlocks = [];
+        saveCustomBlocks();
+        refreshToolbox();
+        renderCustomBlockList();
+      }
+    });
+
+    // initial tab
+    setTab('create');
+  }
+
+  function openMainModal(){
+    ensureMainModal();
+    const modal = U.qs('#'+CFG.MODAL_ID);
+    modal.style.display = 'flex';
+    modal._ensureBuilderWs();
+    modal._setTab('create');
+    setTimeout(()=>{ try{ S.builderWs && S.builderWs.resize(); }catch(e){} }, 50);
+  }
+
+  // ==========================================================
+  // 10) Builder preview JS
+  // ==========================================================
+  function updateBuilderPreview(){
+    const pre = U.qs('#'+CFG.BUILDER_CODE_ID);
+    if(!pre || !S.builderWs) return;
+    if(!window.javascript || !javascript.javascriptGenerator){
+      pre.textContent = '(generator недоступний)';
+      return;
+    }
+    const gen = javascript.javascriptGenerator;
+    const code = codeFromWorkspace(gen, S.builderWs).trim();
+    pre.textContent = code || '(порожній код)';
+  }
+
+  // ==========================================================
+  // 11) Pack: builder workspace -> custom block
+  // ==========================================================
+  function detectTemplateMode(builderWs){
+    // If exactly 1 top block and it is rc_mini_value and it has no next, we can create value custom block.
+    const tops = builderWs.getTopBlocks(true);
+    if(tops.length !== 1) return { output:false, outputCheck:null };
+    const root = tops[0];
+    if(root.type !== 'rc_mini_value') return { output:false, outputCheck:null };
+    if(root.getNextBlock()) return { output:false, outputCheck:null };
+    // outputCheck can be null; we keep null (any)
+    return { output:true, outputCheck:null };
+  }
+
+  function packFromBuilder(builderWs){
+    const name = (U.qs('#rc_new_name')?.value || 'Мій блок').trim() || 'Мій блок';
+    const colour = (U.qs('#rc_new_colour')?.value || CFG.CATEGORY_COLOUR).trim() || CFG.CATEGORY_COLOUR;
+
+    const tops = builderWs.getTopBlocks(true);
+    if(!tops.length){
+      alert('Додай хоча б один міні‑блок у шаблон.');
+      return;
+    }
+
+    const templatePayload = serializeWorkspace(builderWs);
+    const mode = detectTemplateMode(builderWs);
+
+    const rec = {
+      id: U.uid('rc_user'),
+      name,
+      colour,
+      template: templatePayload.state,
+      templateFormat: templatePayload.format,
+      output: mode.output,
+      outputCheck: mode.outputCheck,
+      createdAt: Date.now()
+    };
+
+    S.customBlocks.unshift(rec);
+    saveCustomBlocks();
+    registerOneCustomBlock(rec);
+    refreshToolbox();
+
+    builderWs.clear();
+    updateBuilderPreview();
+
+    alert('Готово! Блок додано у "⭐ Мої блоки".');
+  }
+
+  // ==========================================================
+  // 12) Register rc_user_* blocks
+  // ==========================================================
+  function registerAllCustomBlocks(){
+    S.customBlocks.forEach(registerOneCustomBlock);
+  }
+
+  function registerOneCustomBlock(rec){
+    if(!window.Blockly || !rec || !rec.id) return;
+
+    const type = rec.id;
+    if(Blockly.Blocks[type]) return;
+
+    Blockly.Blocks[type] = {
+      init: function(){
+        this.appendDummyInput()
+          .appendField('⭐')
+          .appendField(rec.name);
+        this.setColour(rec.colour || CFG.CATEGORY_COLOUR);
+        if(rec.output){
+          this.setOutput(true, rec.outputCheck || null);
+        }else{
+          this.setPreviousStatement(true, null);
+          this.setNextStatement(true, null);
+        }
+        this.setTooltip('Користувацький блок (згенерований з міні‑блоків).');
+      }
+    };
+
+    if(window.javascript && javascript.javascriptGenerator){
+      const gen = javascript.javascriptGenerator;
+      gen.forBlock = gen.forBlock || {};
+
+      gen.forBlock[type] = function(block){
+        if(S.genStack.includes(type)) {
+          return rec.output ? ['0', gen.ORDER_ATOMIC] : `// [${type}] recursion guard\n`;
+        }
+        S.genStack.push(type);
+        try{
+          const ws = ensureHiddenWorkspace();
+          if(!ws) return rec.output ? ['0', gen.ORDER_ATOMIC] : '';
+
+          // load template
+          ws.clear();
+          try{
+            if(rec.templateFormat === 'xml'){
+              const dom = U.xmlTextToDom(rec.template || '');
+              if(dom) Blockly.Xml.domToWorkspace(dom, ws);
+            }else{
+              if(U.hasSerialization() && rec.template){
+                Blockly.serialization.workspaces.load(rec.template, ws);
+              }
+            }
+          }catch(e){
+            U.log('template load failed', e);
+          }
+
+          // generate code
+          const code = codeFromWorkspace(gen, ws);
+
+          if(rec.output){
+            const expr = (code || '').trim().replace(/;\s*$/,'');
+            return [expr || '0', gen.ORDER_ATOMIC];
+          }
+
+          // statement block: append next from main workspace
+          let out = code || '';
+          const next = block.getNextBlock();
+          if(next) out += gen.blockToCode(next);
+          return out;
+        } finally {
+          S.genStack.pop();
+        }
+      };
+    }
+  }
+
+  // ==========================================================
+  // 13) Toolbox patch: add "⭐ Мої блоки" category
+  // ==========================================================
+  function refreshToolbox(){
+    if(!S.workspace) return;
+    const toolbox = document.getElementById('toolbox');
+    if(!toolbox) return;
+
+    let cat = null;
+    for(const c of U.qsa('category', toolbox)){
+      if((c.getAttribute('name') || '').trim() === CFG.CATEGORY_NAME){
+        cat = c; break;
+      }
+    }
+    if(!cat){
+      cat = document.createElement('category');
+      cat.setAttribute('name', CFG.CATEGORY_NAME);
+      cat.setAttribute('colour', CFG.CATEGORY_COLOUR);
+      toolbox.appendChild(cat);
+    }
+
+    // clear
+    U.qsa('block', cat).forEach(n=>n.remove());
+
+    // add
+    for(const rec of S.customBlocks){
+      const b = document.createElement('block');
+      b.setAttribute('type', rec.id);
+      cat.appendChild(b);
+    }
+
+    try{
+      if(typeof S.workspace.updateToolbox === 'function'){
+        S.workspace.updateToolbox(toolbox);
+      }
+    }catch(e){
+      U.log('updateToolbox failed', e);
+    }
+  }
+
+  // ==========================================================
+  // 14) List UI
+  // ==========================================================
+  function renderCustomBlockList(){
+    const modal = U.qs('#'+CFG.MODAL_ID);
+    if(!modal) return;
+    const container = U.qs('#rc_list_container', modal);
+    if(!container) return;
+
+    if(!S.customBlocks.length){
+      container.innerHTML = `
+        <div style="padding:18px; border-radius:16px; border:1px solid rgba(148,163,184,0.16); background: rgba(30,41,59,0.35); color:#cbd5e1;">
+          Немає жодного кастом‑блоку. Зроби у вкладці “Створити”.
+        </div>
+      `;
+      return;
+    }
+
+    let html = '';
+    for(const rec of S.customBlocks){
+      html += `
+        <div style="
+          padding: 14px;
+          border-radius: 16px;
+          border: 1px solid rgba(148,163,184,0.16);
+          background: rgba(30,41,59,0.35);
+          display:flex; align-items:center; justify-content:space-between;
+          gap: 12px;
+          margin-bottom: 12px;
+        ">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:14px; height:14px; border-radius:6px; background:${U.html(rec.colour || CFG.CATEGORY_COLOUR)}; box-shadow: 0 0 0 3px rgba(0,0,0,0.25) inset;"></div>
+            <div>
+              <div style="color:white; font-weight: 900;">${U.html(rec.name)} ${rec.output ? '<span style="font-size:11px; color:#7dd3fc; font-weight:900; letter-spacing:0.12em; margin-left:6px;">VALUE</span>' : ''}</div>
+              <div style="font-size:12px; color:#94a3b8; font-family:monospace;">${U.html(rec.id)}</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button data-act="delete" data-id="${U.html(rec.id)}" style="padding:10px 12px; border-radius:14px; border:1px solid rgba(239,68,68,0.35); background: rgba(127,29,29,0.8); color:#fee2e2; font-weight:900; cursor:pointer;">Видалити</button>
+          </div>
+        </div>
+      `;
+    }
+    container.innerHTML = html;
+
+    U.qsa('button[data-act="delete"]', container).forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const id = btn.getAttribute('data-id');
+        if(!id) return;
+        if(confirm('Видалити цей кастом‑блок?')){
+          S.customBlocks = S.customBlocks.filter(x => x.id !== id);
+          saveCustomBlocks();
+          refreshToolbox();
+          renderCustomBlockList();
+        }
+      });
+    });
+  }
+
+  // ==========================================================
+  // 15) Export / Import
+  // ==========================================================
+  function exportAll(){
+    const data = U.safeJsonStringify(S.customBlocks, '[]');
+    const blob = new Blob([data], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'rc_custom_blocks_v2.json';
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+  }
+
+  function importAll(){
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.onchange = ()=>{
+      const file = input.files && input.files[0];
+      if(!file) return;
+      const r = new FileReader();
+      r.onload = ()=>{
+        const arr = U.safeJsonParse(String(r.result||''), null);
+        if(!Array.isArray(arr)){
+          alert('Невірний JSON.');
+          return;
+        }
+        S.customBlocks = arr.filter(x=>x && typeof x==='object')
+          .slice(0, CFG.MAX_CUSTOM_BLOCKS)
+          .map(x => ({
+            id: String(x.id || U.uid('rc_user')),
+            name: String(x.name || 'Мій блок'),
+            colour: String(x.colour || CFG.CATEGORY_COLOUR),
+            template: x.template || null,
+            templateFormat: (x.templateFormat === 'xml') ? 'xml' : 'json',
+            output: !!x.output,
+            outputCheck: Array.isArray(x.outputCheck) ? x.outputCheck : null,
+            createdAt: Number(x.createdAt || Date.now())
+          }));
+
+        saveCustomBlocks();
+        registerAllCustomBlocks();
+        refreshToolbox();
+        renderCustomBlockList();
+        alert('Імпортовано.');
+      };
+      r.readAsText(file);
+    };
+    input.click();
+  }
+
+  // ==========================================================
+  // 16) Floating button (FAB)
+  // ==========================================================
+  function ensureFab(){
+    if(U.qs('#'+CFG.FAB_ID)) return;
+    const btn = document.createElement('button');
+    btn.id = CFG.FAB_ID;
+    btn.textContent = '🧩';
+    btn.title = 'Кастом‑блоки (Ctrl+M)';
+    btn.style.cssText = `
+      position: fixed;
+      right: 14px;
+      bottom: 14px;
+      width: 54px;
+      height: 54px;
+      border-radius: 18px;
+      border: 1px solid rgba(148,163,184,0.22);
+      background: rgba(30,41,59,0.78);
+      color: white;
+      font-size: 22px;
+      font-weight: 900;
+      box-shadow: 0 18px 60px rgba(0,0,0,0.55);
+      z-index: ${CFG.MODAL_Z-1};
+      cursor: pointer;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      backdrop-filter: blur(8px);
+    `;
+    btn.addEventListener('click', openMainModal);
+    document.body.appendChild(btn);
+
+    // shortcut
+    window.addEventListener('keydown', (e)=>{
+      if(e.ctrlKey && (e.key === 'm' || e.key === 'M')){
+        e.preventDefault();
+        openMainModal();
+      }
+    });
+  }
+
+  // ==========================================================
+  // 17) Boot
+  // ==========================================================
+  async function boot(){
+    // wait for Blockly + generator
+    for(let i=0;i<120;i++){
+      if(window.Blockly && window.javascript && javascript.javascriptGenerator) break;
+      await U.sleep(50);
+    }
+    if(!window.Blockly){
+      console.warn('[customblock] Blockly not found.');
+      return;
+    }
+
+    // wait for window.workspace from index
+    for(let i=0;i<200;i++){
+      if(window.workspace) break;
+      await U.sleep(70);
+    }
+    S.workspace = window.workspace || null;
+
+    // load blocks
+    S.customBlocks = loadCustomBlocks();
+
+    // types
+    collectBlockTypes();
+
+    // define wrappers
+    defineMiniBlocks();
+
+    // register stored blocks
+    registerAllCustomBlocks();
+
+    // patch toolbox
+    if(S.workspace) refreshToolbox();
+
+    // UI
+    ensureFab();
+
+    U.log('ready', S.customBlocks.length);
+  }
+
+  // Start
+  boot();
 
 })();
