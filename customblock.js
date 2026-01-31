@@ -1,27 +1,29 @@
-/* customblock.js v2.5
-   RoboControl - Custom Blocks (Variant B)
-   NEW: Builder opens as a separate full-screen view like Scratch (not a modal).
-   - Adds section#view-customblocks dynamically (so index.html can stay almost untouched)
-   - Floating 🧩 button appears ONLY in Scratch view (#view-builder), PC only
-   - Custom blocks category "⭐ Мої блоки" is PC only + bigger label
-   - After saving: toolbox rebuild + refresh selection + auto-select "⭐ Мої блоки"
+/* customblock.js v2.6
+   RoboControl - Custom Blocks (Variant B) — UI back like earlier + manager + grid
 
-   Requirements (already in your index):
-   - global main Blockly workspace variable: window.workspace (or window._workspace)
-   - function switchView(viewId, btnElement) exists
+   User fixes:
+   1) Custom Builder: look simpler (like before) — only 2 mini blocks + visible ⚙ on each, no trashcan UI.
+   2) Bring back management: rename / recolor / delete / edit custom blocks.
+   3) Builder grid must be real grid, not just background.
+   4) Keep: 🧩 only in Scratch view (#view-builder), PC only; custom blocks PC only.
+   5) After saving: custom block appears in ⭐ Мої блоки instantly.
+
+   Notes:
+   - We DO NOT override your own blocks' mixins; we only use ContextMenuRegistry for our blocks.
+   - We keep a lightweight map of defs so rename/color updates work.
 */
 (function(){
   'use strict';
 
   const RC = window.RC_CUSTOMBLOCK = window.RC_CUSTOMBLOCK || {};
-  const VERSION = 'v2.5';
+  const VERSION = 'v2.6';
 
   const CFG = {
     storageKeyBlocks: 'rc_cb_blocks_v2',
     customCategoryId: 'rc_custom_category',
     customCategoryName: '⭐ Мої блоки',
     customCategoryColour: '#F59E0B',
-    customBlockColour: '#FB923C',
+    defaultCustomBlockColour: '#FB923C',
     uiZ: 96
   };
 
@@ -70,12 +72,52 @@
     debounce(fn, ms){
       let t=null;
       return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms); };
+    },
+    downloadText(filename, text){
+      const blob = new Blob([text], { type:'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 0);
     }
   };
 
   // ------------------------------
-  // Storage
+  // Toast
   // ------------------------------
+  let toastT=null;
+  function toast(msg){
+    const id = 'rcCbToast';
+    let el = document.getElementById(id);
+    if (!el){
+      el = u.el('div', { id, style: `
+        position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+        background: rgba(2,6,23,.85);
+        border: 1px solid rgba(148,163,184,.18);
+        color: #e2e8f0;
+        padding: 10px 12px;
+        border-radius: 14px;
+        font-weight: 900;
+        z-index: ${CFG.uiZ+8};
+        display:none;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 18px 60px rgba(0,0,0,.55);
+      `});
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.display='block';
+    clearTimeout(toastT);
+    toastT = setTimeout(()=>{ el.style.display='none'; }, 1300);
+  }
+
+  // ------------------------------
+  // Storage + defs map
+  // ------------------------------
+  RC._defsByType = RC._defsByType || new Map();
+
   function loadBlocks(){
     const raw = localStorage.getItem(CFG.storageKeyBlocks);
     const data = u.jparse(raw, []);
@@ -83,6 +125,26 @@
   }
   function saveBlocks(arr){
     localStorage.setItem(CFG.storageKeyBlocks, u.jstring(arr || []));
+  }
+  function rebuildDefsMap(){
+    RC._defsByType.clear();
+    for (const d of loadBlocks()){
+      if (d && d.blockType) RC._defsByType.set(d.blockType, d);
+    }
+  }
+  function updateDef(blockType, patch){
+    const defs = loadBlocks();
+    const idx = defs.findIndex(d => d.blockType === blockType);
+    if (idx < 0) return false;
+    defs[idx] = Object.assign({}, defs[idx], patch || {}, { updatedAt: Date.now() });
+    saveBlocks(defs);
+    rebuildDefsMap();
+    return true;
+  }
+  function deleteDef(blockType){
+    const defs = loadBlocks().filter(d => d.blockType !== blockType);
+    saveBlocks(defs);
+    rebuildDefsMap();
   }
 
   // ------------------------------
@@ -122,7 +184,10 @@
 }
 #rcCbOpenBtn:active{ transform: scale(.97); }
 
-/* Custom Blocks view header (uses your dark UI) */
+/* Custom Blocks view */
+#view-customblocks{
+  background: rgba(2,6,23,.22);
+}
 #rcCustomBlocksTop{
   display:flex;
   align-items:center;
@@ -168,44 +233,50 @@
   color: #fff;
 }
 #rcCustomBlocksTop .btn:active{ transform: scale(.99); }
-
-/* Make the custom builder workspace fill */
 #rcCustomBlocksDiv{
   flex:1;
   min-height: 0;
   background: rgba(2,6,23,.35);
 }
+
+/* Dark toolbox for builder workspace (so it doesn't look "white") */
+#view-customblocks .blocklyToolboxDiv{
+  background: rgba(15,23,42,.96) !important;
+  border-right: 1px solid rgba(148,163,184,.12) !important;
+  width: 230px !important;
+}
+#view-customblocks .blocklyTreeLabel{
+  color:#e2e8f0 !important;
+  font-weight: 900 !important;
+}
+#view-customblocks .blocklyFlyoutBackground{ fill: rgba(2,6,23,.55) !important; }
+#view-customblocks .blocklyMainBackground{ fill: rgba(2,6,23,.35) !important; }
+
+/* Manager modal */
+#rcCbMgrBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.58);backdrop-filter:blur(8px);z-index:${CFG.uiZ+20};display:none;}
+#rcCbMgrModal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+width:min(860px,calc(100vw - 20px));height:min(78vh,680px);
+background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radius:18px;overflow:hidden;
+z-index:${CFG.uiZ+21};display:none;box-shadow:0 28px 90px rgba(0,0,0,.6);}
+#rcCbMgrModal .hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(148,163,184,.14);}
+#rcCbMgrModal .hdr .ttl{display:flex;align-items:center;gap:10px;color:#e2e8f0;font-weight:950;letter-spacing:.08em;text-transform:uppercase;font-size:12px;}
+#rcCbMgrModal .hdr .ttl .dot{width:10px;height:10px;border-radius:4px;background:${CFG.customCategoryColour};box-shadow:0 0 12px rgba(245,158,11,.45);}
+#rcCbMgrModal .hdr .x{width:42px;height:42px;border-radius:14px;border:1px solid rgba(148,163,184,.15);background:rgba(30,41,59,.70);color:#e2e8f0;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+#rcCbMgrModal .bar{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(148,163,184,.10);background:rgba(2,6,23,.28);}
+#rcCbMgrModal .bar .btn{padding:10px 12px;border-radius:14px;border:1px solid rgba(148,163,184,.14);background:rgba(30,41,59,.74);color:#e2e8f0;font-weight:950;cursor:pointer;}
+#rcCbMgrModal .bar .btn.primary{background:rgba(59,130,246,.85);border-color:rgba(59,130,246,.55);color:#fff;}
+#rcCbMgrList{padding:12px 14px;overflow:auto; height: calc(100% - 120px);}
+#rcCbMgrList{scrollbar-width:none;-ms-overflow-style:none;}
+#rcCbMgrList::-webkit-scrollbar{width:0!important;height:0!important;}
+.rcCbRow{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid rgba(148,163,184,.12);border-radius:14px;background:rgba(30,41,59,.35);margin-bottom:10px;}
+.rcCbRow .name{flex:1;color:#e2e8f0;font-weight:950;}
+.rcCbRow .meta{color:#94a3b8;font-size:12px;font-weight:800;}
+.rcCbRow .sw{width:16px;height:16px;border-radius:6px;border:1px solid rgba(148,163,184,.18);}
+.rcCbRow .act{display:flex;gap:8px;align-items:center;}
+.rcCbRow .act .btn{padding:8px 10px;border-radius:12px;border:1px solid rgba(148,163,184,.14);background:rgba(30,41,59,.74);color:#e2e8f0;font-weight:950;cursor:pointer;}
+.rcCbRow .act .btn.danger{border-color:rgba(248,113,113,.35);background:rgba(248,113,113,.12);color:#fecaca;}
 `;
     document.head.appendChild(s);
-  }
-
-  // ------------------------------
-  // Toast
-  // ------------------------------
-  let toastT=null;
-  function toast(msg){
-    const id = 'rcCbToast';
-    let el = document.getElementById(id);
-    if (!el){
-      el = u.el('div', { id, style: `
-        position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
-        background: rgba(2,6,23,.85);
-        border: 1px solid rgba(148,163,184,.18);
-        color: #e2e8f0;
-        padding: 10px 12px;
-        border-radius: 14px;
-        font-weight: 900;
-        z-index: ${CFG.uiZ+5};
-        display:none;
-        backdrop-filter: blur(10px);
-        box-shadow: 0 18px 60px rgba(0,0,0,.55);
-      `});
-      document.body.appendChild(el);
-    }
-    el.textContent = msg;
-    el.style.display='block';
-    clearTimeout(toastT);
-    toastT = setTimeout(()=>{ el.style.display='none'; }, 1300);
   }
 
   // ------------------------------
@@ -244,13 +315,11 @@
       cat.appendChild(blockEl);
     }
 
-    // Update toolbox
     try { workspace.updateToolbox(toolboxXml); }
     catch(e){
       try { workspace.updateToolbox(toolboxXml.outerHTML); } catch(_){}
     }
 
-    // Mark row + refresh selection so content appears instantly
     setTimeout(()=>{
       try { markCustomCategoryRow(workspace); } catch(e){}
       try {
@@ -285,8 +354,13 @@
   }
 
   // ------------------------------
-  // Mini blocks (rc_mini / rc_mini_value)
+  // Mini blocks (rc_mini / rc_mini_value) + ⚙ on block
   // ------------------------------
+  const GEAR_SVG = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24">
+  <path fill="#e2e8f0" d="M19.14,12.94a7.43,7.43,0,0,0,.05-.94,7.43,7.43,0,0,0-.05-.94l2.11-1.65a.5.5,0,0,0,.12-.64l-2-3.46a.5.5,0,0,0-.6-.22l-2.49,1a7.28,7.28,0,0,0-1.63-.94l-.38-2.65A.5.5,0,0,0,12.77,2H11.23a.5.5,0,0,0-.49.42L10.36,5.07a7.28,7.28,0,0,0-1.63.94l-2.49-1a.5.5,0,0,0-.6.22l-2,3.46a.5.5,0,0,0,.12.64L5.86,11.06a7.43,7.43,0,0,0-.05.94,7.43,7.43,0,0,0,.05.94L3.75,14.59a.5.5,0,0,0-.12.64l2,3.46a.5.5,0,0,0,.6.22l2.49-1a7.28,7.28,0,0,0,1.63.94l.38,2.65a.5.5,0,0,0,.49.42h1.54a.5.5,0,0,0,.49-.42l.38-2.65a7.28,7.28,0,0,0,1.63-.94l2.49,1a.5.5,0,0,0,.6-.22l2-3.46a.5.5,0,0,0-.12-.64ZM12,15.5A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/>
+</svg>`);
+
   function getAllBlockTypesDropdown(){
     try {
       const Blockly = window.Blockly;
@@ -304,12 +378,21 @@
   function defineMiniBlocks(Blockly){
     if (Blockly.Blocks['rc_mini']) return;
 
+    function addGearField(input, miniBlockRefGetter){
+      const field = new Blockly.FieldImage(GEAR_SVG, 16, 16, '⚙', function(){
+        const b = miniBlockRefGetter();
+        if (b) openMiniConfigModal(b);
+      });
+      input.appendField(field, 'GEAR');
+    }
+
     Blockly.Blocks['rc_mini'] = {
       init: function(){
-        this.appendDummyInput()
-          .appendField('🧩')
+        const input = this.appendDummyInput();
+        input.appendField('🧩')
           .appendField(new Blockly.FieldTextInput('mini'), 'LABEL')
           .appendField(new Blockly.FieldDropdown(getAllBlockTypesDropdown), 'WRAP_TYPE');
+        addGearField(input, ()=>this);
         this.setPreviousStatement(true, null);
         this.setNextStatement(true, null);
         this.setColour('#64748B');
@@ -320,10 +403,11 @@
 
     Blockly.Blocks['rc_mini_value'] = {
       init: function(){
-        this.appendDummyInput()
-          .appendField('🔹')
+        const input = this.appendDummyInput();
+        input.appendField('🔹')
           .appendField(new Blockly.FieldTextInput('val'), 'LABEL')
           .appendField(new Blockly.FieldDropdown(getAllBlockTypesDropdown), 'WRAP_TYPE');
+        addGearField(input, ()=>this);
         this.setOutput(true, null);
         this.setColour('#475569');
         this.setTooltip('Міні-значення: обгортає value-блок і зберігає його стан');
@@ -331,7 +415,7 @@
       }
     };
 
-    // Context menu only for our mini blocks (official API)
+    // Context menu item as fallback (right-click)
     if (Blockly.ContextMenuRegistry && Blockly.ContextMenuRegistry.registry){
       const reg = Blockly.ContextMenuRegistry.registry;
 
@@ -344,7 +428,7 @@
             const b = scope.block;
             return (b && (b.type === 'rc_mini' || b.type === 'rc_mini_value')) ? 'enabled' : 'hidden';
           },
-          callback: function(scope){ openMiniConfigView(scope.block); },
+          callback: function(scope){ openMiniConfigModal(scope.block); },
           weight: 120
         });
       }
@@ -366,7 +450,7 @@
     const jsGen = Blockly.JavaScript || Blockly.javascriptGenerator;
     if (!jsGen) return;
 
-    // hidden ws
+    // hidden ws for generator bridge
     let hiddenWs = null;
     function ensureHiddenWs(){
       if (hiddenWs) return hiddenWs;
@@ -464,18 +548,19 @@
   }
 
   // ------------------------------
-  // Custom macro block types (stored)
+  // Custom macro block types (stored) — dynamic name/color updates
   // ------------------------------
-  function defineCustomBlockType(Blockly, def){
-    if (!def || !def.blockType) return;
-    if (Blockly.Blocks[def.blockType]) return;
+  function defineCustomBlockType(Blockly, blockType){
+    if (!blockType) return;
+    if (Blockly.Blocks[blockType]) return;
 
-    Blockly.Blocks[def.blockType] = {
+    Blockly.Blocks[blockType] = {
       init: function(){
+        const def = RC._defsByType.get(blockType) || {};
         this.appendDummyInput().appendField('⭐').appendField(def.name || 'Custom');
         this.setPreviousStatement(true, null);
         this.setNextStatement(true, null);
-        this.setColour(def.colour || CFG.customBlockColour);
+        this.setColour(def.colour || CFG.defaultCustomBlockColour);
         this.setTooltip('Користувацький блок (збережений)');
       }
     };
@@ -483,9 +568,12 @@
     const jsGen = Blockly.JavaScript || Blockly.javascriptGenerator;
     if (!jsGen) return;
     jsGen.forBlock = jsGen.forBlock || {};
-    jsGen.forBlock[def.blockType] = function(block, generator){
+    jsGen.forBlock[blockType] = function(block, generator){
       const Blockly = window.Blockly;
       if (!Blockly) return '';
+      const def = RC._defsByType.get(blockType);
+      if (!def) return '';
+
       const div = document.createElement('div');
       div.style.position='fixed';
       div.style.left='-99999px';
@@ -498,7 +586,6 @@
       let tmpWs = null;
       try{
         tmpWs = Blockly.inject(div, { toolbox:'<xml></xml>', readOnly:false, scrollbars:false, trashcan:false });
-        // load saved program (builder workspace)
         if (def.program && def.program.kind === 'json' && Blockly.serialization?.workspaces?.load){
           Blockly.serialization.workspaces.load(def.program.payload, tmpWs);
         } else if (def.program && def.program.kind === 'xml'){
@@ -527,39 +614,42 @@
   }
 
   // ------------------------------
-  // MINI CONFIG as a modal (kept simple; uses your main toolbox clone)
+  // Mini config modal (kept like earlier screenshot; remove trashcan UI + show grid)
   // ------------------------------
-  const miniUI = { backdrop:null, modal:null, wsDiv:null, ws:null, current:null, meta:null, ro:null };
+  const miniUI = { backdrop:null, modal:null, wsDiv:null, ws:null, current:null, metaType:null, metaKind:null, pre:null, ro:null };
+
   function ensureMiniModal(){
     if (miniUI.modal) return;
+    injectCss();
     const Blockly = window.Blockly;
     if (!Blockly) return;
 
-    // CSS minimal
-    const styleId='rc-mini-css';
+    const styleId='rc-mini-css-v26';
     if (!document.getElementById(styleId)){
       const st = document.createElement('style');
       st.id=styleId;
       st.textContent=`
-#rcMiniBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.58);backdrop-filter:blur(8px);z-index:${CFG.uiZ};display:none;}
-#rcMiniModal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(1120px,calc(100vw - 20px));height:min(88vh,780px);
-background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radius:18px;overflow:hidden;z-index:${CFG.uiZ+1};display:none;box-shadow:0 28px 90px rgba(0,0,0,.6);}
+#rcMiniBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.58);backdrop-filter:blur(8px);z-index:${CFG.uiZ+2};display:none;}
+#rcMiniModal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(1180px,calc(100vw - 20px));height:min(88vh,800px);
+background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radius:18px;overflow:hidden;z-index:${CFG.uiZ+3};display:none;box-shadow:0 28px 90px rgba(0,0,0,.6);}
 #rcMiniModal .hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(148,163,184,.14);}
 #rcMiniModal .ttl{color:#e2e8f0;font-weight:950;letter-spacing:.08em;text-transform:uppercase;font-size:12px;display:flex;gap:10px;align-items:center;}
-#rcMiniModal .ttl .dot{width:10px;height:10px;border-radius:4px;background:${CFG.customBlockColour};box-shadow:0 0 12px rgba(251,146,60,.5);}
+#rcMiniModal .ttl .dot{width:10px;height:10px;border-radius:4px;background:${CFG.defaultCustomBlockColour};box-shadow:0 0 12px rgba(251,146,60,.5);}
 #rcMiniModal .x{width:42px;height:42px;border-radius:14px;border:1px solid rgba(148,163,184,.15);background:rgba(30,41,59,.70);color:#e2e8f0;cursor:pointer;display:flex;align-items:center;justify-content:center;}
 #rcMiniModal .bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border-bottom:1px solid rgba(148,163,184,.10);background:rgba(2,6,23,.28);color:#cbd5e1;font-weight:800;font-size:12px;}
+#rcMiniModal code{padding:2px 7px;border-radius:999px;background:rgba(30,41,59,.75);border:1px solid rgba(148,163,184,.14);color:#e2e8f0;font-size:11px;}
 #rcMiniModal .btn{padding:10px 12px;border-radius:14px;border:1px solid rgba(148,163,184,.14);background:rgba(30,41,59,.74);color:#e2e8f0;font-weight:950;cursor:pointer;}
-#rcMiniModal .btn.primary{background:rgba(59,130,246,.85);border-color:rgba(59,130,246,.55);}
-#rcMiniModal .body{height:calc(100% - 100px);display:grid;grid-template-columns:280px 1fr;min-height:0;}
+#rcMiniModal .btn.primary{background:rgba(59,130,246,.85);border-color:rgba(59,130,246,.55);color:#fff;}
+#rcMiniModal .body{height:calc(100% - 100px);display:grid;grid-template-columns:340px 1fr;min-height:0;}
 #rcMiniModal .left,#rcMiniModal .right{min-height:0;overflow:hidden;}
 #rcMiniModal .left{border-right:1px solid rgba(148,163,184,.12);padding:12px 12px 12px 14px;display:flex;flex-direction:column;gap:12px;}
 #rcMiniModal .right{padding:12px;display:flex;flex-direction:column;min-height:0;}
-#rcMiniModal pre{margin:0;background:rgba(2,6,23,.55);border:1px solid rgba(148,163,184,.14);border-radius:14px;padding:10px;color:#e2e8f0;font-size:12px;line-height:1.35;overflow:auto;min-height:140px;max-height:42vh;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;}
+#rcMiniModal pre{margin:0;background:rgba(2,6,23,.55);border:1px solid rgba(148,163,184,.14);border-radius:14px;padding:10px;color:#e2e8f0;font-size:12px;line-height:1.35;overflow:auto;min-height:180px;max-height:42vh;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;}
 #rcMiniModal pre,#rcMiniModal .left,#rcMiniModal .right{scrollbar-width:none;-ms-overflow-style:none;}
 #rcMiniModal pre::-webkit-scrollbar,#rcMiniModal .left::-webkit-scrollbar,#rcMiniModal .right::-webkit-scrollbar{width:0!important;height:0!important;}
 #rcMiniBlocklyHost{flex:1;min-height:560px;border-radius:14px;border:1px solid rgba(148,163,184,.14);overflow:hidden;background:rgba(2,6,23,.35);}
 #rcMiniBlockly{width:100%;height:100%;}
+/* Dark toolbox in mini modal */
 #rcMiniModal .blocklyToolboxDiv{background:rgba(15,23,42,.96)!important;border-right:1px solid rgba(148,163,184,.12)!important;width:210px!important;}
 #rcMiniModal .blocklyTreeLabel{color:#e2e8f0!important;font-weight:900!important;}
 #rcMiniModal .blocklyFlyoutBackground{fill:rgba(2,6,23,.55)!important;}
@@ -572,30 +662,56 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     miniUI.modal = u.el('div', { id:'rcMiniModal' });
 
     const hdr = u.el('div', { class:'hdr' }, [
-      u.el('div', { class:'ttl' }, [ u.el('span',{class:'dot'}),'Налаштування міні-блоку' ]),
+      u.el('div', { class:'ttl' }, [ u.el('span',{class:'dot'}),'НАЛАШТУВАННЯ МІНІ-БЛОКУ' ]),
       u.el('button', { class:'x', onclick: closeMiniModal }, '✕')
     ]);
 
-    miniUI.meta = u.el('div', { style:'display:flex; gap:10px; align-items:center; flex-wrap:wrap;' }, []);
+    miniUI.metaType = u.el('code', {}, '—');
+    miniUI.metaKind = u.el('code', {}, '—');
 
     const btnSave = u.el('button', { class:'btn primary', onclick: saveMini }, 'Зберегти');
     const btnReset= u.el('button', { class:'btn', onclick: resetMini }, 'Скинути');
 
     const bar = u.el('div', { class:'bar' }, [
-      miniUI.meta,
+      u.el('div', { style:'display:flex; gap:10px; align-items:center; flex-wrap:wrap;' }, [
+        u.el('span', { style:'opacity:.85;' }, 'Block type:'),
+        miniUI.metaType,
+        miniUI.metaKind
+      ]),
       u.el('div', { style:'display:flex; gap:10px; align-items:center;' }, [btnReset, btnSave])
     ]);
 
     const tips = u.el('div', { style:'font-size:12px;color:#cbd5e1;line-height:1.35;' }, [
       u.el('div', { style:'font-weight:950; letter-spacing:.08em; text-transform:uppercase; font-size:11px; color:#94a3b8; margin-bottom:8px;' }, 'ПІДКАЗКИ'),
       u.el('ul', { style:'margin: 6px 0 0 16px; padding:0;' }, [
-        u.el('li', {}, 'Тут справжній Blockly — вставляй числа, змінні, PID, сенсори, if/цикли.'),
-        u.el('li', {}, 'Після “Зберегти” у міні-блоку зберігається серіалізація (JSON/XML).')
+        u.el('li', {}, 'Тут справжній Blockly — можеш вставляти числа, змінні, PID, сенсори, if/цикли.'),
+        u.el('li', {}, 'Після “Зберегти” всередині міні-блоку зберігається серіалізація (JSON/XML).')
       ])
     ]);
 
-    const pre = u.el('pre', {}, '// preview…');
-    const left = u.el('div', { class:'left' }, [ tips, pre ]);
+    miniUI.pre = u.el('pre', {}, '// preview…');
+    const copyBtn = u.el('button', {
+      class:'btn',
+      style:'align-self:flex-start;',
+      onclick: async ()=>{
+        const txt = miniUI.pre.textContent || '';
+        try{ await navigator.clipboard.writeText(txt); toast('Скопійовано'); }
+        catch(e){
+          const ta = document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select();
+          try{ document.execCommand('copy'); toast('Скопійовано'); }catch(_){}
+          ta.remove();
+        }
+      }
+    }, 'Copy');
+
+    const left = u.el('div', { class:'left' }, [
+      tips,
+      u.el('div', { style:'display:flex; align-items:center; justify-content:space-between; gap:10px;' }, [
+        u.el('div', { style:'font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:#a5b4fc; font-weight:950;' }, 'PREVIEW JS'),
+        copyBtn
+      ]),
+      miniUI.pre
+    ]);
 
     const host = u.el('div', { id:'rcMiniBlocklyHost' }, [ miniUI.wsDiv = u.el('div', { id:'rcMiniBlockly' }) ]);
     const right = u.el('div', { class:'right' }, [ host ]);
@@ -616,30 +732,18 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       try { miniUI.ws && Blockly.svgResize(miniUI.ws); } catch(e){}
     }, 30));
     miniUI.ro.observe(host);
-
-    // keep preview updated
-    const updatePreview = u.debounce(()=>{
-      try{
-        const jsGen = Blockly.JavaScript || Blockly.javascriptGenerator;
-        pre.textContent = (jsGen && miniUI.ws) ? (jsGen.workspaceToCode(miniUI.ws) || '// (empty)') : '// (no generator)';
-      }catch(e){ pre.textContent='// (error)'; }
-    }, 80);
-
-    miniUI._updatePreview = updatePreview;
   }
 
-  function openMiniConfigView(miniBlock){
+  function openMiniConfigModal(miniBlock){
     ensureMiniModal();
     const Blockly = window.Blockly;
     if (!Blockly || !miniUI.modal) return;
     miniUI.current = miniBlock;
 
-    miniUI.meta.innerHTML='';
     const wrapType = miniBlock.getFieldValue('WRAP_TYPE') || '(none)';
     const kind = miniBlock.type === 'rc_mini_value' ? 'VALUE' : 'STATEMENT';
-    miniUI.meta.appendChild(u.el('span',{style:'opacity:.8;'},'Block:'));
-    miniUI.meta.appendChild(u.el('code',{style:'padding:2px 7px;border-radius:999px;background:rgba(30,41,59,.75);border:1px solid rgba(148,163,184,.14);color:#e2e8f0;font-size:11px;'},wrapType));
-    miniUI.meta.appendChild(u.el('code',{style:'padding:2px 7px;border-radius:999px;background:rgba(30,41,59,.75);border:1px solid rgba(148,163,184,.14);color:#e2e8f0;font-size:11px;'},kind));
+    miniUI.metaType.textContent = wrapType;
+    miniUI.metaKind.textContent = kind;
 
     miniUI.backdrop.style.display='block';
     miniUI.modal.style.display='block';
@@ -652,19 +756,27 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     const toolboxClone = (document.getElementById('toolbox')?.cloneNode(true)) || '<xml></xml>';
     miniUI.ws = Blockly.inject(miniUI.wsDiv, {
       toolbox: toolboxClone,
-      trashcan: true,
+      trashcan: false,             // <-- user asked remove trash UI
       scrollbars: true,
+      zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
       move: { scrollbars: true, drag: true, wheel: true },
-      zoom: { controls: true, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
+      grid: { spacing: 24, length: 3, colour: 'rgba(148,163,184,.30)', snap: true },
       renderer: 'zelos'
     });
 
     restoreMiniInner(miniBlock);
 
-    miniUI.ws.addChangeListener(miniUI._updatePreview);
+    const updatePreview = u.debounce(()=>{
+      try{
+        const jsGen = Blockly.JavaScript || Blockly.javascriptGenerator;
+        miniUI.pre.textContent = (jsGen && miniUI.ws) ? ((jsGen.workspaceToCode(miniUI.ws) || '').trim() || '// (empty)') : '// (no generator)';
+      }catch(e){ miniUI.pre.textContent='// (error)'; }
+    }, 90);
+    miniUI.ws.addChangeListener(updatePreview);
+
     setTimeout(()=>{ try{ Blockly.svgResize(miniUI.ws); }catch(e){} }, 80);
     setTimeout(()=>{ try{ Blockly.svgResize(miniUI.ws); }catch(e){} }, 180);
-    miniUI._updatePreview();
+    updatePreview();
   }
 
   function closeMiniModal(){
@@ -717,7 +829,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
   }
 
   // ------------------------------
-  // CUSTOM BLOCK BUILDER VIEW (full screen)
+  // Custom Blocks view (separate workspace like Scratch)
   // ------------------------------
   const builder = {
     section: null,
@@ -725,7 +837,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     ws: null,
     nameInput: null,
     colourInput: null,
-    btnPack: null
+    editingType: null
   };
 
   function ensureCustomBlocksView(){
@@ -735,29 +847,30 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     const main = document.querySelector('main.flex-1.relative') || document.querySelector('main');
     if (!main) return;
 
-    // Create section like other views
     builder.section = u.el('section', {
       id: 'view-customblocks',
       class: 'absolute inset-0 flex flex-col hidden opacity-0 transition-opacity duration-300'
     });
 
-    // Top row: back + name + color + pack
+    // Top row: back
     const backBtn = u.el('button', {
       class: 'top-btn btn-exit',
       title: 'Назад до блоків',
       onclick: ()=> RC.closeCustomBuilder()
     }, u.el('i', { class: 'fa-solid fa-arrow-left' }));
 
-    // Reuse your sensor-row class for nice spacing
     const topRow = u.el('div', { class:'sensor-row' }, [ backBtn ]);
+
+    const mgrBtn = u.el('button', { class:'btn', onclick: ()=> openManager() }, 'Мої блоки');
 
     const topBar = u.el('div', { id:'rcCustomBlocksTop' }, [
       u.el('span', { class:'lbl' }, 'Назва'),
       builder.nameInput = u.el('input', { type:'text', value:'Мій блок' }),
       u.el('span', { class:'lbl', style:'margin-left:10px;' }, 'Колір'),
-      builder.colourInput = u.el('input', { type:'color', value: CFG.customBlockColour }),
+      builder.colourInput = u.el('input', { type:'color', value: CFG.defaultCustomBlockColour }),
       u.el('div', { style:'flex:1;' }),
-      builder.btnPack = u.el('button', { class:'btn primary', onclick: ()=> packCustomBlock() }, 'Спакувати блок')
+      mgrBtn,
+      u.el('button', { class:'btn primary', onclick: ()=> packOrUpdateCustomBlock() }, 'Спакувати блок')
     ]);
 
     builder.wsDiv = u.el('div', { id:'rcCustomBlocksDiv' });
@@ -766,15 +879,12 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     builder.section.appendChild(topBar);
     builder.section.appendChild(builder.wsDiv);
 
-    // Insert right after view-builder if possible
     const viewBuilder = document.getElementById('view-builder');
     if (viewBuilder && viewBuilder.parentElement === main){
       main.insertBefore(builder.section, viewBuilder.nextSibling);
     } else {
       main.appendChild(builder.section);
     }
-
-    // Build the workspace when first opened (lazy)
   }
 
   function ensureBuilderWorkspace(){
@@ -783,32 +893,22 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     if (!Blockly || !builder.section || !builder.wsDiv) return;
     if (builder.ws) return;
 
-    // Toolbox for builder
+    // Toolbox: ONLY 2 blocks (as user requested), with gear on each
     const toolbox = document.createElement('xml');
     toolbox.innerHTML = `
       <category name="Міні" colour="#64748B">
         <block type="rc_mini"></block>
         <block type="rc_mini_value"></block>
       </category>
-      <category name="Логіка" colour="#60a5fa">
-        <block type="controls_if"></block>
-        <block type="logic_compare"></block>
-        <block type="logic_operation"></block>
-        <block type="logic_boolean"></block>
-      </category>
-      <category name="Математика" colour="#a78bfa">
-        <block type="math_number"></block>
-        <block type="math_arithmetic"></block>
-      </category>
-      <category name="Змінні" colour="#f87171" custom="VARIABLE"></category>
     `;
 
     builder.ws = Blockly.inject(builder.wsDiv, {
       toolbox,
-      trashcan: true,
+      trashcan: false,  // <-- remove trash UI
       scrollbars: true,
+      zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
       move: { scrollbars: true, drag: true, wheel: true },
-      zoom: { controls: true, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
+      grid: { spacing: 24, length: 3, colour: 'rgba(148,163,184,.30)', snap: true }, // <-- real grid
       renderer: 'zelos'
     });
 
@@ -818,7 +918,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     }, 40));
     ro.observe(builder.wsDiv);
 
-    setTimeout(()=>{ try{ Blockly.svgResize(builder.ws); }catch(e){} }, 100);
+    setTimeout(()=>{ try{ Blockly.svgResize(builder.ws); }catch(e){} }, 120);
   }
 
   function showView(el){
@@ -836,13 +936,40 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     el.classList.add('opacity-0');
   }
 
-  function packCustomBlock(){
+  function clearBuilder(){
+    try { builder.ws && builder.ws.clear(); } catch(e){}
+    builder.editingType = null;
+    if (builder.nameInput) builder.nameInput.value = 'Мій блок';
+    if (builder.colourInput) builder.colourInput.value = CFG.defaultCustomBlockColour;
+  }
+
+  function loadProgramIntoBuilder(def){
+    const Blockly = window.Blockly;
+    ensureBuilderWorkspace();
+    if (!Blockly || !builder.ws || !def) return;
+
+    clearBuilder();
+    builder.editingType = def.blockType;
+    builder.nameInput.value = def.name || 'Мій блок';
+    builder.colourInput.value = def.colour || CFG.defaultCustomBlockColour;
+
+    builder.ws.clear();
+    if (def.program && def.program.kind === 'json' && Blockly.serialization?.workspaces?.load){
+      Blockly.serialization.workspaces.load(def.program.payload, builder.ws);
+    } else if (def.program && def.program.kind === 'xml'){
+      const dom = Blockly.Xml.textToDom(def.program.payload);
+      Blockly.Xml.domToWorkspace(dom, builder.ws);
+    }
+    setTimeout(()=>{ try{ Blockly.svgResize(builder.ws); }catch(e){} }, 80);
+  }
+
+  function packOrUpdateCustomBlock(){
     const Blockly = window.Blockly;
     const mainWs = window.workspace || window._workspace;
     if (!Blockly || !builder.ws || !mainWs) return;
 
     const name = (builder.nameInput.value || '').trim() || 'Мій блок';
-    const colour = builder.colourInput.value || CFG.customBlockColour;
+    const colour = builder.colourInput.value || CFG.defaultCustomBlockColour;
 
     let program = null;
     try{
@@ -859,53 +986,222 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       }
     }
 
+    // If editing existing block -> update it
+    if (builder.editingType && RC._defsByType.has(builder.editingType)){
+      updateDef(builder.editingType, { name, colour, program });
+      // Refresh toolbox list + manager list, and future instances will show new name/color
+      rebuildCustomCategory(mainWs);
+      toast('Оновлено');
+      setTimeout(()=> selectCustomCategory(mainWs), 80);
+      refreshManagerList();
+      return;
+    }
+
+    // Otherwise create new
     const blockType = 'rc_user_' + u.uid('b').replaceAll('-','_');
     const def = { id: u.uid('def'), name, colour, blockType, program, createdAt: Date.now() };
 
     const defs = loadBlocks();
     defs.push(def);
     saveBlocks(defs);
+    rebuildDefsMap();
 
-    defineCustomBlockType(Blockly, def);
+    defineCustomBlockType(Blockly, blockType);
     rebuildCustomCategory(mainWs);
-
-    // auto-open category to show it
     setTimeout(()=> selectCustomCategory(mainWs), 80);
 
     toast('Додано в ⭐ Мої блоки');
-
-    // Optional: clear builder for next block
-    try { builder.ws.clear(); } catch(e){}
+    refreshManagerList();
   }
 
-  // Public controls
+  // ------------------------------
+  // Manager modal: edit/rename/color/delete/export/import
+  // ------------------------------
+  const mgr = { backdrop:null, modal:null, list:null, fileInput:null };
+
+  function ensureManager(){
+    if (mgr.modal) return;
+    injectCss();
+
+    mgr.backdrop = u.el('div', { id:'rcCbMgrBackdrop' });
+    mgr.modal = u.el('div', { id:'rcCbMgrModal' });
+
+    const hdr = u.el('div', { class:'hdr' }, [
+      u.el('div', { class:'ttl' }, [ u.el('span',{class:'dot'}), 'МОЇ КАСТОМНІ БЛОКИ' ]),
+      u.el('button', { class:'x', onclick: closeManager }, '✕')
+    ]);
+
+    const btnExport = u.el('button', { class:'btn', onclick: ()=>{
+      const defs = loadBlocks();
+      u.downloadText('custom_blocks.json', u.jstring({ version: VERSION, defs }));
+      toast('Export готовий');
+    }}, 'Export');
+
+    mgr.fileInput = u.el('input', { type:'file', accept:'application/json', style:'display:none;' });
+    mgr.fileInput.addEventListener('change', async (e)=>{
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      try{
+        const txt = await f.text();
+        const obj = u.jparse(txt, null);
+        const incoming = obj && (obj.defs || obj.blocks || obj);
+        if (!Array.isArray(incoming)) throw new Error('bad format');
+        const existing = loadBlocks();
+        const byType = new Map(existing.map(d=>[d.blockType,d]));
+        for (const d of incoming){
+          if (!d || !d.blockType) continue;
+          byType.set(d.blockType, d);
+        }
+        const merged = Array.from(byType.values());
+        saveBlocks(merged);
+        rebuildDefsMap();
+        // Register missing types
+        const Blockly = window.Blockly;
+        if (Blockly){
+          for (const d of merged){
+            defineCustomBlockType(Blockly, d.blockType);
+          }
+        }
+        const mainWs = window.workspace || window._workspace;
+        mainWs && rebuildCustomCategory(mainWs);
+        toast('Імпортовано');
+        refreshManagerList();
+      }catch(err){
+        toast('Помилка імпорту');
+      }finally{
+        mgr.fileInput.value='';
+      }
+    });
+
+    const btnImport = u.el('button', { class:'btn', onclick: ()=> mgr.fileInput.click() }, 'Import');
+
+    const btnNew = u.el('button', { class:'btn primary', onclick: ()=>{
+      RC.openCustomBuilder();
+      clearBuilder();
+      closeManager();
+    }}, 'Новий');
+
+    const bar = u.el('div', { class:'bar' }, [
+      u.el('div', { style:'display:flex; gap:10px; align-items:center;' }, [btnExport, btnImport, mgr.fileInput]),
+      u.el('div', { style:'display:flex; gap:10px; align-items:center;' }, [btnNew])
+    ]);
+
+    mgr.list = u.el('div', { id:'rcCbMgrList' });
+
+    mgr.modal.appendChild(hdr);
+    mgr.modal.appendChild(bar);
+    mgr.modal.appendChild(mgr.list);
+
+    document.body.appendChild(mgr.backdrop);
+    document.body.appendChild(mgr.modal);
+
+    mgr.backdrop.addEventListener('click', closeManager);
+    document.addEventListener('keydown', (e)=>{ if (e.key==='Escape' && mgr.modal.style.display==='block') closeManager(); });
+  }
+
+  function openManager(){
+    ensureManager();
+    refreshManagerList();
+    mgr.backdrop.style.display='block';
+    mgr.modal.style.display='block';
+  }
+  function closeManager(){
+    if (!mgr.modal) return;
+    mgr.backdrop.style.display='none';
+    mgr.modal.style.display='none';
+  }
+
+  function refreshManagerList(){
+    if (!mgr.list) return;
+    mgr.list.innerHTML='';
+
+    const defs = loadBlocks().sort((a,b)=>(b.updatedAt||b.createdAt||0)-(a.updatedAt||a.createdAt||0));
+    if (!defs.length){
+      mgr.list.appendChild(u.el('div',{style:'color:#94a3b8;font-weight:900;padding:10px;'},'Нема кастомних блоків. Натисни "Новий".'));
+      return;
+    }
+
+    for (const d of defs){
+      const sw = u.el('div', { class:'sw', style:`background:${d.colour || CFG.defaultCustomBlockColour};` });
+      const name = u.el('div', { class:'name' }, d.name || d.blockType);
+
+      const meta = u.el('div', { class:'meta' }, (d.blockType||'').slice(0,24));
+
+      const btnEdit = u.el('button', { class:'btn', onclick: ()=>{
+        closeManager();
+        RC.openCustomBuilder();
+        setTimeout(()=> loadProgramIntoBuilder(d), 120);
+      }}, 'Редаг.');
+
+      const btnRename = u.el('button', { class:'btn', onclick: ()=>{
+        const n = prompt('Нова назва блоку:', d.name || '');
+        if (n === null) return;
+        const newName = (n || '').trim();
+        if (!newName) return toast('Порожня назва');
+        updateDef(d.blockType, { name: newName });
+        toast('Перейменовано');
+        // Rebuild toolbox so new instances show new label
+        const mainWs = window.workspace || window._workspace;
+        mainWs && rebuildCustomCategory(mainWs);
+        refreshManagerList();
+      }}, 'Назва');
+
+      const colorInput = u.el('input', { type:'color', value: d.colour || CFG.defaultCustomBlockColour, style:'width:38px;height:34px;border:none;background:transparent;cursor:pointer;' });
+      colorInput.addEventListener('input', ()=>{
+        updateDef(d.blockType, { colour: colorInput.value });
+        const mainWs = window.workspace || window._workspace;
+        mainWs && rebuildCustomCategory(mainWs);
+        refreshManagerList();
+      });
+
+      const btnDel = u.el('button', { class:'btn danger', onclick: ()=>{
+        if (!confirm('Видалити цей блок?')) return;
+        deleteDef(d.blockType);
+        const mainWs = window.workspace || window._workspace;
+        mainWs && rebuildCustomCategory(mainWs);
+        toast('Видалено');
+        refreshManagerList();
+      }}, 'Видал.');
+
+      mgr.list.appendChild(
+        u.el('div', { class:'rcCbRow' }, [
+          sw,
+          name,
+          meta,
+          u.el('div', { class:'act' }, [btnEdit, btnRename, colorInput, btnDel])
+        ])
+      );
+    }
+  }
+
+  // ------------------------------
+  // Public: open/close custom builder view
+  // ------------------------------
   RC.openCustomBuilder = function(){
     if (!isDesktop()) return;
     ensureBuilderWorkspace();
     const el = document.getElementById('view-customblocks');
     if (!el) return;
 
-    // Hide other views via normal switchView, then show ours
     if (typeof window.switchView === 'function'){
-      // move into our view id (we handle showing/hiding via wrapper)
       window.switchView('view-customblocks');
     } else {
-      // fallback: show only our section
       showView(el);
     }
 
-    // Resize
+    if (typeof window.toggleScratchMode === 'function'){
+      window.toggleScratchMode(true);
+    }
+
     setTimeout(()=>{
       try { window.Blockly && builder.ws && window.Blockly.svgResize(builder.ws); } catch(e){}
-    }, 120);
+    }, 140);
   };
 
   RC.closeCustomBuilder = function(){
     const el = document.getElementById('view-customblocks');
     if (!el) return;
-    // go back to Scratch view
     if (typeof window.switchView === 'function'){
-      // find nav btn for builder if exists
       const btn = document.querySelector('button.nav-btn[title="Блоки"]') || null;
       window.switchView('view-builder', btn);
     } else {
@@ -919,9 +1215,9 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
   };
 
   // ------------------------------
-  // Floating 🧩 button (in Scratch view only)
+  // Floating 🧩 button in Scratch view only
   // ------------------------------
-  function ensureOpenButton(mainWs){
+  function ensureOpenButton(){
     if (!isDesktop()) return;
     injectCss();
 
@@ -930,9 +1226,8 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 
     let btn = document.getElementById('rcCbOpenBtn');
     if (!btn){
-      btn = u.el('button', { id:'rcCbOpenBtn', title:'Custom Blocks (Builder)' }, '🧩');
+      btn = u.el('button', { id:'rcCbOpenBtn', title:'Custom Blocks' }, '🧩');
       btn.addEventListener('click', ()=> RC.openCustomBuilder());
-      // make view-builder relative so button positions correctly
       const cs = getComputedStyle(vb);
       if (cs.position === 'static') vb.style.position = 'relative';
       vb.appendChild(btn);
@@ -949,10 +1244,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     const mo = new MutationObserver(u.debounce(update, 20));
     mo.observe(vb, { attributes:true, attributeFilter:['class','style'] });
 
-    // hook switchView to hide our view-customblocks when leaving it
     hookSwitchView();
-
-    return btn;
   }
 
   // ------------------------------
@@ -967,7 +1259,6 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     const orig = window.switchView;
 
     window.switchView = function(viewId, btnElement){
-      // Always hide our custom view when switching to any other
       const custom = document.getElementById('view-customblocks');
       if (custom && viewId !== 'view-customblocks'){
         hideView(custom);
@@ -975,11 +1266,9 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 
       const res = orig.call(this, viewId, btnElement);
 
-      // If switching to custom view, show it + enable scratch-mode space
       if (viewId === 'view-customblocks'){
         ensureBuilderWorkspace();
         showView(custom);
-        // Make UI same as Scratch mode (more space)
         if (typeof window.toggleScratchMode === 'function'){
           window.toggleScratchMode(true);
         }
@@ -987,16 +1276,12 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
           try { window.Blockly && builder.ws && window.Blockly.svgResize(builder.ws); } catch(e){}
         }, 120);
       } else {
-        // if leaving blocks view, respect your app's logic
         if (typeof window.toggleScratchMode === 'function'){
-          // keep the same behavior as your original (only view-builder is scratch mode)
-          // but do NOT force false if view-builder is active
           if (viewId !== 'view-builder'){
             window.toggleScratchMode(false);
           }
         }
       }
-
       return res;
     };
   }
@@ -1005,7 +1290,6 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
   // Init
   // ------------------------------
   function initWhenReady(){
-    // Mobile/touch: do nothing
     if (!isDesktop()){
       RC.version = VERSION;
       RC.enabled = false;
@@ -1018,24 +1302,29 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 
     injectCss();
     hookSwitchView();
+    ensureCustomBlocksView();
 
+    rebuildDefsMap();
+
+    // Ensure category + define blocks
     ensureCustomCategory();
     defineMiniBlocks(Blockly);
 
-    const defs = loadBlocks();
-    for (const d of defs) defineCustomBlockType(Blockly, d);
+    // Register existing custom blocks
+    for (const d of loadBlocks()){
+      defineCustomBlockType(Blockly, d.blockType);
+    }
 
     rebuildCustomCategory(ws);
     setTimeout(()=>{
       try{ markCustomCategoryRow(ws); }catch(e){}
     }, 140);
 
-    ensureCustomBlocksView();
-    ensureOpenButton(ws);
+    ensureOpenButton();
 
     RC.version = VERSION;
     RC.enabled = true;
-    RC.rebuild = ()=> rebuildCustomCategory(ws);
+    RC.openManager = openManager;
     return true;
   }
 
