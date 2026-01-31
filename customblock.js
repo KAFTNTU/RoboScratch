@@ -606,14 +606,31 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
         const input = this.appendDummyInput();
         input.appendField('🧩')
           .appendField(new Blockly.FieldTextInput('mini'), 'LABEL')
-          .appendField(new Blockly.FieldDropdown(getAllBlockTypesDropdown), 'WRAP_TYPE');
+          .appendField((Blockly.FieldLabelSerializable ? new Blockly.FieldLabelSerializable('controls_if') : new Blockly.FieldLabel('controls_if')), 'WRAP_TYPE');
         addGearField(input, ()=>this);
         this.setPreviousStatement(true, null);
         this.setNextStatement(true, null);
         this.setColour('#64748B');
         this.setTooltip('Міні-блок: обгортає існуючий блок і зберігає його стан');
         this.data = this.data || '';
-      }
+      },
+saveExtraState: function(){
+  return { data: this.data || '' };
+},
+loadExtraState: function(state){
+  if (state && typeof state.data === 'string') this.data = state.data;
+},
+mutationToDom: function(){
+  const Blockly = window.Blockly;
+  const m = (Blockly && Blockly.utils && Blockly.utils.xml && Blockly.utils.xml.createElement)
+    ? Blockly.utils.xml.createElement('mutation')
+    : document.createElement('mutation');
+  if (this.data) m.setAttribute('data', this.data);
+  return m;
+},
+domToMutation: function(xmlElement){
+  try{ this.data = xmlElement.getAttribute('data') || ''; }catch(e){ this.data = ''; }
+}
     };
 
     Blockly.Blocks['rc_mini_value'] = {
@@ -621,13 +638,30 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
         const input = this.appendDummyInput();
         input.appendField('🔹')
           .appendField(new Blockly.FieldTextInput('val'), 'LABEL')
-          .appendField(new Blockly.FieldDropdown(getAllBlockTypesDropdown), 'WRAP_TYPE');
+          .appendField((Blockly.FieldLabelSerializable ? new Blockly.FieldLabelSerializable('math_number') : new Blockly.FieldLabel('math_number')), 'WRAP_TYPE');
         addGearField(input, ()=>this);
         this.setOutput(true, null);
         this.setColour('#475569');
         this.setTooltip('Міні-значення: обгортає value-блок і зберігає його стан');
         this.data = this.data || '';
-      }
+      },
+saveExtraState: function(){
+  return { data: this.data || '' };
+},
+loadExtraState: function(state){
+  if (state && typeof state.data === 'string') this.data = state.data;
+},
+mutationToDom: function(){
+  const Blockly = window.Blockly;
+  const m = (Blockly && Blockly.utils && Blockly.utils.xml && Blockly.utils.xml.createElement)
+    ? Blockly.utils.xml.createElement('mutation')
+    : document.createElement('mutation');
+  if (this.data) m.setAttribute('data', this.data);
+  return m;
+},
+domToMutation: function(xmlElement){
+  try{ this.data = xmlElement.getAttribute('data') || ''; }catch(e){ this.data = ''; }
+}
     };
 
     // Parameter block (value)
@@ -1178,8 +1212,19 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     if (!b || !miniUI.ws) return;
     const top = miniUI.ws.getTopBlocks(true)[0];
     if (!top){ b.data=''; toast('Порожньо'); closeMiniModal(); return; }
+
+    // Basic kind check: VALUE mini must wrap a value block; STATEMENT mini must wrap a statement block
+    const isValueMini = (b.type === 'rc_mini_value');
+    const isValueBlock = !!(top.outputConnection);
+    if (isValueMini && !isValueBlock){ toast('Потрібен VALUE-блок'); return; }
+    if (!isValueMini && isValueBlock){ toast('Потрібен STATEMENT-блок'); return; }
+
     const ser = RC._miniSerialize ? RC._miniSerialize(top) : null;
     b.data = ser ? u.jstring(ser) : '';
+
+    // Store wrap type as the inner block type (no dropdown меню)
+    try{ if (top.type) b.setFieldValue(top.type, 'WRAP_TYPE'); }catch(e){}
+
     toast('Збережено');
     closeMiniModal();
   }
