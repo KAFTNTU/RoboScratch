@@ -17,7 +17,7 @@
   'use strict';
 
   const RC = window.RC_CUSTOMBLOCK = window.RC_CUSTOMBLOCK || {};
-  const VERSION = 'v2.8';
+  const VERSION = 'v2.9';
 
   const CFG = {
     storageKeyBlocks: 'rc_cb_blocks_v2',
@@ -47,7 +47,22 @@
     }
   }
 
+  
   // ------------------------------------------------------------
+  // Theme helper (reuse main workspace theme)
+  // ------------------------------------------------------------
+  function getMainTheme(Blockly){
+    try{
+      const ws = window.workspace || window._workspace || null;
+      if (ws && ws.getTheme) return ws.getTheme();
+    }catch(e){}
+    try{
+      if (Blockly && Blockly.Themes && Blockly.Themes.myTheme) return Blockly.Themes.myTheme;
+    }catch(e){}
+    return undefined;
+  }
+
+// ------------------------------------------------------------
   // Utils
   // ------------------------------------------------------------
   const u = {
@@ -271,17 +286,57 @@
   color: #fff;
 }
 #rcCustomBlocksTop .btn:active{ transform: scale(.99); }
+#rcCustomBlocksTop .btn.rcBackBtn{ padding:10px 12px; background: rgba(15,23,42,.55); }
+#rcCustomBlocksTop .btn.rcBackBtn i{ font-size: 14px; }
 #rcCustomBlocksDiv{ flex:1; min-height:0; background: rgba(2,6,23,.35); }
 
-/* Dark toolbox for builder workspace */
+/* Dark toolbox for builder workspace (isolate from global toolbox styles) */
 #view-customblocks .blocklyToolboxDiv{
-  background: rgba(15,23,42,.96) !important;
-  border-right: 1px solid rgba(148,163,184,.12) !important;
-  width: 240px !important;
+  background: rgba(2,6,23,.92) !important;
+  border-right: 1px solid rgba(148,163,184,.14) !important;
+  width: 260px !important;
+  min-width: 260px !important;
+  max-width: 340px !important;
+
+  /* cancel global "bottom drawer toolbox" styles from index */
+  position: absolute !important;
+  left: 0 !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  height: auto !important;
+  transform: none !important;
+  display: block !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+  border-radius: 0 !important;
+  padding: 10px 8px !important;
+  z-index: 6 !important;
 }
-#view-customblocks .blocklyTreeLabel{ color:#e2e8f0 !important; font-weight: 900 !important; }
-#view-customblocks .blocklyFlyoutBackground{ fill: rgba(2,6,23,.55) !important; }
-#view-customblocks .blocklyMainBackground{ fill: rgba(2,6,23,.35) !important; }
+#view-customblocks .blocklyToolboxContents{ padding: 0 !important; }
+#view-customblocks .blocklyTreeRow{
+  height: 44px !important;
+  margin: 6px 4px !important;
+  border-radius: 14px !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+}
+#view-customblocks .blocklyTreeRow:hover{
+  background: rgba(148,163,184,.10) !important;
+  border-color: rgba(148,163,184,.12) !important;
+}
+#view-customblocks .blocklyTreeSelected .blocklyTreeRow{
+  background: rgba(59,130,246,.18) !important;
+  border-color: rgba(96,165,250,.55) !important;
+}
+#view-customblocks .blocklyTreeLabel{
+  color:#e2e8f0 !important;
+  font-weight: 950 !important;
+  font-size: 15px !important;
+}
+#view-customblocks .blocklyFlyoutBackground{ fill: rgba(2,6,23,.60) !important; }
+#view-customblocks .blocklyMainBackground{ fill: rgba(2,6,23,.30) !important; }
+#view-customblocks .blocklyGridLine{ stroke: rgba(148,163,184,.28) !important; }
 
 /* Generic modal */
 .rcModalBackdrop{
@@ -352,8 +407,15 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 #rcMiniModal pre::-webkit-scrollbar,#rcMiniModal .left::-webkit-scrollbar,#rcMiniModal .right::-webkit-scrollbar{width:0!important;height:0!important;}
 #rcMiniBlocklyHost{flex:1;min-height:640px;border-radius:14px;border:1px solid rgba(148,163,184,.14);overflow:hidden;background:rgba(2,6,23,.35);}
 #rcMiniBlockly{width:100%;height:100%;}
-#rcMiniModal .blocklyToolboxDiv{background:rgba(15,23,42,.96)!important;border-right:1px solid rgba(148,163,184,.12)!important;width:230px!important;}
+#rcMiniModal .blocklyToolboxDiv{background:rgba(2,6,23,.92)!important;border-right:1px solid rgba(148,163,184,.14)!important;width:250px!important;min-width:250px!important;max-width:340px!important;position:absolute!important;left:0!important;top:0!important;bottom:0!important;height:auto!important;transform:none!important;display:block!important;flex-direction:column!important;align-items:stretch!important;justify-content:flex-start!important;border-radius:0!important;padding:10px 8px!important;z-index:6!important;}
 #rcMiniModal .blocklyTreeLabel{color:#e2e8f0!important;font-weight:900!important;}
+#rcMiniModal .blocklyToolboxContents{padding:0!important;}
+#rcMiniModal .blocklyTreeRow{height:44px!important;margin:6px 4px!important;border-radius:14px!important;background:transparent!important;border:1px solid transparent!important;}
+#rcMiniModal .blocklyTreeRow:hover{background:rgba(148,163,184,.10)!important;border-color:rgba(148,163,184,.12)!important;}
+#rcMiniModal .blocklyTreeSelected .blocklyTreeRow{background:rgba(59,130,246,.18)!important;border-color:rgba(96,165,250,.55)!important;}
+#rcMiniModal .blocklyTreeLabel{font-weight:950!important;font-size:15px!important;}
+#rcMiniModal .blocklyGridLine{stroke:rgba(148,163,184,.28)!important;}
+
 #rcMiniModal .blocklyFlyoutBackground{fill:rgba(2,6,23,.55)!important;}
 #rcMiniModal .blocklyMainBackground{fill:rgba(2,6,23,.35)!important;}
 `;
@@ -979,11 +1041,13 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 
     miniUI.ws = Blockly.inject(miniUI.wsDiv, {
       toolbox: toolboxXml,
+      theme: getMainTheme(Blockly),
+      toolboxPosition: 'start',
       trashcan: false,
       scrollbars: true,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
       move: { scrollbars: true, drag: true, wheel: true },
-      grid: { spacing: 24, length: 3, colour: 'rgba(148,163,184,.30)', snap: true },
+      grid: { spacing: 22, length: 1, colour: 'rgba(148,163,184,.55)', snap: true },
       renderer: 'zelos'
     });
 
@@ -1076,13 +1140,11 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       class: 'absolute inset-0 flex flex-col hidden opacity-0 transition-opacity duration-300'
     });
 
-    const backBtn = u.el('button', {
-      class: 'top-btn btn-exit',
+        builder.backBtn = u.el('button', {
+      class: 'btn rcBackBtn',
       title: 'Назад до блоків',
       onclick: ()=> RC.closeCustomBuilder()
-    }, u.el('i', { class: 'fa-solid fa-arrow-left' }));
-
-    const topRow = u.el('div', { class:'sensor-row' }, [ backBtn ]);
+    }, [u.el('i', { class: 'fa-solid fa-arrow-left' }), u.el('span', {style:'margin-left:8px;'}, 'Назад')]);
 
     builder.btnMgr = u.el('button', { class:'btn', onclick: ()=> openManager() }, 'Мої блоки');
     builder.btnParams = u.el('button', { class:'btn', onclick: ()=> openParams() }, 'Параметри');
@@ -1090,8 +1152,10 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     builder.btnValidate = u.el('button', { class:'btn', onclick: ()=> openValidation() }, 'Перевірити');
     builder.btnSim = u.el('button', { class:'btn', onclick: ()=> openSimulator() }, 'Симулятор');
     builder.btnHistory = u.el('button', { class:'btn', onclick: ()=> openHistory() }, 'Історія');
+    builder.btnC = u.el('button', { class:'btn', onclick: ()=> openCPreviewForBuilder() }, 'C (STM32)');
 
     const topBar = u.el('div', { id:'rcCustomBlocksTop' }, [
+      builder.backBtn,
       u.el('span', { class:'lbl' }, 'Назва'),
       builder.nameInput = u.el('input', { type:'text', value:'Мій блок' }),
       u.el('span', { class:'lbl', style:'margin-left:10px;' }, 'Колір'),
@@ -1103,12 +1167,12 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       builder.btnValidate,
       builder.btnSim,
       builder.btnHistory,
+      builder.btnC,
       u.el('button', { class:'btn primary', onclick: ()=> packOrUpdateCustomBlock() }, 'Спакувати блок')
     ]);
 
     builder.wsDiv = u.el('div', { id:'rcCustomBlocksDiv' });
 
-    builder.section.appendChild(topRow);
     builder.section.appendChild(topBar);
     builder.section.appendChild(builder.wsDiv);
 
@@ -1134,11 +1198,13 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 
     builder.ws = Blockly.inject(builder.wsDiv, {
       toolbox,
+      theme: getMainTheme(Blockly),
+      toolboxPosition: 'start',
       trashcan: false,
       scrollbars: true,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
       move: { scrollbars: true, drag: true, wheel: true },
-      grid: { spacing: 24, length: 3, colour: 'rgba(148,163,184,.30)', snap: true },
+      grid: { spacing: 22, length: 1, colour: 'rgba(148,163,184,.55)', snap: true },
       renderer: 'zelos'
     });
 
@@ -2286,7 +2352,323 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     builder.editingType = blockType;
   }
 
+  
   // ------------------------------------------------------------
+  // STM32 C Generator (export for embedding)
+  // ------------------------------------------------------------
+  const cUI = { backdrop:null, modal:null, tabs:null, area:null };
+
+  let _cArtifacts = null;
+  let _cTab = 'c';
+
+  function ensureCModal(){
+    if (cUI.modal) return;
+
+    cUI.backdrop = u.el('div', { class:'rcModalBackdrop', onclick: ()=> closeCModal() });
+    cUI.modal = u.el('div', { class:'rcModal', style:'width:min(1200px, 96vw); height:min(84vh, 860px);' });
+
+    const header = u.el('div', { class:'hdr' }, [
+      u.el('div', { class:'ttl' }, [ u.el('div',{class:'dot'}), u.el('div',{}, 'STM32 C Export') ]),
+      u.el('button', { class:'x', onclick: ()=> closeCModal(), title:'Закрити' }, '✕')
+    ]);
+
+    const bar = u.el('div', { class:'bar' });
+
+    function tabBtn(label, key){
+      return u.el('button', { class:'btn', onclick: ()=> selectCTab(key) }, label);
+    }
+    cUI.tabs = {
+      c: tabBtn('.c', 'c'),
+      h: tabBtn('.h', 'h'),
+      platc: tabBtn('platform .c', 'platc'),
+      plath: tabBtn('platform .h', 'plath')
+    };
+
+    const tabsWrap = u.el('div',{style:'display:flex;gap:8px;flex-wrap:wrap;align-items:center;'}, [cUI.tabs.c,cUI.tabs.h,cUI.tabs.platc,cUI.tabs.plath]);
+    const actionWrap = u.el('div',{style:'display:flex;gap:8px;align-items:center;'},[
+      u.el('button',{class:'btn', onclick: ()=> copyCText() }, 'Copy'),
+      u.el('button',{class:'btn primary', onclick: ()=> downloadCArtifacts() }, 'Download')
+    ]);
+
+    bar.appendChild(tabsWrap);
+    bar.appendChild(actionWrap);
+
+    const body = u.el('div', { class:'body', style:'display:flex;flex-direction:column;gap:10px;overflow:hidden;' });
+    body.appendChild(u.el('div',{style:'color:#94a3b8;font-weight:900;font-size:12px;line-height:1.35;'},
+      'Згенеровано для STM32 HAL. Це шаблон — підлаштуй motor/sensor API під свою прошивку (UART/BLE, мотори, сенсори).'
+    ));
+
+    cUI.area = u.el('textarea', { style:'flex:1; width:100%; min-height:0; resize:none; background:rgba(2,6,23,.55); color:#e2e8f0; border:1px solid rgba(148,163,184,.14); border-radius:14px; padding:12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; line-height:1.4; outline:none; overflow:auto;' });
+    body.appendChild(cUI.area);
+
+    cUI.modal.appendChild(header);
+    cUI.modal.appendChild(bar);
+    cUI.modal.appendChild(body);
+
+    document.body.appendChild(cUI.backdrop);
+    document.body.appendChild(cUI.modal);
+  }
+
+  function openCPreviewForBuilder(){
+    ensureCModal();
+    const name = (builder.nameInput && builder.nameInput.value ? builder.nameInput.value : 'custom_block').trim() || 'custom_block';
+    const params = getBuilderParams();
+    const js = generateBuilderCodeSafe();
+
+    _cArtifacts = generateSTM32Artifacts(name, params, js);
+    _cTab = 'c';
+    renderCTab();
+
+    cUI.backdrop.style.display='block';
+    cUI.modal.style.display='block';
+  }
+
+  function closeCModal(){
+    if (!cUI.modal) return;
+    cUI.backdrop.style.display='none';
+    cUI.modal.style.display='none';
+  }
+
+  function selectCTab(k){ _cTab = k; renderCTab(); }
+
+  function renderCTab(){
+    if (!cUI.area) return;
+    const a = _cArtifacts || {};
+    const map = { c: a.c || '', h: a.h || '', platc: a.platformC || '', plath: a.platformH || '' };
+    cUI.area.value = map[_cTab] || '';
+    // highlight active tab
+    for (const [k,btn] of Object.entries(cUI.tabs||{})){
+      btn.classList.toggle('primary', k===_cTab);
+    }
+  }
+
+  function copyCText(){
+    try{
+      cUI.area.select();
+      document.execCommand('copy');
+    }catch(e){}
+  }
+
+  function downloadText(filename, content){
+    const blob = new Blob([content], {type:'text/plain;charset=utf-8'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 200);
+  }
+
+  function downloadCArtifacts(){
+    if (!_cArtifacts) return;
+    downloadText(_cArtifacts.files.c, _cArtifacts.c);
+    downloadText(_cArtifacts.files.h, _cArtifacts.h);
+    downloadText(_cArtifacts.files.platformC, _cArtifacts.platformC);
+    downloadText(_cArtifacts.files.platformH, _cArtifacts.platformH);
+  }
+
+  function sanitizeCIdent(name){
+    return String(name||'cb')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g,'_')
+      .replace(/^([^a-z_])/, '_$1')
+      .replace(/_+/g,'_')
+      .slice(0, 48) || 'cb';
+  }
+
+  function cTypeForParam(p){
+    const kind = p?.kind || 'number';
+    if (kind === 'boolean') return 'bool';
+    if (kind === 'text') return 'const char*';
+    if (kind === 'dropdown') return sanitizeCIdent(p?.name||'opt') + '_t';
+    return 'float';
+  }
+
+  function buildEnumForDropdown(p){
+    const name = sanitizeCIdent(p?.name||'mode');
+    const opts = Array.isArray(p?.options) ? p.options : [];
+    const clean = opts.map(o=>String(o)).filter(Boolean);
+    if (!clean.length) return '';
+    const lines = [];
+    lines.push('typedef enum {');
+    clean.forEach((o,i)=>{
+      const id = (name + '_' + sanitizeCIdent(o).toUpperCase()).toUpperCase();
+      lines.push(`  ${id} = ${i},`);
+    });
+    lines.push(`} ${name}_t;`);
+    return lines.join('\n');
+  }
+
+  // Practical approach: generate JS from Blockly, then "C-ize" it into STM32-friendly template.
+  function jsToC(js){
+    let c = String(js || '');
+    c = c.replace(/\r\n/g,'\n');
+
+    // await wait(x) / await delay(x) -> rc_delay_ms(x);
+    c = c.replace(/await\s+(wait|delay)\s*\(([^\)]*)\)\s*;?/g, 'rc_delay_ms($2);');
+    c = c.replace(/\b(wait|delay)\s*\(([^\)]*)\)\s*;?/g, 'rc_delay_ms($2);');
+
+    // window.sensorData[...] -> rc_sensor_data[...]
+    c = c.replace(/window\.sensorData\s*\[/g, 'rc_sensor_data[');
+
+    // stop flags in preview code -> return;
+    c = c.replace(/throw\s+["'][^"']+["']\s*;?/g, 'return;');
+
+    // const/let -> float by default
+    c = c.replace(/^\s*(const|let)\s+/gm, 'float ');
+
+    // parseInt(x) -> (int32_t)(x)
+    c = c.replace(/parseInt\s*\(/g, '(int32_t)(');
+
+    // Math helpers
+    c = c.replace(/Math\.min\s*\(/g, 'RC_MIN(');
+    c = c.replace(/Math\.max\s*\(/g, 'RC_MAX(');
+    c = c.replace(/Math\.abs\s*\(/g, 'RC_ABS(');
+
+    // ===/!== -> ==/!=
+    c = c.replace(/===/g, '==').replace(/!==/g, '!=');
+
+    // window. -> remove
+    c = c.replace(/\bwindow\./g, '');
+
+    // send functions (keep names but snake_case)
+    c = c.replace(/\bsendDrivePacket\s*\(/g, 'rc_send_drive_packet(');
+    c = c.replace(/\bsendMotorPacket\s*\(/g, 'rc_send_motor_packet(');
+
+    return c.trim();
+  }
+
+  function generateSTM32Artifacts(blockName, params, jsCode){
+    const id = sanitizeCIdent(blockName);
+    const guard = ('RC_CB_' + id + '_H_').toUpperCase();
+
+    const enumDecls = [];
+    for (const p of (params||[])){
+      if ((p?.kind||'') === 'dropdown'){
+        const e = buildEnumForDropdown(p);
+        if (e) enumDecls.push(e);
+      }
+    }
+
+    const structLines = [];
+    structLines.push('typedef struct {');
+    for (const p of (params||[])){
+      const n = sanitizeCIdent(p?.name||'p');
+      const t = cTypeForParam(p);
+      const comment = (p?.kind==='dropdown' && Array.isArray(p?.options)) ? `// options: ${p.options.map(x=>String(x)).join(', ')}` : '';
+      structLines.push(`  ${t} ${n}; ${comment}`.trim());
+    }
+    if (!(params||[]).length) structLines.push('  uint8_t _unused;');
+    structLines.push(`} rc_cb_${id}_params_t;`);
+
+    const h = [
+      '/* Auto-generated by customblock.js ' + VERSION + ' */',
+      '#ifndef ' + guard,
+      '#define ' + guard,
+      '',
+      '#include <stdint.h>',
+      '#include <stdbool.h>',
+      '',
+      ... (enumDecls.length ? [enumDecls.join('\n\n'), ''] : []),
+      ...structLines,
+      '',
+      'void rc_cb_' + id + '(const rc_cb_' + id + '_params_t* p);',
+      '',
+      '#endif /* ' + guard + ' */',
+      ''
+    ].join('\n');
+
+    const cBody = jsToC(jsCode);
+
+    const c = [
+      '/* Auto-generated by customblock.js ' + VERSION + ' */',
+      '/* Block: ' + blockName + ' */',
+      '',
+      '#include "main.h"  // STM32Cube HAL',
+      '#include "rc_platform.h"',
+      '#include "' + ('rc_cb_' + id + '.h') + '"',
+      '',
+      '#ifndef RC_MIN',
+      '#define RC_MIN(a,b) (( (a) < (b) ) ? (a) : (b))',
+      '#endif',
+      '#ifndef RC_MAX',
+      '#define RC_MAX(a,b) (( (a) > (b) ) ? (a) : (b))',
+      '#endif',
+      '#ifndef RC_ABS',
+      '#define RC_ABS(a)   (( (a) < 0 ) ? -(a) : (a))',
+      '#endif',
+      '',
+      'void rc_cb_' + id + '(const rc_cb_' + id + '_params_t* p){',
+      '  (void)p;',
+      '  // NOTE: This body is converted from the JS generator output.',
+      '  // Adjust types and replace rc_* hooks with your real motor/sensor drivers.',
+      '',
+      (cBody ? cBody.split('\n').map(l=>'  ' + l).join('\n') : '  // (empty)'),
+      '',
+      '}',
+      ''
+    ].join('\n');
+
+    const platformH = [
+      '/* Platform hooks for generated blocks (STM32 HAL template) */',
+      '#ifndef RC_PLATFORM_H',
+      '#define RC_PLATFORM_H',
+      '',
+      '#include <stdint.h>',
+      '#include <stdbool.h>',
+      '',
+      'extern volatile int16_t rc_sensor_data[4];',
+      '',
+      'uint32_t rc_millis(void);',
+      'void rc_delay_ms(uint32_t ms);',
+      'bool rc_should_stop(void);',
+      '',
+      'void rc_send_drive_packet(int16_t m1, int16_t m2, int16_t m3, int16_t m4);',
+      'void rc_send_motor_packet(int16_t a, int16_t b, int16_t c, int16_t d);',
+      'void rc_bt_send(const uint8_t* data, uint16_t len);',
+      '',
+      '#endif',
+      ''
+    ].join('\n');
+
+    const platformC = [
+      '/* STM32 HAL platform template */',
+      '#include "main.h"',
+      '#include "rc_platform.h"',
+      '',
+      'volatile int16_t rc_sensor_data[4] = {0,0,0,0};',
+      'static volatile bool g_should_stop = false;',
+      '',
+      'uint32_t rc_millis(void){ return HAL_GetTick(); }',
+      'void rc_delay_ms(uint32_t ms){ HAL_Delay(ms); }',
+      'bool rc_should_stop(void){ return g_should_stop; }',
+      '',
+      'void rc_send_drive_packet(int16_t m1, int16_t m2, int16_t m3, int16_t m4){',
+      '  (void)m1; (void)m2; (void)m3; (void)m4;',
+      '  // TODO: build frame + send via UART/BLE',
+      '}',
+      'void rc_send_motor_packet(int16_t a, int16_t b, int16_t c, int16_t d){',
+      '  (void)a; (void)b; (void)c; (void)d;',
+      '}',
+      'void rc_bt_send(const uint8_t* data, uint16_t len){',
+      '  (void)data; (void)len;',
+      '}',
+      ''
+    ].join('\n');
+
+    return {
+      c, h, platformC, platformH,
+      files: {
+        c: `rc_cb_${id}.c`,
+        h: `rc_cb_${id}.h`,
+        platformC: 'rc_platform_stm32_hal.c',
+        platformH: 'rc_platform.h'
+      }
+    };
+  }
+
+// ------------------------------------------------------------
   // Hash import (share link)
   // ------------------------------------------------------------
   function maybeImportFromHash(){
