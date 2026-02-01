@@ -1,4 +1,4 @@
-/* customblock.js v2.9.6
+/* customblock.js v2.9.7
    RoboControl - Custom Blocks (Variant B) — "mini-blocks" builder + manager
    Adds (requested): everything except restriction modes.
    - Parameters for custom blocks (fields on the big block) + rc_param value block
@@ -17,7 +17,7 @@
   'use strict';
 
   const RC = window.RC_CUSTOMBLOCK = window.RC_CUSTOMBLOCK || {};
-  const VERSION = 'v2.9.6';
+  const VERSION = 'v2.9.4';
 
 
   // Expose version for debugging
@@ -434,18 +434,6 @@
   padding: 10px 8px !important;
   z-index: 6 !important;
 }
-
-/* Hide native scrollbars inside toolbox (keep scrolling working) */
-#view-customblocks .blocklyToolboxDiv,
-#rcMiniModal .blocklyToolboxDiv{
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-#view-customblocks .blocklyToolboxDiv::-webkit-scrollbar,
-#rcMiniModal .blocklyToolboxDiv::-webkit-scrollbar{
-  width: 0 !important;
-  height: 0 !important;
-}
 #view-customblocks .blocklyToolboxContents{ padding: 0 !important; }
 #view-customblocks .blocklyTreeRow{
   height: 44px !important;
@@ -470,19 +458,6 @@
 #view-customblocks .blocklyFlyoutBackground{ fill: rgba(2,6,23,.60) !important; }
 #view-customblocks .blocklyMainBackground{ fill: rgba(2,6,23,.30) !important; }
 #view-customblocks .blocklyGridLine{ stroke: rgba(148,163,184,.28) !important; }
-
-/* Touch fix: prevent page/modal scrolling while interacting with Blockly (drag blocks / pan / pinch).
-   Without this, mobile browsers may interpret gestures as scroll.
-*/
-#view-customblocks .blocklySvg,
-#view-customblocks .blocklyToolboxDiv,
-#view-customblocks .blocklyFlyout,
-#rcMiniModal .blocklySvg,
-#rcMiniModal .blocklyToolboxDiv,
-#rcMiniModal .blocklyFlyout{
-  touch-action: none;
-  overscroll-behavior: contain;
-}
 
 /* Generic modal */
 .rcModalBackdrop{
@@ -1311,11 +1286,9 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       theme: getCBTheme(Blockly),
       toolboxPosition: 'start',
       trashcan: false,
-      // Remove Blockly scrollbars for mini-editor too (cleaner UI).
-      // Workspace still pans with drag + wheel.
-      scrollbars: false,
+      scrollbars: true,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      move: { scrollbars: false, drag: true, wheel: true },
+      move: { scrollbars: true, drag: true, wheel: true },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
@@ -1526,11 +1499,9 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       theme: getCBTheme(Blockly),
       toolboxPosition: 'start',
       trashcan: false,
-      // Remove Blockly scrollbars completely (looks cleaner than CSS-hiding).
-      // Workspace still pans with drag + wheel.
-      scrollbars: false,
+      scrollbars: true,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      move: { scrollbars: false, drag: true, wheel: true },
+      move: { scrollbars: true, drag: true, wheel: true },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
