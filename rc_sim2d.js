@@ -6176,14 +6176,14 @@
     ui.chkTrack.onchange = () => {
       sim.editTrack = ui.chkTrack.checked;
       if(sim.editTrack){
-        sim.userTrack = { lineWidth: 42, points: [] };
+        sim.userTrack = { lineWidth: 42, strokes: [] };
       }
       persist();
     };
 
     // Attach interactions + size.
     attachCanvasInteractions();
-    resizeCanvas();
+    resizeCanvas(ui.canvas);
 
     // Restore state if exists.
     const st = loadState();
