@@ -6051,7 +6051,7 @@
     sim.lastT = t;
 
     // speed scale
-    const speedMul = clamp(Number((sim.dom.speedScale && sim.dom.speedScale.value) || 1) || 1, 0.4, 2.0);
+    const speedMul = clamp(Number(sim.dom.speedScale.value)||1, 0.4, 2.0);
     const stepDt = clamp(dt, 0, 0.05) * speedMul;
 
     if(sim.running){
@@ -6071,169 +6071,6 @@
   }
 
   // ---------------------------------------------------------------------------
-  
-  // ---------------------------------------------------------------------------
-  // Embed API: mount the 2D stage into an existing container (no modal/backdrop)
-  // ---------------------------------------------------------------------------
-  function buildEmbedUI(){
-    const root = el('div', { class: 'rcSimEmbedRoot', style: 'height:100%;display:flex;flex-direction:column;gap:8px;' });
-
-    const top = el('div', { class: 'rcSimEmbedTop', style: 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;' });
-
-    const trackSel = el('select', { class: 'rcSimSelect', style: 'min-width:180px;' });
-    const HIDDEN = new Set(['maze', 'spiral']);
-    Object.values(BUILTIN_TRACKS).forEach(t => {
-      if(HIDDEN.has(t.key)) return;
-      trackSel.appendChild(el('option', { value: t.key }, t.name));
-    });
-
-    const chkSensors = el('input', { type: 'checkbox' });
-    const chkTrack = el('input', { type: 'checkbox' });
-    const speedScale = el('input', { type: 'range', min: '0.4', max: '2.0', step: '0.05', value: '1.0', style: 'width:140px;' });
-
-    const btnCenter = el('button', { class: 'rcSimBtn', onclick: () => centerView() }, 'Center');
-    const btnReset = el('button', { class: 'rcSimBtn', onclick: () => { resetCar(); updateSensors(); } }, 'Reset');
-
-    top.appendChild(el('span', { class: 'rcSimSmall' }, 'Траса:'));
-    top.appendChild(trackSel);
-    top.appendChild(el('label', { class: 'rcSimSmall', style: 'display:flex;align-items:center;gap:6px;' }, chkSensors, 'Сенсори'));
-    top.appendChild(el('label', { class: 'rcSimSmall', style: 'display:flex;align-items:center;gap:6px;' }, chkTrack, 'Малювати'));
-    top.appendChild(el('span', { class: 'rcSimSmall' }, 'x'));
-    top.appendChild(speedScale);
-    top.appendChild(btnCenter);
-    top.appendChild(btnReset);
-
-    const canvasWrap = el('div', { class: 'rcSimCanvasWrap', style: 'flex:1;min-height:260px;position:relative;' });
-    const canvas = el('canvas', { class: 'rcSimCanvas' });
-    canvasWrap.appendChild(canvas);
-
-    const badges = el('div', { class: 'rcSimBadges' });
-    const badge1 = el('div', { class: 'rcSimBadge' }, '');
-    const badge2 = el('div', { class: 'rcSimBadge' }, '');
-    const badge3 = el('div', { class: 'rcSimBadge' }, '');
-    badges.appendChild(badge1); badges.appendChild(badge2); badges.appendChild(badge3);
-    canvasWrap.appendChild(badges);
-
-    root.appendChild(top);
-    root.appendChild(canvasWrap);
-
-    return { root, trackSel, chkSensors, chkTrack, speedScale, canvasWrap, canvas, badge1, badge2, badge3 };
-  }
-
-  function mount(container){
-    if(!container) return;
-
-    // If the modal variant is open, close it first.
-    if(sim.dom && sim.dom.backdrop){
-      close();
-    }
-
-    // Build UI in provided container.
-    container.innerHTML = '';
-    const ui = buildEmbedUI();
-    container.appendChild(ui.root);
-
-    sim.embed = true;
-    sim.isOpen = true;
-
-    // Wire DOM refs required by engine.
-    sim.dom = {
-      backdrop: null,
-      modal: ui.root,
-      trackSel: ui.trackSel,
-      chkSensors: ui.chkSensors,
-      chkTrack: ui.chkTrack,
-      speedScale: ui.speedScale,
-      canvasWrap: ui.canvasWrap,
-      canvas: ui.canvas,
-      badge1: ui.badge1,
-      badge2: ui.badge2,
-      badge3: ui.badge3,
-
-      // Unused in embed mode:
-      sensorsBox: null,
-      logEl: null,
-      codeBox: null,
-      codeArea: null,
-      btnRun: null,
-      btnStep: null,
-      btnReset: null,
-      btnExport: null,
-      btnImport: null
-    };
-
-    // Events
-    ui.trackSel.onchange = () => {
-      sim.trackKey = ui.trackSel.value;
-      sim.userTrack = null;
-      applyTrack();
-      persist();
-      updateSensors();
-    };
-    ui.chkSensors.onchange = () => {
-      sim.editSensors = ui.chkSensors.checked;
-    };
-    ui.chkTrack.onchange = () => {
-      sim.editTrack = ui.chkTrack.checked;
-      if(sim.editTrack){
-        sim.userTrack = { lineWidth: 42, strokes: [] };
-      }
-      persist();
-    };
-
-    // Attach interactions + size.
-    attachCanvasInteractions();
-    resizeCanvas(ui.canvas);
-
-    // Restore state if exists.
-    const st = loadState();
-    if(st) applySnapshot(st);
-    if(!sim.trackKey) sim.trackKey = ui.trackSel.value;
-    if(sim.dom.trackSel) sim.dom.trackSel.value = sim.trackKey || ui.trackSel.value;
-    if(!st) applyTrack();
-
-    centerView();
-    resetCar();
-    updateSensors();
-
-    // Expose live sensor arrays for the builder runtime.
-    window.sensorData = sim.sensorData.slice();
-    window.distanceData = (sim.distanceData||[]).slice();
-
-    // Start render loop.
-    cancelAnimationFrame(sim.raf || 0);
-    sim.lastT = 0;
-    sim.raf = requestAnimationFrame(tick);
-  }
-
-  function unmount(){
-    if(!sim.embed) return;
-
-    cancelAnimationFrame(sim.raf || 0);
-
-    if(sim.dom && sim.dom.modal && sim.dom.modal.parentElement){
-      sim.dom.modal.parentElement.innerHTML = '';
-    }
-
-    sim.isOpen = false;
-    sim.embed = false;
-    sim.dom = {};
-  }
-
-  function getSensors(){
-    updateSensors();
-    return sim.sensorData.slice();
-  }
-
-  function getDistances(){
-    updateSensors();
-    return (sim.distanceData || []).slice();
-  }
-
-  function drive(left, right){
-    applyMotors(left, right);
-  }
-
   // Open / Close
   // ---------------------------------------------------------------------------
   function open(){
@@ -6289,11 +6126,6 @@
   window.RC_SIM2D = {
     open,
     close,
-    mount,
-    unmount,
-    drive,
-    getSensors,
-    getDistances,
     snapshot: ()=> snapshot(),
     applySnapshot: (s)=> applySnapshot(s),
   };
