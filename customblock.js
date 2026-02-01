@@ -569,7 +569,9 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 #rcMiniModal .blocklyScrollbarVertical,
 #rcMiniModal .blocklyScrollbarHandle,
 #rcMiniModal .blocklyScrollbarBackground{
+  display:none !important;
   opacity:0 !important;
+  pointer-events:none !important;
 }
 
 /* Hide textarea scrollbars in our modals (export/import/etc.) */
@@ -1330,9 +1332,9 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       theme: getCBTheme(Blockly),
       toolboxPosition: 'start',
       trashcan: false,
-      scrollbars: true,
+      scrollbars: false,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      move: { scrollbars: true, drag: true, wheel: false },
+      move: { scrollbars: false, drag: true, wheel: true },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
@@ -1543,9 +1545,9 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       theme: getCBTheme(Blockly),
       toolboxPosition: 'start',
       trashcan: false,
-      scrollbars: true,
+      scrollbars: false,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      move: { scrollbars: true, drag: true, wheel: false },
+      move: { scrollbars: false, drag: true, wheel: true },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
@@ -1925,7 +1927,12 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       }}, 'Назва');
 
       const colorInput = u.el('input', { type:'color', value: d.colour || CFG.defaultCustomBlockColour, style:'width:38px;height:34px;border:none;background:transparent;cursor:pointer;' });
+
+      // Don't refresh/rebuild on every "input" event — it closes the native color picker popup.
       colorInput.addEventListener('input', ()=>{
+        try{ sw.style.background = colorInput.value; }catch(e){}
+      });
+      colorInput.addEventListener('change', ()=>{
         updateDef(d.blockType, { colour: colorInput.value });
         const mainWs = window.workspace || window._workspace;
         mainWs && rebuildCustomCategory(mainWs);
@@ -2779,6 +2786,96 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
   let _cMainPatchedName = null;
 
 
+
+  // ------------------------------------------------------------
+  // STM32 export help (click the yellow dot in the header)
+  // ------------------------------------------------------------
+  const cInfoUI = { backdrop:null, modal:null };
+
+  function ensureCInfo(){
+    if (cInfoUI.modal) return;
+    injectCss();
+
+    cInfoUI.backdrop = u.el('div', { class:'rcModalBackdrop', onclick: ()=> closeCInfo() });
+    cInfoUI.modal = u.el('div', { class:'rcModal', style:'width:min(860px, 96vw); height:min(82vh, 820px);' });
+
+    const hdr = u.el('div', { class:'hdr' }, [
+      u.el('div', { class:'ttl' }, [ u.el('div',{class:'dot'}), u.el('div',{}, 'ІНСТРУКЦІЯ: STM32 C EXPORT') ]),
+      u.el('button', { class:'x', onclick: closeCInfo, title:'Закрити' }, '✕')
+    ]);
+
+    const body = u.el('div', { class:'body', style:'overflow:auto;' });
+
+    const text = [
+      'Що це за вікно?',
+      '— Воно генерує файли C для STM32 (HAL / CubeMX). Це НЕ заміна CubeMX, а “добавка” з логікою + платформа.',
+      '',
+      'Що означають вкладки:',
+      '• .c / .h — твій код віртуальної машини/програми (логіка).',
+      '• platform .c / platform .h — “міст” до HAL: PWM/ADC/GPIO + rc_millis().',
+      '• board .h (rc_board_conf.h) — мапінг: який TIM/канали/піни/ADC ти використовуєш.',
+      '• main.c — ПАТЧ (опціонально). Він вставляє 3–4 шматки в USER CODE твого CubeMX main.c.',
+      '',
+      'Кроки (рекомендований шлях):',
+      '1) CubeMX:',
+      '   - Налаштуй таймер(и) TIMx як PWM на потрібних каналах (CH1..CH4).',
+      '   - Якщо є реверс: додай GPIO піни DIR як Output.',
+      '   - Якщо сенсори аналогові: увімкни ADC і канали.',
+      '   - Generate Code → відкрий проект у STM32CubeIDE.',
+      '',
+      '2) Додай файли в CubeIDE:',
+      '   - rc_cb_.c        → Core/Src',
+      '   - rc_cb_.h        → Core/Inc',
+      '   - platform.c      → Core/Src',
+      '   - platform.h      → Core/Inc',
+      '   - board.h (rc_board_conf.h) → Core/Inc',
+      '   (Назви можуть відрізнятися, але суть така: .c в Src, .h в Inc)',
+      '',
+      '3) Налаштуй rc_board_conf.h (board.h):',
+      '   - який TIM використовується для PWM (наприклад TIM2)',
+      '   - які канали (CH1..CH4) відповідають моторам',
+      '   - RC_PWM_MAX = Period таймера (наприклад Period=999 → RC_PWM_MAX 999)',
+      '   - які піни/ADC канали використовуються для сенсорів',
+      '',
+      '4) Підключи до main.c (дві опції):',
+      '   A) Автоматично: натисни “Load main.c” → вибери Core/Src/main.c → відкрий вкладку main.c → Download/Copy.',
+      '   B) Вручну: встав у свій main.c в USER CODE:',
+      '      - include rc_platform.h + rc_cb_.h',
+      '      - створити rc_vm_t my_vm;',
+      '      - у USER CODE BEGIN 2: rc_platform_init(); rc_cb__init(&my_vm);',
+      '      - у while(1): rc_cb__step(&my_vm);',
+      '',
+      '5) Build → Flash → Run.',
+      '',
+      'Якщо “не їде”:',
+      '• Перевір, що PWM реально стартує (HAL_TIM_PWM_Start) — або в platform_init(), або в main.c.',
+      '• Перевір RC_PWM_MAX і масштаб швидкості (0..100) → CCR (0..RC_PWM_MAX).',
+      '• Перевір мапінг каналів і DIR піни.',
+      '• Якщо програма порожня/STOP — моторів не буде.',
+    ].join('\n');
+
+    body.appendChild(u.el('div', { style:'color:#e2e8f0;font-weight:1000;font-size:14px;margin-bottom:10px;' }, 'Як користуватись'));
+    body.appendChild(u.el('div', { style:'white-space:pre-wrap;color:#cbd5e1;font-weight:800;line-height:1.55;font-size:13px;' }, text));
+
+    cInfoUI.modal.appendChild(hdr);
+    cInfoUI.modal.appendChild(body);
+
+    document.body.appendChild(cInfoUI.backdrop);
+    document.body.appendChild(cInfoUI.modal);
+  }
+
+  function openCInfo(){
+    ensureCInfo();
+    cInfoUI.backdrop.style.display='block';
+    cInfoUI.modal.style.display='block';
+  }
+  function closeCInfo(){
+    if (!cInfoUI.modal) return;
+    cInfoUI.backdrop.style.display='none';
+    cInfoUI.modal.style.display='none';
+  }
+
+
   function ensureCModal(){
     if (cUI.modal) return;
 
@@ -2786,7 +2883,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     cUI.modal = u.el('div', { class:'rcModal', style:'width:min(1200px, 96vw); height:min(84vh, 860px);' });
 
     const header = u.el('div', { class:'hdr' }, [
-      u.el('div', { class:'ttl' }, [ u.el('div',{class:'dot'}), u.el('div',{}, 'STM32 C Export') ]),
+      u.el('div', { class:'ttl' }, [ u.el('button',{class:'dot',title:'Інструкція',style:'border:0;padding:0;margin:0;cursor:pointer;',onclick:(ev)=>{ev.stopPropagation(); openCInfo();}},''), u.el('div',{}, 'STM32 C Export') ]),
       u.el('button', { class:'x', onclick: ()=> closeCModal(), title:'Закрити' }, '✕')
     ]);
 
@@ -2821,9 +2918,6 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     bar.appendChild(cUI.fileInput);
 
     const body = u.el('div', { class:'body', style:'display:flex;flex-direction:column;gap:10px;overflow:hidden;' });
-    body.appendChild(u.el('div',{style:'color:#94a3b8;font-weight:900;font-size:12px;line-height:1.35;'},
-      'Згенеровано для STM32 HAL (CubeMX). 1) Налаштуй мапінг в rc_board_conf.h, 2) додай файли в проект, 3) (опціонально) Load main.c → отримаєш main.c з вставленими USER CODE (init/step).'
-    ));
 
     cUI.area = u.el('textarea', { style:'flex:1; width:100%; min-height:0; resize:none; background:rgba(2,6,23,.55); color:#e2e8f0; border:1px solid rgba(148,163,184,.14); border-radius:14px; padding:12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; line-height:1.4; outline:none; overflow:auto;' });
     body.appendChild(cUI.area);
