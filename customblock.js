@@ -1,4 +1,4 @@
-/* customblock.js v2.9.4
+/* customblock.js v2.9.5
    RoboControl - Custom Blocks (Variant B) — "mini-blocks" builder + manager
    Adds (requested): everything except restriction modes.
    - Parameters for custom blocks (fields on the big block) + rc_param value block
@@ -17,7 +17,7 @@
   'use strict';
 
   const RC = window.RC_CUSTOMBLOCK = window.RC_CUSTOMBLOCK || {};
-  const VERSION = 'v2.9.4';
+  const VERSION = 'v2.9.5';
 
 
   // Expose version for debugging
@@ -539,6 +539,52 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 
 #rcMiniModal .blocklyFlyoutBackground{fill:rgba(2,6,23,.55)!important;}
 #rcMiniModal .blocklyMainBackground{fill:rgba(2,6,23,.35)!important;}
+
+/* Hide ALL scrollbars inside CustomBlocks (toolbox + flyout + textareas) */
+#view-customblocks .blocklyToolboxDiv,
+#view-customblocks .blocklyToolboxDiv .blocklyToolboxContents,
+#view-customblocks .blocklyToolboxDiv .blocklyTreeRoot,
+#rcMiniModal .blocklyToolboxDiv,
+#rcMiniModal .blocklyToolboxDiv .blocklyToolboxContents,
+#rcMiniModal .blocklyToolboxDiv .blocklyTreeRoot{
+  scrollbar-width:none !important;
+  -ms-overflow-style:none !important;
+}
+#view-customblocks .blocklyToolboxDiv::-webkit-scrollbar,
+#view-customblocks .blocklyToolboxDiv .blocklyToolboxContents::-webkit-scrollbar,
+#view-customblocks .blocklyToolboxDiv .blocklyTreeRoot::-webkit-scrollbar,
+#rcMiniModal .blocklyToolboxDiv::-webkit-scrollbar,
+#rcMiniModal .blocklyToolboxDiv .blocklyToolboxContents::-webkit-scrollbar,
+#rcMiniModal .blocklyToolboxDiv .blocklyTreeRoot::-webkit-scrollbar{
+  width:0 !important;
+  height:0 !important;
+}
+
+/* Hide Blockly SVG scrollbars (workspace scroll handles) */
+#view-customblocks .blocklyScrollbarHorizontal,
+#view-customblocks .blocklyScrollbarVertical,
+#view-customblocks .blocklyScrollbarHandle,
+#view-customblocks .blocklyScrollbarBackground,
+#rcMiniModal .blocklyScrollbarHorizontal,
+#rcMiniModal .blocklyScrollbarVertical,
+#rcMiniModal .blocklyScrollbarHandle,
+#rcMiniModal .blocklyScrollbarBackground{
+  display:none !important;
+  opacity:0 !important;
+  pointer-events:none !important;
+}
+
+/* Hide textarea scrollbars in our modals (export/import/etc.) */
+.rcModal textarea,
+#rcMiniModal textarea{
+  scrollbar-width:none !important;
+  -ms-overflow-style:none !important;
+}
+.rcModal textarea::-webkit-scrollbar,
+#rcMiniModal textarea::-webkit-scrollbar{
+  width:0 !important;
+  height:0 !important;
+}
 `;
     document.head.appendChild(s);
   }
@@ -1286,9 +1332,9 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       theme: getCBTheme(Blockly),
       toolboxPosition: 'start',
       trashcan: false,
-      scrollbars: true,
+      scrollbars: false,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      move: { scrollbars: true, drag: true, wheel: true },
+      move: { scrollbars: false, drag: true, wheel: true },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
@@ -1499,9 +1545,9 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       theme: getCBTheme(Blockly),
       toolboxPosition: 'start',
       trashcan: false,
-      scrollbars: true,
+      scrollbars: false,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      move: { scrollbars: true, drag: true, wheel: true },
+      move: { scrollbars: false, drag: true, wheel: true },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
@@ -2731,6 +2777,9 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 
   let _cArtifacts = null;
   let _cTab = 'c';
+  let _cMainPatched = null;
+  let _cMainPatchedName = null;
+
 
   function ensureCModal(){
     if (cUI.modal) return;
@@ -2752,21 +2801,30 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       c: tabBtn('.c', 'c'),
       h: tabBtn('.h', 'h'),
       platc: tabBtn('platform .c', 'platc'),
-      plath: tabBtn('platform .h', 'plath')
+      plath: tabBtn('platform .h', 'plath'),
+      board: tabBtn('board .h', 'board'),
+      main: tabBtn('main.c', 'main')
     };
 
-    const tabsWrap = u.el('div',{style:'display:flex;gap:8px;flex-wrap:wrap;align-items:center;'}, [cUI.tabs.c,cUI.tabs.h,cUI.tabs.platc,cUI.tabs.plath]);
+    const tabsWrap = u.el('div',{style:'display:flex;gap:8px;flex-wrap:wrap;align-items:center;'}, [cUI.tabs.c,cUI.tabs.h,cUI.tabs.platc,cUI.tabs.plath,cUI.tabs.board,cUI.tabs.main]);
+    cUI.fileInfo = u.el('div',{style:'color:#94a3b8;font-weight:900;font-size:11px;margin-left:8px;'}, '');
+    tabsWrap.appendChild(cUI.fileInfo);
+
+    cUI.fileInput = u.el('input',{type:'file', accept:'.c,.txt', style:'display:none', onchange:(e)=> loadCubeMainC(e) });
+
     const actionWrap = u.el('div',{style:'display:flex;gap:8px;align-items:center;'},[
+      u.el('button',{class:'btn', onclick: ()=> cUI.fileInput && cUI.fileInput.click() }, 'Load main.c'),
       u.el('button',{class:'btn', onclick: ()=> copyCText() }, 'Copy'),
       u.el('button',{class:'btn primary', onclick: ()=> downloadCArtifacts() }, 'Download')
     ]);
 
     bar.appendChild(tabsWrap);
     bar.appendChild(actionWrap);
+    bar.appendChild(cUI.fileInput);
 
     const body = u.el('div', { class:'body', style:'display:flex;flex-direction:column;gap:10px;overflow:hidden;' });
     body.appendChild(u.el('div',{style:'color:#94a3b8;font-weight:900;font-size:12px;line-height:1.35;'},
-      'Згенеровано для STM32 HAL. Це шаблон — підлаштуй motor/sensor API під свою прошивку (UART/BLE, мотори, сенсори).'
+      'Згенеровано для STM32 HAL (CubeMX). 1) Налаштуй мапінг в rc_board_conf.h, 2) додай файли в проект, 3) (опціонально) Load main.c → отримаєш main.c з вставленими USER CODE (init/step).'
     ));
 
     cUI.area = u.el('textarea', { style:'flex:1; width:100%; min-height:0; resize:none; background:rgba(2,6,23,.55); color:#e2e8f0; border:1px solid rgba(148,163,184,.14); border-radius:14px; padding:12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; line-height:1.4; outline:none; overflow:auto;' });
@@ -2817,7 +2875,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
   function renderCTab(){
     if (!cUI.area) return;
     const a = _cArtifacts || {};
-    const map = { c: a.c || '', h: a.h || '', platc: a.platformC || '', plath: a.platformH || '' };
+    const map = { c: a.c || '', h: a.h || '', platc: a.platformC || '', plath: a.platformH || '', board: a.boardConfH || '', main: a.mainC || _cMainPatched || '' };
     cUI.area.value = map[_cTab] || '';
     // highlight active tab
     for (const [k,btn] of Object.entries(cUI.tabs||{})){
@@ -2848,6 +2906,106 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     downloadText(_cArtifacts.files.h, _cArtifacts.h);
     downloadText(_cArtifacts.files.platformC, _cArtifacts.platformC);
     downloadText(_cArtifacts.files.platformH, _cArtifacts.platformH);
+    if (_cArtifacts.boardConfH) downloadText((_cArtifacts.files.boardConfH || 'rc_board_conf.h'), _cArtifacts.boardConfH);
+    const mc = _cArtifacts.mainC || _cMainPatched;
+    if (mc){
+      const fn = (_cArtifacts.files.mainC || _cMainPatchedName || 'main.c').re
+  function _rcInsertUnique(body, snippet, token){
+    const s = String(body||'');
+    if (token && s.indexOf(token) >= 0) return s;
+    const needsNL = (s.length && !s.endsWith('\n')) ? '\n' : '';
+    return s + needsNL + snippet + '\n';
+  }
+
+  function _rcPatchSection(src, beginMarker, endMarker, snippet, token){
+    const text = String(src||'');
+    const b = text.indexOf(beginMarker);
+    if (b < 0) return text;
+    const e = text.indexOf(endMarker, b + beginMarker.length);
+    if (e < 0) return text;
+    const pre = text.slice(0, b + beginMarker.length);
+    const mid = text.slice(b + beginMarker.length, e);
+    const post = text.slice(e);
+    const mid2 = _rcInsertUnique(mid, snippet, token);
+    return pre + mid2 + post;
+  }
+
+  function patchCubeMXMainC(mainC, cbBase){
+    const cb = String(cbBase||'').trim();
+    if (!cb) return String(mainC||'');
+
+    let out = String(mainC||'');
+
+    // 1) Includes
+    out = _rcPatchSection(
+      out,
+      '/* USER CODE BEGIN Includes */',
+      '/* USER CODE END Includes */',
+      '\\n#include "' + cb + '.h"\\n#include "rc_platform.h"\\n',
+      cb + '.h'
+    );
+
+    // 2) Private variables
+    out = _rcPatchSection(
+      out,
+      '/* USER CODE BEGIN PV */',
+      '/* USER CODE END PV */',
+      '\\nstatic rc_vm_t rc_vm;\\n',
+      'static rc_vm_t rc_vm'
+    );
+
+    // 3) Init section
+    out = _rcPatchSection(
+      out,
+      '/* USER CODE BEGIN 2 */',
+      '/* USER CODE END 2 */',
+      '\\n  rc_platform_init();\\n  ' + cb + '_init(&rc_vm);\\n',
+      cb + '_init(&rc_vm)'
+    );
+
+    // 4) While loop
+    out = _rcPatchSection(
+      out,
+      '/* USER CODE BEGIN WHILE */',
+      '/* USER CODE END WHILE */',
+      '\\n    ' + cb + '_step(&rc_vm);\\n    HAL_Delay(1);\\n',
+      cb + '_step(&rc_vm)'
+    );
+
+    return out;
+  }
+
+  function loadCubeMainC(e){
+    try{
+      const f = e && e.target && e.target.files && e.target.files[0];
+      if (!f) return;
+      _cMainPatchedName = f.name || 'main.c';
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const src = String(reader.result || '');
+        const cbHeader = (_cArtifacts && _cArtifacts.files && _cArtifacts.files.h) ? String(_cArtifacts.files.h) : '';
+        const cbBase = cbHeader.replace(/\.h$/i,'') || 'rc_cb_custom_block';
+
+        const patched = patchCubeMXMainC(src, cbBase);
+
+        _cMainPatched = patched;
+        if (_cArtifacts){
+          _cArtifacts.mainC = patched;
+          _cArtifacts.files.mainC = _cMainPatchedName;
+        }
+
+        if (cUI.fileInfo) cUI.fileInfo.textContent = 'Loaded: ' + _cMainPatchedName;
+        _cTab = 'main';
+        renderCTab();
+      };
+      reader.readAsText(f);
+    }catch(err){}
+  }
+
+place(/\.c$/i,'_patched.c');
+      downloadText(fn, mc);
+    }
   }
 
   function sanitizeCIdent(name){
