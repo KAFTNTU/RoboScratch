@@ -5757,7 +5757,8 @@
   }
 
   function rebuildSensorsList(){
-    const box = sim.dom.sensorsBox;
+    const box = sim.dom && sim.dom.sensorsBox;
+    if(!box) return;
     box.innerHTML = '';
     sim.sensors.forEach((s, idx)=>{
       const row = el('div', { class:'rcSimRow' },
@@ -6079,26 +6080,28 @@
       return;
     }
 
-    // state
+    // Build UI first. (applySnapshot() touches sim.dom.*)
+    const ui = buildUI();
+    document.body.appendChild(ui.backdrop);
+    document.body.appendChild(ui.modal);
+
+    // Load state AFTER UI exists
     const st = loadState();
     if(st) applySnapshot(st);
     else applyTrack();
 
     resetCar();
     updateSensors();
-
-    const ui = buildUI();
-    document.body.appendChild(ui.backdrop);
-    document.body.appendChild(ui.modal);
+    rebuildSensorsList();
 
     // reflect state in UI
-    sim.dom.trackSel.value = sim.trackKey;
+    if(sim.dom.trackSel) sim.dom.trackSel.value = sim.trackKey;
     const prefs = sim._prefs || { editSensors:false, editTrack:false, speedScale:1 };
-    sim.dom.chkSensors.checked = !!prefs.editSensors;
-    sim.dom.chkTrack.checked = !!prefs.editTrack;
+    if(sim.dom.chkSensors) sim.dom.chkSensors.checked = !!prefs.editSensors;
+    if(sim.dom.chkTrack) sim.dom.chkTrack.checked = !!prefs.editTrack;
     sim.dom.editSensors = !!prefs.editSensors;
     sim.dom.editTrack = !!prefs.editTrack;
-    sim.dom.speedScale.value = String(clamp(prefs.speedScale||1, 0.4, 2.0));
+    if(sim.dom.speedScale) sim.dom.speedScale.value = String(clamp(prefs.speedScale||1, 0.4, 2.0));
 
     sim.isOpen = true;
     sim.lastT = 0;
