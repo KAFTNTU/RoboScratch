@@ -1,4 +1,4 @@
-/* customblock.js v2.9.8
+/* customblock.js v2.9.4
    RoboControl - Custom Blocks (Variant B) — "mini-blocks" builder + manager
    Adds (requested): everything except restriction modes.
    - Parameters for custom blocks (fields on the big block) + rc_param value block
@@ -15,6 +15,9 @@
 */
 (function(){
   'use strict';
+
+  // Build marker (helps to verify cache refresh)
+  try{ window.__RC_CUSTOMBLOCK_BUILD__ = '2026-02-01.fix-save-sim-v2'; }catch(e){}
 
   const RC = window.RC_CUSTOMBLOCK = window.RC_CUSTOMBLOCK || {};
   const VERSION = 'v2.9.4';
@@ -33,30 +36,7 @@
       try{ return window.localStorage.getItem(k); }catch(e){ s.ok = false; return null; }
     };
     s.set = function(k,v){
-      try{
-        window.localStorage.setItem(k,v);
-        return true;
-      }catch(e){
-        s.ok = false;
-        s.lastError = e;
-        // If quota exceeded, try to free simulator state and retry once.
-        try{
-          const name = (e && e.name) ? String(e.name) : '';
-          const code = (e && typeof e.code === 'number') ? e.code : -1;
-          const quota = (name === 'QuotaExceededError' || code === 22 || code === 1014);
-          if(quota){
-            try{ window.localStorage.removeItem('rc_sim2d_v1'); }catch(_){}
-            try{ window.localStorage.removeItem('rc_sim2d_v2'); }catch(_){}
-            try{ window.localStorage.removeItem('rc_sim2d_state'); }catch(_){}
-            try{
-              window.localStorage.setItem(k,v);
-              s.ok = true;
-              return true;
-            }catch(_e2){}
-          }
-        }catch(_){}
-        return false;
-      }
+      try{ window.localStorage.setItem(k,v); }catch(e){ s.ok = false; }
     };
     s.remove = function(k){
       try{ window.localStorage.removeItem(k); }catch(e){ s.ok = false; }
@@ -262,7 +242,6 @@
       `});
       document.body.appendChild(el);
     }
-  window.RC_CB_TOAST = toast;
     el.textContent = msg;
     el.style.display='block';
     clearTimeout(toastT);
@@ -293,7 +272,7 @@
     const data = u.jparse(raw, []);
     return Array.isArray(data) ? data : [];
   }
-  function saveBlocks(arr){ if(!store.set(CFG.storageKeyBlocks, u.jstring(arr || []))) warnStorageIfNeeded(); }
+  function saveBlocks(arr){ store.set(CFG.storageKeyBlocks, u.jstring(arr || [])); }
   function rebuildDefsMap(){
     RC._defsByType.clear();
     for (const d of loadBlocks()){
@@ -508,10 +487,6 @@
 .rcModal .body{padding:12px 14px;overflow:auto;height: calc(100% - 110px);}
 .rcModal .body{scrollbar-width:none;-ms-overflow-style:none;}
 .rcModal .body::-webkit-scrollbar{width:0!important;height:0!important;}
-
-.rcCodePane{scrollbar-width:none;-ms-overflow-style:none;}
-.rcCodePane::-webkit-scrollbar{width:0!important;height:0!important;}
-.rcCodePane.grabbing{cursor:grabbing!important;}
 
 /* List rows */
 .rcRow{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid rgba(148,163,184,.12);border-radius:14px;background:rgba(30,41,59,.35);margin-bottom:10px;}
@@ -1316,7 +1291,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       trashcan: false,
       scrollbars: true,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      move: { scrollbars: true, drag: true, wheel: false },
+      move: { scrollbars: true, drag: true, wheel: true },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
@@ -1476,7 +1451,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     builder.btnParams = u.el('button', { class:'btn', onclick: ()=> openParams() }, 'Параметри');
     builder.btnTemplates = u.el('button', { class:'btn', onclick: ()=> openTemplates() }, 'Шаблони');
     builder.btnValidate = u.el('button', { class:'btn', onclick: ()=> openValidation() }, 'Перевірити');
-    builder.btnSim = u.el('button', { class:'btn', onclick: ()=> { if (window.RC_SIM2D && typeof window.RC_SIM2D.open === 'function') window.RC_SIM2D.open(); else toast('Симулятор не завантажений (rc_sim2d.js)'); } }, 'Симулятор');
+    builder.btnSim = u.el('button', { class:'btn', onclick: ()=> openSimulator() }, 'Симулятор');
     builder.btnHistory = u.el('button', { class:'btn', onclick: ()=> openHistory() }, 'Історія');
     builder.btnC = u.el('button', { class:'btn', onclick: ()=> openCPreviewForBuilder() }, 'C STM32');
 
@@ -1529,7 +1504,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       trashcan: false,
       scrollbars: true,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      move: { scrollbars: true, drag: true, wheel: false },
+      move: { scrollbars: true, drag: true, wheel: true },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
@@ -1909,7 +1884,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       }}, 'Назва');
 
       const colorInput = u.el('input', { type:'color', value: d.colour || CFG.defaultCustomBlockColour, style:'width:38px;height:34px;border:none;background:transparent;cursor:pointer;' });
-      colorInput.addEventListener('change', ()=>{
+      colorInput.addEventListener('input', ()=>{
         updateDef(d.blockType, { colour: colorInput.value });
         const mainWs = window.workspace || window._workspace;
         mainWs && rebuildCustomCategory(mainWs);
@@ -2332,7 +2307,9 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     if (dup.length) issues.push({ level:'warn', title:'Дубль параметрів', detail:`Однакові назви: ${Array.from(new Set(dup)).join(', ')}` });
 
     // simulator risk: detect while(true) in generated code
-    const code = generateBuilderCodeSafe();
+    // Safe call even if some cached builds miss the helper
+    const code = (typeof generateBuilderCodeSafe === 'function') ? generateBuilderCodeSafe()
+               : ((typeof window.generateBuilderCodeSafe === 'function') ? window.generateBuilderCodeSafe() : '');
     if (code && /while\s*\(\s*true\s*\)/.test(code) && !/(_shouldStop|shouldStop)/.test(code)){
       issues.push({ level:'warn', title:'Можливий зависон', detail:'Є while(true) без перевірки stop. У симуляторі може підвиснути.' });
     }
@@ -2360,9 +2337,253 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
   }
 
   // ------------------------------------------------------------
-    // Simulator moved to separate file: rc_sim2d.js (loaded by index.html)
+  // Simulator modal (dry-run) + step highlight
+  // ------------------------------------------------------------
+  const simUI = { backdrop:null, modal:null, log:null, sliders:[], running:false, stepIdx:0, stop:false, lastCode:'' };
 
-// History modal
+  function ensureSimulator(){
+    if (simUI.modal) return;
+    injectCss();
+    simUI.backdrop = u.el('div', { class:'rcModalBackdrop', id:'rcSimBackdrop' });
+    simUI.modal = u.el('div', { class:'rcModal', id:'rcSimModal', style:'width:min(1180px,calc(100vw - 20px));height:min(86vh,780px);' });
+
+    const hdr = u.el('div', { class:'hdr' }, [
+      u.el('div', { class:'ttl' }, [ u.el('span',{class:'dot'}), 'СИМУЛЯТОР' ]),
+      u.el('button', { class:'x', onclick: closeSimulator }, '✕')
+    ]);
+
+    const btnRun = u.el('button', { class:'btn primary', onclick: ()=> simRunAll() }, 'Run');
+    const btnStep = u.el('button', { class:'btn', onclick: ()=> simStep() }, 'Step');
+    const btnStop = u.el('button', { class:'btn', onclick: ()=> simStop() }, 'Stop');
+    const btnClear = u.el('button', { class:'btn', onclick: ()=>{ simUI.log.textContent=''; } }, 'Clear log');
+
+    const bar = u.el('div', { class:'bar' }, [
+      u.el('div', { style:'color:#94a3b8;font-weight:900;' }, 'Виконує міні-блоки по черзі і логить “команди”.'),
+      u.el('div', { style:'display:flex; gap:10px; align-items:center;' }, [btnClear, btnStop, btnStep, btnRun])
+    ]);
+
+    const body = u.el('div', { class:'body', style:'padding:12px; height: calc(100% - 110px);' });
+    const grid = u.el('div', { id:'rcSimGrid' });
+
+    const left = u.el('div', { id:'rcSimLeft' });
+    left.appendChild(u.el('div',{style:'color:#e2e8f0;font-weight:950;letter-spacing:.08em;text-transform:uppercase;font-size:12px;'},'Сенсори'));
+
+    const makeSlider = (i)=>{
+      const wrap = u.el('div',{style:'display:flex;flex-direction:column;gap:6px; padding:10px; border:1px solid rgba(148,163,184,.12); border-radius:14px; background:rgba(30,41,59,.35);'});
+      const top = u.el('div',{style:'display:flex;align-items:center;justify-content:space-between;gap:10px;'},[
+        u.el('div',{style:'color:#e2e8f0;font-weight:950;'},`S${i+1}`),
+        u.el('div',{style:'color:#94a3b8;font-weight:900;', id:`rcSimVal${i}`},'0')
+      ]);
+      const s = u.el('input',{type:'range', min:'0', max:'100', value:'0', style:'width:100%;'});
+      s.addEventListener('input', ()=>{
+        document.getElementById(`rcSimVal${i}`).textContent = s.value;
+      });
+      wrap.appendChild(top);
+      wrap.appendChild(s);
+      simUI.sliders[i]=s;
+      return wrap;
+    };
+    for (let i=0;i<4;i++) left.appendChild(makeSlider(i));
+
+    left.appendChild(u.el('div',{style:'color:#94a3b8;font-weight:900;font-size:12px;line-height:1.35;'},'Порада: якщо всередині є while(true) без stop — симулятор може підвиснути.'));
+
+    const right = u.el('div', { id:'rcSimRight' });
+    right.appendChild(u.el('div',{style:'display:flex;align-items:center;justify-content:space-between;gap:10px; margin-bottom:10px;'},[
+      u.el('div',{style:'color:#e2e8f0;font-weight:950;letter-spacing:.08em;text-transform:uppercase;font-size:12px;'},'LOG'),
+      u.el('div',{style:'color:#94a3b8;font-weight:900;font-size:12px;'},'Step підсвічує міні-блок')
+    ]));
+    simUI.log = u.el('div', { id:'rcSimLog' }, '');
+    right.appendChild(simUI.log);
+
+    grid.appendChild(left);
+    grid.appendChild(right);
+    body.appendChild(grid);
+
+    simUI.modal.appendChild(hdr);
+    simUI.modal.appendChild(bar);
+    simUI.modal.appendChild(body);
+
+    document.body.appendChild(simUI.backdrop);
+    document.body.appendChild(simUI.modal);
+    simUI.backdrop.addEventListener('click', closeSimulator);
+  }
+
+  function openSimulator(){
+    ensureSimulator();
+    simUI.stepIdx = 0;
+    simUI.stop = false;
+    simUI.backdrop.style.display='block';
+    simUI.modal.style.display='block';
+    toast('Симулятор готовий');
+  }
+  function closeSimulator(){
+    if (!simUI.modal) return;
+    simUI.stop = true;
+    simUI.backdrop.style.display='none';
+    simUI.modal.style.display='none';
+  }
+  function simStop(){
+    simUI.stop = true;
+    window._shouldStop = true;
+    logSim('== STOP ==');
+  }
+
+  function getSimSensorData(){
+    const arr = [];
+    for (let i=0;i<4;i++) arr[i] = Number(simUI.sliders[i]?.value || 0);
+    return arr;
+  }
+
+  function logSim(line){
+    if (!simUI.log) return;
+    const ts = new Date().toLocaleTimeString();
+    simUI.log.textContent += `[${ts}] ${line}\n`;
+    simUI.log.scrollTop = simUI.log.scrollHeight;
+  }
+
+  function highlightMiniAt(idx){
+    try{
+      const tops = builder.ws.getTopBlocks(true)
+        .filter(b=>b.type==='rc_mini' || b.type==='rc_mini_value')
+        .sort((a,b)=>a.getRelativeToSurfaceXY().y - b.getRelativeToSurfaceXY().y);
+      const b = tops[idx];
+      if (!b) return;
+      builder.ws.highlightBlock(null);
+      builder.ws.highlightBlock(b.id);
+      b.select && b.select();
+    }catch(e){}
+  }
+
+  function generateBuilderCodeSafe(){
+    const Blockly = window.Blockly;
+    if (!Blockly || !builder.ws) return '';
+    try{
+      const jsGen = Blockly.JavaScript || Blockly.javascriptGenerator;
+      if (!jsGen) return '';
+      const code = (jsGen.workspaceToCode(builder.ws) || '').trim();
+      return code;
+    }catch(e){ return ''; }
+  }
+
+  // Expose helper for other modules / older cached code paths
+  try{ window.generateBuilderCodeSafe = generateBuilderCodeSafe; }catch(e){}
+
+  async function runSnippet(code){
+    // Sandbox: patch common functions to log instead of send
+    const old = {
+      sendDrivePacket: window.sendDrivePacket,
+      sendMotorPacket: window.sendMotorPacket,
+      sendPacket: window.sendPacket,
+      btSend: window.btSend,
+      bluetoothSend: window.bluetoothSend,
+      sendToRobot: window.sendToRobot
+    };
+
+    try{
+      window.sensorData = getSimSensorData();
+      window._shouldStop = false;
+
+      const stub = (...args)=> logSim(`send(${args.map(a=>u.jstring(a)).join(', ')})`);
+      window.sendDrivePacket = stub;
+      window.sendMotorPacket = stub;
+      window.sendPacket = stub;
+      window.btSend = stub;
+      window.bluetoothSend = stub;
+      window.sendToRobot = stub;
+
+      // Provide helpers
+      window.wait = (ms)=> new Promise(res=>setTimeout(res, Number(ms)||0));
+      window.delay = window.wait;
+
+      // Execute as async function (supports await)
+      const fn = new Function(`return (async()=>{\n${code}\n})()`);
+      await fn();
+      return true;
+    }catch(e){
+      logSim('ERROR: ' + (e?.message || e));
+      return false;
+    }finally{
+      // restore
+      window.sendDrivePacket = old.sendDrivePacket;
+      window.sendMotorPacket = old.sendMotorPacket;
+      window.sendPacket = old.sendPacket;
+      window.btSend = old.btSend;
+      window.bluetoothSend = old.bluetoothSend;
+      window.sendToRobot = old.sendToRobot;
+    }
+  }
+
+  async function simStep(){
+    ensureBuilderWorkspace();
+    simUI.stop = false;
+    const Blockly = window.Blockly;
+    if (!Blockly || !builder.ws) return;
+
+    const tops = builder.ws.getTopBlocks(true)
+      .filter(b=>b.type==='rc_mini' || b.type==='rc_mini_value')
+      .sort((a,b)=>a.getRelativeToSurfaceXY().y - b.getRelativeToSurfaceXY().y);
+
+    if (simUI.stepIdx >= tops.length){
+      simUI.stepIdx = 0;
+      logSim('== END, reset step ==');
+      return;
+    }
+
+    highlightMiniAt(simUI.stepIdx);
+
+    const jsGen = Blockly.JavaScript || Blockly.javascriptGenerator;
+    let snippet = '';
+    try{
+      snippet = jsGen.blockToCode(tops[simUI.stepIdx]);
+      if (Array.isArray(snippet)) snippet = snippet[0] || '';
+      snippet = String(snippet||'').trim();
+    }catch(e){ snippet = ''; }
+
+    if (!snippet){
+      logSim(`Step ${simUI.stepIdx+1}: empty`);
+      simUI.stepIdx++;
+      return;
+    }
+
+    logSim(`Step ${simUI.stepIdx+1}: run`);
+    await runSnippet(snippet);
+    simUI.stepIdx++;
+  }
+
+  async function simRunAll(){
+    ensureBuilderWorkspace();
+    simUI.stop = false;
+    const Blockly = window.Blockly;
+    if (!Blockly || !builder.ws) return;
+
+    const tops = builder.ws.getTopBlocks(true)
+      .filter(b=>b.type==='rc_mini' || b.type==='rc_mini_value')
+      .sort((a,b)=>a.getRelativeToSurfaceXY().y - b.getRelativeToSurfaceXY().y);
+
+    if (!tops.length){ logSim('No blocks'); return; }
+
+    simUI.stepIdx = 0;
+    for (let i=0;i<tops.length;i++){
+      if (simUI.stop) { logSim('== STOPPED =='); break; }
+      highlightMiniAt(i);
+      const jsGen = Blockly.JavaScript || Blockly.javascriptGenerator;
+      let snippet = '';
+      try{
+        snippet = jsGen.blockToCode(tops[i]);
+        if (Array.isArray(snippet)) snippet = snippet[0] || '';
+        snippet = String(snippet||'').trim();
+      }catch(e){ snippet = ''; }
+      if (!snippet){ logSim(`Block ${i+1}: empty`); continue; }
+      logSim(`Block ${i+1}: run`);
+      await runSnippet(snippet);
+      await new Promise(r=>setTimeout(r, 30));
+    }
+    builder.ws.highlightBlock(null);
+    logSim('== DONE ==');
+  }
+
+  // ------------------------------------------------------------
+  // History modal
   // ------------------------------------------------------------
   const histUI = { backdrop:null, modal:null, body:null };
 
@@ -2516,35 +2737,6 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
   // ------------------------------------------------------------
   const cUI = { backdrop:null, modal:null, tabs:null, area:null };
 
-
-function enablePanScroll(el){
-  if (!el || el._rcPanBound) return;
-  el._rcPanBound = true;
-  let down = false;
-  let sx = 0, sy = 0, sl = 0, st = 0;
-  el.addEventListener('mousedown', (e)=>{
-    if (e.button !== 0) return;
-    down = true;
-    sx = e.clientX; sy = e.clientY;
-    sl = el.scrollLeft; st = el.scrollTop;
-    el.classList.add('grabbing');
-    e.preventDefault();
-  });
-  window.addEventListener('mousemove', (e)=>{
-    if (!down) return;
-    const dx = e.clientX - sx;
-    const dy = e.clientY - sy;
-    el.scrollLeft = sl - dx;
-    el.scrollTop  = st - dy;
-  });
-  window.addEventListener('mouseup', ()=>{
-    if (!down) return;
-    down = false;
-    el.classList.remove('grabbing');
-  });
-}
-
-
   let _cArtifacts = null;
   let _cTab = 'c';
   let _cMainPatched = null;
@@ -2597,12 +2789,8 @@ function enablePanScroll(el){
       'Згенеровано для STM32 HAL (CubeMX). 1) Налаштуй мапінг в rc_board_conf.h, 2) додай файли в проект, 3) (опціонально) Load main.c → отримаєш main.c з вставленими USER CODE (init/step).'
     ));
 
-    
-cUI.area = u.el('div', { class:'rcCodePane', style:'flex:1; width:100%; min-height:0; background:rgba(2,6,23,.55); color:#e2e8f0; border:1px solid rgba(148,163,184,.14); border-radius:14px; padding:12px; outline:none; overflow:auto; cursor:grab; user-select:none;' });
-cUI.pre = u.el('pre', { class:'rcCodePre', style:'margin:0; min-height:100%; white-space:pre; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; line-height:1.4;' }, '');
-cUI.area.appendChild(cUI.pre);
-enablePanScroll(cUI.area);
-body.appendChild(cUI.area);
+    cUI.area = u.el('textarea', { style:'flex:1; width:100%; min-height:0; resize:none; background:rgba(2,6,23,.55); color:#e2e8f0; border:1px solid rgba(148,163,184,.14); border-radius:14px; padding:12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; line-height:1.4; outline:none; overflow:auto;' });
+    body.appendChild(cUI.area);
 
     cUI.modal.appendChild(header);
     cUI.modal.appendChild(bar);
@@ -2622,11 +2810,13 @@ body.appendChild(cUI.area);
       try{
         _cArtifacts = window.RC_STM32_CGEN.generateArtifacts(builder.ws, { name, params });
       }catch(e){
-        const js = generateBuilderCodeSafe();
+        const js = (typeof generateBuilderCodeSafe === 'function') ? generateBuilderCodeSafe()
+                 : ((typeof window.generateBuilderCodeSafe === 'function') ? window.generateBuilderCodeSafe() : '');
         _cArtifacts = generateSTM32Artifacts(name, params, js);
       }
     }else{
-      const js = generateBuilderCodeSafe();
+      const js = (typeof generateBuilderCodeSafe === 'function') ? generateBuilderCodeSafe()
+               : ((typeof window.generateBuilderCodeSafe === 'function') ? window.generateBuilderCodeSafe() : '');
       _cArtifacts = generateSTM32Artifacts(name, params, js);
     }
 
@@ -2650,41 +2840,19 @@ body.appendChild(cUI.area);
     if (!cUI.area) return;
     const a = _cArtifacts || {};
     const map = { c: a.c || '', h: a.h || '', platc: a.platformC || '', plath: a.platformH || '', board: a.boardConfH || '', main: a.mainC || _cMainPatched || '' };
-    const txt = map[_cTab] || '';
-    if (cUI.pre) cUI.pre.textContent = txt;
-    else cUI.area.value = txt;
+    cUI.area.value = map[_cTab] || '';
     // highlight active tab
     for (const [k,btn] of Object.entries(cUI.tabs||{})){
       btn.classList.toggle('primary', k===_cTab);
     }
   }
 
-  
-function copyCText(){
-  try{
-    const txt = (cUI.pre ? cUI.pre.textContent : cUI.area.value) || '';
-    if (navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(txt).catch(()=> _rcFallbackCopy(txt));
-    }else{
-      _rcFallbackCopy(txt);
-    }
-  }catch(e){}
-}
-
-function _rcFallbackCopy(txt){
-  try{
-    const ta = document.createElement('textarea');
-    ta.value = String(txt||'');
-    ta.setAttribute('readonly','');
-    ta.style.position='fixed';
-    ta.style.left='-9999px';
-    ta.style.top='0';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    ta.remove();
-  }catch(e){}
-}
+  function copyCText(){
+    try{
+      cUI.area.select();
+      document.execCommand('copy');
+    }catch(e){}
+  }
 
   function downloadText(filename, content){
     const blob = new Blob([content], {type:'text/plain;charset=utf-8'});
@@ -2900,6 +3068,7 @@ place(/\.c$/i,'_patched.c');
     structLines.push(`} rc_cb_${id}_params_t;`);
 
     const h = [
+      '/* Auto-generated by customblock.js ' + VERSION + ' */',
       '#ifndef ' + guard,
       '#define ' + guard,
       '',
@@ -2918,7 +3087,10 @@ place(/\.c$/i,'_patched.c');
     const cBody = jsToC(jsCode);
 
     const c = [
-      '#include "main.h"',
+      '/* Auto-generated by customblock.js ' + VERSION + ' */',
+      '/* Block: ' + blockName + ' */',
+      '',
+      '#include "main.h"  // STM32Cube HAL',
       '#include "rc_platform.h"',
       '#include "' + ('rc_cb_' + id + '.h') + '"',
       '',
@@ -2934,7 +3106,10 @@ place(/\.c$/i,'_patched.c');
       '',
       'void rc_cb_' + id + '(const rc_cb_' + id + '_params_t* p){',
       '  (void)p;',
-      (cBody ? cBody.split('\n').map(l=>'  ' + l).join('\n') : ''),
+      '  // NOTE: This body is converted from the JS generator output.',
+      '  // Adjust types and replace rc_* hooks with your real motor/sensor drivers.',
+      '',
+      (cBody ? cBody.split('\n').map(l=>'  ' + l).join('\n') : '  // (empty)'),
       '',
       '}',
       ''
