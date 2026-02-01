@@ -461,8 +461,10 @@
 
 /* Generic modal */
 .rcModalBackdrop{
-  position:fixed; inset:0; background:rgba(0,0,0,.58);
-  backdrop-filter:blur(8px);
+  position:fixed; inset:0;
+  background:rgba(2,6,23,.42);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   z-index:${CFG.uiZ+20}; display:none;
 }
 .rcModal{
