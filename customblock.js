@@ -461,9 +461,10 @@
 
 /* Generic modal */
 .rcModalBackdrop{
-  position:fixed; inset:0; background:rgba(0,0,0,.58);
-  backdrop-filter:blur(8px);
-  -webkit-backdrop-filter:blur(8px);
+  position:fixed; inset:0;
+  background:rgba(2,6,23,.42);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   z-index:${CFG.uiZ+20}; display:none;
 }
 .rcModal{
@@ -570,7 +571,6 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 #rcMiniModal .blocklyScrollbarVertical,
 #rcMiniModal .blocklyScrollbarHandle,
 #rcMiniModal .blocklyScrollbarBackground{
-  display:none !important;
   opacity:0 !important;
   pointer-events:none !important;
 }
@@ -1333,9 +1333,9 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       theme: getCBTheme(Blockly),
       toolboxPosition: 'start',
       trashcan: false,
-      scrollbars: false,
+      scrollbars: true,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      move: { scrollbars: false, drag: true, wheel: true },
+      move: { scrollbars: true, drag: true, wheel: false },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
@@ -1546,9 +1546,9 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       theme: getCBTheme(Blockly),
       toolboxPosition: 'start',
       trashcan: false,
-      scrollbars: false,
+      scrollbars: true,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      move: { scrollbars: false, drag: true, wheel: true },
+      move: { scrollbars: true, drag: true, wheel: false },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
@@ -2797,18 +2797,8 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     if (cInfoUI.modal) return;
     injectCss();
 
-    // IMPORTANT: this help modal opens *on top of* the STM32 export modal.
-    // The backdrop must sit above the export modal so that the export window is blurred/dimmed,
-    // while the instruction modal itself stays sharp.
-    cInfoUI.backdrop = u.el('div', {
-      class:'rcModalBackdrop',
-      style:`z-index:${CFG.uiZ+60};`,
-      onclick: ()=> closeCInfo()
-    });
-    cInfoUI.modal = u.el('div', {
-      class:'rcModal',
-      style:`z-index:${CFG.uiZ+61}; width:min(860px, 96vw); height:min(82vh, 820px);`
-    });
+    cInfoUI.backdrop = u.el('div', { class:'rcModalBackdrop', onclick: ()=> closeCInfo() });
+    cInfoUI.modal = u.el('div', { class:'rcModal', style:'width:min(860px, 96vw); height:min(82vh, 820px);' });
 
     const hdr = u.el('div', { class:'hdr' }, [
       u.el('div', { class:'ttl' }, [ u.el('div',{class:'dot'}), u.el('div',{}, 'ІНСТРУКЦІЯ: STM32 C EXPORT') ]),
