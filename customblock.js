@@ -1,4 +1,4 @@
-/* customblock.js v2.9.4
+/* customblock.js v2.9.6
    RoboControl - Custom Blocks (Variant B) — "mini-blocks" builder + manager
    Adds (requested): everything except restriction modes.
    - Parameters for custom blocks (fields on the big block) + rc_param value block
@@ -16,11 +16,8 @@
 (function(){
   'use strict';
 
-  // Build marker (helps to verify cache refresh)
-  try{ window.__RC_CUSTOMBLOCK_BUILD__ = '2026-02-01.fix-save-sim-v2'; }catch(e){}
-
   const RC = window.RC_CUSTOMBLOCK = window.RC_CUSTOMBLOCK || {};
-  const VERSION = 'v2.9.4';
+  const VERSION = 'v2.9.6';
 
 
   // Expose version for debugging
@@ -437,6 +434,18 @@
   padding: 10px 8px !important;
   z-index: 6 !important;
 }
+
+/* Hide native scrollbars inside toolbox (keep scrolling working) */
+#view-customblocks .blocklyToolboxDiv,
+#rcMiniModal .blocklyToolboxDiv{
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+#view-customblocks .blocklyToolboxDiv::-webkit-scrollbar,
+#rcMiniModal .blocklyToolboxDiv::-webkit-scrollbar{
+  width: 0 !important;
+  height: 0 !important;
+}
 #view-customblocks .blocklyToolboxContents{ padding: 0 !important; }
 #view-customblocks .blocklyTreeRow{
   height: 44px !important;
@@ -461,6 +470,19 @@
 #view-customblocks .blocklyFlyoutBackground{ fill: rgba(2,6,23,.60) !important; }
 #view-customblocks .blocklyMainBackground{ fill: rgba(2,6,23,.30) !important; }
 #view-customblocks .blocklyGridLine{ stroke: rgba(148,163,184,.28) !important; }
+
+/* Touch fix: prevent page/modal scrolling while interacting with Blockly (drag blocks / pan / pinch).
+   Without this, mobile browsers may interpret gestures as scroll.
+*/
+#view-customblocks .blocklySvg,
+#view-customblocks .blocklyToolboxDiv,
+#view-customblocks .blocklyFlyout,
+#rcMiniModal .blocklySvg,
+#rcMiniModal .blocklyToolboxDiv,
+#rcMiniModal .blocklyFlyout{
+  touch-action: none;
+  overscroll-behavior: contain;
+}
 
 /* Generic modal */
 .rcModalBackdrop{
@@ -1289,9 +1311,11 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       theme: getCBTheme(Blockly),
       toolboxPosition: 'start',
       trashcan: false,
-      scrollbars: true,
+      // Remove Blockly scrollbars for mini-editor too (cleaner UI).
+      // Workspace still pans with drag + wheel.
+      scrollbars: false,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      move: { scrollbars: true, drag: true, wheel: true },
+      move: { scrollbars: false, drag: true, wheel: false },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
@@ -1502,9 +1526,11 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       theme: getCBTheme(Blockly),
       toolboxPosition: 'start',
       trashcan: false,
-      scrollbars: true,
+      // Remove Blockly scrollbars completely (looks cleaner than CSS-hiding).
+      // Workspace still pans with drag + wheel.
+      scrollbars: false,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      move: { scrollbars: true, drag: true, wheel: true },
+      move: { scrollbars: false, drag: true, wheel: false },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
@@ -2307,9 +2333,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     if (dup.length) issues.push({ level:'warn', title:'Дубль параметрів', detail:`Однакові назви: ${Array.from(new Set(dup)).join(', ')}` });
 
     // simulator risk: detect while(true) in generated code
-    // Safe call even if some cached builds miss the helper
-    const code = (typeof generateBuilderCodeSafe === 'function') ? generateBuilderCodeSafe()
-               : ((typeof window.generateBuilderCodeSafe === 'function') ? window.generateBuilderCodeSafe() : '');
+    const code = generateBuilderCodeSafe();
     if (code && /while\s*\(\s*true\s*\)/.test(code) && !/(_shouldStop|shouldStop)/.test(code)){
       issues.push({ level:'warn', title:'Можливий зависон', detail:'Є while(true) без перевірки stop. У симуляторі може підвиснути.' });
     }
@@ -2342,86 +2366,211 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
   const simUI = { backdrop:null, modal:null, log:null, sliders:[], running:false, stepIdx:0, stop:false, lastCode:'' };
 
   function ensureSimulator(){
-    if (simUI.modal) return;
-    injectCss();
-    simUI.backdrop = u.el('div', { class:'rcModalBackdrop', id:'rcSimBackdrop' });
-    simUI.modal = u.el('div', { class:'rcModal', id:'rcSimModal', style:'width:min(1180px,calc(100vw - 20px));height:min(86vh,780px);' });
+  if(simUI.modal) return simUI;
 
-    const hdr = u.el('div', { class:'hdr' }, [
-      u.el('div', { class:'ttl' }, [ u.el('span',{class:'dot'}), 'СИМУЛЯТОР' ]),
-      u.el('button', { class:'x', onclick: closeSimulator }, '✕')
-    ]);
-
-    const btnRun = u.el('button', { class:'btn primary', onclick: ()=> simRunAll() }, 'Run');
-    const btnStep = u.el('button', { class:'btn', onclick: ()=> simStep() }, 'Step');
-    const btnStop = u.el('button', { class:'btn', onclick: ()=> simStop() }, 'Stop');
-    const btnClear = u.el('button', { class:'btn', onclick: ()=>{ simUI.log.textContent=''; } }, 'Clear log');
-
-    const bar = u.el('div', { class:'bar' }, [
-      u.el('div', { style:'color:#94a3b8;font-weight:900;' }, 'Виконує міні-блоки по черзі і логить “команди”.'),
-      u.el('div', { style:'display:flex; gap:10px; align-items:center;' }, [btnClear, btnStop, btnStep, btnRun])
-    ]);
-
-    const body = u.el('div', { class:'body', style:'padding:12px; height: calc(100% - 110px);' });
-    const grid = u.el('div', { id:'rcSimGrid' });
-
-    const left = u.el('div', { id:'rcSimLeft' });
-    left.appendChild(u.el('div',{style:'color:#e2e8f0;font-weight:950;letter-spacing:.08em;text-transform:uppercase;font-size:12px;'},'Сенсори'));
-
-    const makeSlider = (i)=>{
-      const wrap = u.el('div',{style:'display:flex;flex-direction:column;gap:6px; padding:10px; border:1px solid rgba(148,163,184,.12); border-radius:14px; background:rgba(30,41,59,.35);'});
-      const top = u.el('div',{style:'display:flex;align-items:center;justify-content:space-between;gap:10px;'},[
-        u.el('div',{style:'color:#e2e8f0;font-weight:950;'},`S${i+1}`),
-        u.el('div',{style:'color:#94a3b8;font-weight:900;', id:`rcSimVal${i}`},'0')
-      ]);
-      const s = u.el('input',{type:'range', min:'0', max:'100', value:'0', style:'width:100%;'});
-      s.addEventListener('input', ()=>{
-        document.getElementById(`rcSimVal${i}`).textContent = s.value;
-      });
-      wrap.appendChild(top);
-      wrap.appendChild(s);
-      simUI.sliders[i]=s;
-      return wrap;
-    };
-    for (let i=0;i<4;i++) left.appendChild(makeSlider(i));
-
-    left.appendChild(u.el('div',{style:'color:#94a3b8;font-weight:900;font-size:12px;line-height:1.35;'},'Порада: якщо всередині є while(true) без stop — симулятор може підвиснути.'));
-
-    const right = u.el('div', { id:'rcSimRight' });
-    right.appendChild(u.el('div',{style:'display:flex;align-items:center;justify-content:space-between;gap:10px; margin-bottom:10px;'},[
-      u.el('div',{style:'color:#e2e8f0;font-weight:950;letter-spacing:.08em;text-transform:uppercase;font-size:12px;'},'LOG'),
-      u.el('div',{style:'color:#94a3b8;font-weight:900;font-size:12px;'},'Step підсвічує міні-блок')
-    ]));
-    simUI.log = u.el('div', { id:'rcSimLog' }, '');
-    right.appendChild(simUI.log);
-
-    grid.appendChild(left);
-    grid.appendChild(right);
-    body.appendChild(grid);
-
-    simUI.modal.appendChild(hdr);
-    simUI.modal.appendChild(bar);
-    simUI.modal.appendChild(body);
-
-    document.body.appendChild(simUI.backdrop);
-    document.body.appendChild(simUI.modal);
-    simUI.backdrop.addEventListener('click', closeSimulator);
+  // CSS (only once)
+  if(!document.getElementById('rcSimCss')){
+    const css = `
+      .rcSimBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);backdrop-filter:blur(10px);z-index:9998}
+      .rcSimModal{position:fixed;inset:40px;max-width:1200px;margin:auto;background:rgba(10,16,28,.92);
+        border:1px solid rgba(255,255,255,.10);border-radius:18px;box-shadow:0 20px 80px rgba(0,0,0,.55);
+        z-index:9999;color:#dbe6ff;overflow:hidden}
+      .rcSimHdr{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.08)}
+      .rcSimTitle{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:.3px}
+      .rcDot{width:10px;height:10px;border-radius:50%;background:#fbbf24}
+      .rcBtn{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10);color:#e8f0ff;
+        padding:10px 14px;border-radius:12px;cursor:pointer;font-weight:700}
+      .rcBtn:hover{background:rgba(255,255,255,.09)}
+      .rcBtnPrimary{background:rgba(59,130,246,.85);border-color:rgba(59,130,246,.95)}
+      .rcBtnPrimary:hover{background:rgba(59,130,246,.95)}
+      .rcSimBody{display:flex;gap:14px;height:calc(100% - 56px);padding:14px}
+      .rcSimLeft{width:280px;min-width:280px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);
+        border-radius:14px;padding:12px;overflow:auto}
+      .rcSimRight{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px}
+      .rcSim2dHost{flex:1;min-height:420px;background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.08);
+        border-radius:14px;overflow:hidden}
+      .rcSimLogWrap{height:180px;background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.08);
+        border-radius:14px;overflow:auto;display:none}
+      .rcSimLog{white-space:pre-wrap;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size:12px;line-height:1.35;padding:10px}
+      .rcSimRow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+      .rcSimHint{opacity:.75;font-size:12px;margin-top:10px;line-height:1.35}
+      .rcSimKpi{display:flex;align-items:center;justify-content:space-between;font-weight:700;margin-top:6px;margin-bottom:6px}
+      .rcSimSlider{width:100%}
+      .rcSimClose{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);width:38px;height:38px;border-radius:12px;
+        cursor:pointer;color:#e8f0ff;font-size:18px}
+      .rcSimClose:hover{background:rgba(255,255,255,.09)}
+    `;
+    const st = document.createElement('style');
+    st.id = 'rcSimCss';
+    st.textContent = css;
+    document.head.appendChild(st);
   }
+
+  simUI.backdrop = u.el('div', { class: 'rcSimBackdrop' });
+  simUI.modal = u.el('div', { class: 'rcSimModal' });
+
+  // Header
+  const title = u.el('div', { class: 'rcSimTitle' },
+    u.el('div', { class: 'rcDot' }),
+    'СИМУЛЯТОР'
+  );
+
+  simUI.btnClear = u.el('button', { class: 'rcBtn' }, 'Clear log');
+  simUI.btnToggleLog = u.el('button', { class: 'rcBtn' }, 'Log');
+  simUI.btnStop = u.el('button', { class: 'rcBtn' }, 'Stop');
+  simUI.btnStep = u.el('button', { class: 'rcBtn' }, 'Step');
+  simUI.btnRun = u.el('button', { class: 'rcBtn rcBtnPrimary' }, 'Run');
+
+  const rightBtns = u.el('div', { style: 'display:flex; gap:10px; align-items:center' },
+    simUI.btnToggleLog, simUI.btnClear, simUI.btnStop, simUI.btnStep, simUI.btnRun,
+    u.el('button', { class: 'rcSimClose', title: 'Close' }, '×')
+  );
+  rightBtns.lastChild.onclick = closeSimulator;
+
+  simUI.modal.appendChild(u.el('div', { class: 'rcSimHdr' }, title, rightBtns));
+
+  // Body layout
+  const body = u.el('div', { class: 'rcSimBody' });
+  const left = u.el('div', { class: 'rcSimLeft' });
+  const right = u.el('div', { class: 'rcSimRight' });
+
+  // Sensors panel (keep sliders as manual override, but can switch to 2D sensors)
+  simUI.use2D = true;
+  simUI.chkUse2D = u.el('input', { type: 'checkbox', checked: true });
+  const use2DRow = u.el('label', { style: 'display:flex; align-items:center; gap:10px; font-weight:700; margin-bottom:10px; cursor:pointer; user-select:none' },
+    simUI.chkUse2D,
+    u.el('span', {}, 'Брати сенсори з 2D (якщо є)')
+  );
+  left.appendChild(use2DRow);
+
+  left.appendChild(u.el('div', { style: 'font-weight:800; margin-bottom:8px; letter-spacing:.3px' }, 'СЕНСОРИ'));
+
+  const makeSensor = (name)=>{
+    const valueEl = u.el('div', { style: 'opacity:.9' }, '0');
+    const lbl = u.el('div', { class: 'rcSimKpi' }, u.el('div', {}, name), valueEl);
+    const slider = u.el('input', { type: 'range', min: '0', max: '100', value: '0', class: 'rcSimSlider' });
+    slider.oninput = ()=>{ valueEl.textContent = String(slider.value|0); };
+    left.appendChild(u.el('div', { style:'margin-bottom:10px; padding:10px; border:1px solid rgba(255,255,255,.08); border-radius:14px; background:rgba(255,255,255,.02)' },
+      lbl, slider
+    ));
+    return { slider, valueEl };
+  };
+
+  simUI.s1 = makeSensor('S1');
+  simUI.s2 = makeSensor('S2');
+  simUI.s3 = makeSensor('S3');
+  simUI.s4 = makeSensor('S4');
+
+  left.appendChild(u.el('div', { class:'rcSimHint' }, 'Порада: якщо всередині є while(true) без stop — симулятор може зависнути.\nТепер є захист: код виконується в Worker і з таймаутом.'));
+
+  // Right: 2D sim host + optional log
+  right.appendChild(u.el('div', { style:'display:flex; align-items:center; justify-content:space-between; opacity:.85; font-size:13px; padding:0 4px' },
+    u.el('div', {}, '2D (траса + машинка)'),
+    u.el('div', { style:'opacity:.7' }, 'Step підсвічує міні-блок')
+  ));
+
+  simUI.sim2dHost = u.el('div', { class: 'rcSim2dHost', id: 'rcSim2dHost' });
+  simUI.logWrap = u.el('div', { class: 'rcSimLogWrap' });
+  simUI.log = u.el('div', { class: 'rcSimLog' });
+  simUI.logWrap.appendChild(simUI.log);
+
+  right.appendChild(simUI.sim2dHost);
+  right.appendChild(simUI.logWrap);
+
+  body.appendChild(left);
+  body.appendChild(right);
+  simUI.modal.appendChild(body);
+
+  // Actions
+  simUI.btnToggleLog.onclick = ()=>{
+    const show = (simUI.logWrap.style.display === 'none' || !simUI.logWrap.style.display);
+    simUI.logWrap.style.display = show ? 'block' : 'none';
+  };
+  simUI.btnClear.onclick = ()=>{ simUI.log.textContent = ''; };
+  simUI.btnStop.onclick = ()=>{ simUI.stop = true; if(simUI.currentWorker){ try{ simUI.currentWorker.terminate(); }catch(e){} simUI.currentWorker=null; } logSim('STOP'); };
+  simUI.btnStep.onclick = simStep;
+  simUI.btnRun.onclick = simRunAll;
+  simUI.chkUse2D.onchange = ()=>{ simUI.use2D = !!simUI.chkUse2D.checked; };
+
+  return simUI;
+}
 
   function openSimulator(){
-    ensureSimulator();
-    simUI.stepIdx = 0;
-    simUI.stop = false;
-    simUI.backdrop.style.display='block';
-    simUI.modal.style.display='block';
-    toast('Симулятор готовий');
+  ensureSimulator();
+  simUI.stop = false;
+  simUI.running = false;
+  simUI.pc = 0;
+
+  if(!simUI.backdrop.isConnected) document.body.appendChild(simUI.backdrop);
+  if(!simUI.modal.isConnected) document.body.appendChild(simUI.modal);
+
+  // mount 2D sim into the free area
+  const doMount = ()=>{
+    try{
+      if(window.RC_SIM2D && simUI.sim2dHost){
+        window.RC_SIM2D.mount(simUI.sim2dHost, { showTitle:false });
+      }
+    }catch(e){
+      logSim('2D mount error: ' + (e && e.message ? e.message : String(e)));
+    }
+  };
+
+  if(window.RC_SIM2D){
+    doMount();
+  }else{
+    // try to lazy-load if index.html didn't include it
+    const id = 'rc_sim2d_script';
+    if(!document.getElementById(id)){
+      const s = document.createElement('script');
+      s.id = id;
+      s.src = new URL('rc_sim2d.js', location.href).toString();
+      s.onload = doMount;
+      s.onerror = ()=> logSim('Не можу завантажити rc_sim2d.js (додай файл поруч з index.html).');
+      document.head.appendChild(s);
+    }else{
+      setTimeout(doMount, 0);
+    }
   }
+
+  // live sensor values (if using 2D)
+  if(!simUI.sensorTimer){
+    simUI.sensorTimer = setInterval(()=>{
+      try{
+        if(simUI.use2D && window.RC_SIM2D && window.RC_SIM2D.getSensors){
+          const s = window.RC_SIM2D.getSensors();
+          if(Array.isArray(s) && s.length>=4){
+            simUI.s1.slider.valueEl.textContent = String(s[0]??0);
+            simUI.s2.slider.valueEl.textContent = String(s[1]??0);
+            simUI.s3.slider.valueEl.textContent = String(s[2]??0);
+            simUI.s4.slider.valueEl.textContent = String(s[3]??0);
+            simUI.s1.slider.disabled = true;
+            simUI.s2.slider.disabled = true;
+            simUI.s3.slider.disabled = true;
+            simUI.s4.slider.disabled = true;
+          }
+        }else{
+          simUI.s1.slider.disabled = false;
+          simUI.s2.slider.disabled = false;
+          simUI.s3.slider.disabled = false;
+          simUI.s4.slider.disabled = false;
+          simUI.s1.slider.valueEl.textContent = String(simUI.s1.slider.value|0);
+          simUI.s2.slider.valueEl.textContent = String(simUI.s2.slider.value|0);
+          simUI.s3.slider.valueEl.textContent = String(simUI.s3.slider.value|0);
+          simUI.s4.slider.valueEl.textContent = String(simUI.s4.slider.value|0);
+        }
+      }catch(e){}
+    }, 120);
+  }
+}
   function closeSimulator(){
-    if (!simUI.modal) return;
-    simUI.stop = true;
-    simUI.backdrop.style.display='none';
-    simUI.modal.style.display='none';
-  }
+  try{ simUI.stop = true; simUI.running = false; }catch(e){}
+  try{ if(simUI.currentWorker){ simUI.currentWorker.terminate(); simUI.currentWorker = null; } }catch(e){}
+  try{ if(window.RC_SIM2D && window.RC_SIM2D.unmount && simUI.sim2dHost){ window.RC_SIM2D.unmount(); } }catch(e){}
+  try{ if(simUI.sensorTimer){ clearInterval(simUI.sensorTimer); simUI.sensorTimer = null; } }catch(e){}
+  if(simUI.modal && simUI.modal.parentNode) simUI.modal.parentNode.removeChild(simUI.modal);
+  if(simUI.backdrop && simUI.backdrop.parentNode) simUI.backdrop.parentNode.removeChild(simUI.backdrop);
+}
   function simStop(){
     simUI.stop = true;
     window._shouldStop = true;
@@ -2438,7 +2587,8 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     if (!simUI.log) return;
     const ts = new Date().toLocaleTimeString();
     simUI.log.textContent += `[${ts}] ${line}\n`;
-    simUI.log.scrollTop = simUI.log.scrollHeight;
+    const scroller = simUI.logWrap || simUI.log;
+    scroller.scrollTop = scroller.scrollHeight;
   }
 
   function highlightMiniAt(idx){
@@ -2465,53 +2615,174 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     }catch(e){ return ''; }
   }
 
-  // Expose helper for other modules / older cached code paths
-  try{ window.generateBuilderCodeSafe = generateBuilderCodeSafe; }catch(e){}
+  let __rcSnippetWorkerUrl = null;
 
-  async function runSnippet(code){
-    // Sandbox: patch common functions to log instead of send
-    const old = {
-      sendDrivePacket: window.sendDrivePacket,
-      sendMotorPacket: window.sendMotorPacket,
-      sendPacket: window.sendPacket,
-      btSend: window.btSend,
-      bluetoothSend: window.bluetoothSend,
-      sendToRobot: window.sendToRobot
+function getSimSensorData(){
+  // Prefer 2D sensors if available
+  try{
+    if(simUI.use2D && window.RC_SIM2D && window.RC_SIM2D.getSensors){
+      const s = window.RC_SIM2D.getSensors();
+      if(Array.isArray(s) && s.length) return s.slice(0);
+    }
+  }catch(e){}
+  return [
+    Number(simUI.s1.slider.value)||0,
+    Number(simUI.s2.slider.value)||0,
+    Number(simUI.s3.slider.value)||0,
+    Number(simUI.s4.slider.value)||0,
+  ];
+}
+function getSimDistanceData(){
+  try{
+    if(simUI.use2D && window.RC_SIM2D && window.RC_SIM2D.getDistances){
+      const d = window.RC_SIM2D.getDistances();
+      if(Array.isArray(d) && d.length) return d.slice(0);
+    }
+  }catch(e){}
+  return [0];
+}
+
+function ensureSnippetWorkerUrl(){
+  if(__rcSnippetWorkerUrl) return __rcSnippetWorkerUrl;
+
+  const workerSrc = `
+    self.window = self; // compatibility for code that uses window.*
+    self.sensorData = [0,0,0,0];
+    self.distanceData = [0];
+    self._shouldStop = false;
+
+    function safePost(msg){
+      try{ self.postMessage(msg); }catch(e){}
+    }
+
+    self.onmessage = async (ev)=>{
+      const d = ev.data || {};
+      if(d.type === 'stop'){
+        self._shouldStop = true;
+        return;
+      }
+      if(d.type !== 'run') return;
+
+      self._shouldStop = false;
+      self.sensorData = Array.isArray(d.sensorData) ? d.sensorData : self.sensorData;
+      self.distanceData = Array.isArray(d.distanceData) ? d.distanceData : self.distanceData;
+
+      const hb = setInterval(()=> safePost({type:'hb'}), 200);
+
+      const sendDrivePacket = async (l, r, l2, r2)=>{
+        safePost({type:'drive', l: Number(l)||0, r: Number(r)||0});
+        return;
+      };
+      const recordMove = (l, r)=>{
+        safePost({type:'record', l: Number(l)||0, r: Number(r)||0});
+      };
+      const sleep = (ms)=> new Promise(res=> setTimeout(res, Math.max(0, ms|0)));
+      const rc_millis = ()=> Date.now();
+
+      try{
+        const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+        const fn = new AsyncFunction('sendDrivePacket','recordMove','sleep','wait','rc_millis',
+          '"use strict";\\n' + String(d.code||"")
+        );
+        await fn(sendDrivePacket, recordMove, sleep, sleep, rc_millis);
+        clearInterval(hb);
+        safePost({type:'done'});
+      }catch(err){
+        clearInterval(hb);
+        safePost({type:'error', message: String(err && err.message ? err.message : err), stack: String(err && err.stack ? err.stack : '')});
+      }
+    };
+  `;
+
+  __rcSnippetWorkerUrl = URL.createObjectURL(new Blob([workerSrc], { type: 'text/javascript' }));
+  return __rcSnippetWorkerUrl;
+}
+
+async function runSnippet(code){
+  const sensorData = getSimSensorData();
+  const distanceData = getSimDistanceData();
+
+  return await new Promise((resolve)=>{
+    let finished = false;
+    let lastHb = performance.now();
+    const started = performance.now();
+
+    const worker = new Worker(ensureSnippetWorkerUrl());
+    simUI.currentWorker = worker;
+
+    const cleanup = ()=>{
+      if(finished) return;
+      finished = true;
+      try{ worker.terminate(); }catch(e){}
+      if(simUI.currentWorker === worker) simUI.currentWorker = null;
+      clearInterval(watchdog);
+      resolve(true);
     };
 
-    try{
-      window.sensorData = getSimSensorData();
-      window._shouldStop = false;
+    const fail = (msg)=>{
+      if(finished) return;
+      finished = true;
+      try{ worker.terminate(); }catch(e){}
+      if(simUI.currentWorker === worker) simUI.currentWorker = null;
+      clearInterval(watchdog);
+      logSim(msg);
+      resolve(false);
+    };
 
-      const stub = (...args)=> logSim(`send(${args.map(a=>u.jstring(a)).join(', ')})`);
-      window.sendDrivePacket = stub;
-      window.sendMotorPacket = stub;
-      window.sendPacket = stub;
-      window.btSend = stub;
-      window.bluetoothSend = stub;
-      window.sendToRobot = stub;
+    worker.onmessage = (ev)=>{
+      const d = ev.data || {};
+      if(d.type === 'hb'){ lastHb = performance.now(); return; }
+      if(d.type === 'drive'){
+        lastHb = performance.now();
+        logSim(`drive L=${d.l} R=${d.r}`);
+        try{
+          if(window.RC_SIM2D && window.RC_SIM2D.drive) window.RC_SIM2D.drive(d.l, d.r, 60);
+        }catch(e){}
+        return;
+      }
+      if(d.type === 'record'){
+        lastHb = performance.now();
+        logSim(`move L=${d.l} R=${d.r}`);
+        try{
+          if(window.RC_SIM2D && window.RC_SIM2D.drive) window.RC_SIM2D.drive(d.l, d.r, 60);
+        }catch(e){}
+        return;
+      }
+      if(d.type === 'error'){
+        fail('ERROR: ' + (d.message||'') + (d.stack ? '\n' + d.stack : ''));
+        return;
+      }
+      if(d.type === 'done'){
+        cleanup();
+      }
+    };
 
-      // Provide helpers
-      window.wait = (ms)=> new Promise(res=>setTimeout(res, Number(ms)||0));
-      window.delay = window.wait;
+    worker.onerror = (e)=>{
+      fail('WORKER ERROR: ' + (e && e.message ? e.message : String(e)));
+    };
 
-      // Execute as async function (supports await)
-      const fn = new Function(`return (async()=>{\n${code}\n})()`);
-      await fn();
-      return true;
-    }catch(e){
-      logSim('ERROR: ' + (e?.message || e));
-      return false;
-    }finally{
-      // restore
-      window.sendDrivePacket = old.sendDrivePacket;
-      window.sendMotorPacket = old.sendMotorPacket;
-      window.sendPacket = old.sendPacket;
-      window.btSend = old.btSend;
-      window.bluetoothSend = old.bluetoothSend;
-      window.sendToRobot = old.sendToRobot;
-    }
-  }
+    // watchdog: kills infinite loops without freezing the page
+    const watchdog = setInterval(()=>{
+      const now = performance.now();
+      const noHb = now - lastHb;
+      const total = now - started;
+      if(simUI.stop){
+        fail('STOP');
+        return;
+      }
+      if(noHb > 1800){
+        fail('TIMEOUT: схоже на безкінечний цикл (немає heartbeat).');
+        return;
+      }
+      if(total > 12000){
+        fail('TIMEOUT: блок виконується занадто довго.');
+        return;
+      }
+    }, 250);
+
+    worker.postMessage({ type:'run', code, sensorData, distanceData });
+  });
+}
 
   async function simStep(){
     ensureBuilderWorkspace();
@@ -2810,13 +3081,11 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       try{
         _cArtifacts = window.RC_STM32_CGEN.generateArtifacts(builder.ws, { name, params });
       }catch(e){
-        const js = (typeof generateBuilderCodeSafe === 'function') ? generateBuilderCodeSafe()
-                 : ((typeof window.generateBuilderCodeSafe === 'function') ? window.generateBuilderCodeSafe() : '');
+        const js = generateBuilderCodeSafe();
         _cArtifacts = generateSTM32Artifacts(name, params, js);
       }
     }else{
-      const js = (typeof generateBuilderCodeSafe === 'function') ? generateBuilderCodeSafe()
-               : ((typeof window.generateBuilderCodeSafe === 'function') ? window.generateBuilderCodeSafe() : '');
+      const js = generateBuilderCodeSafe();
       _cArtifacts = generateSTM32Artifacts(name, params, js);
     }
 
