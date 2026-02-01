@@ -635,6 +635,80 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
   }
 
   // ------------------------------------------------------------
+  // Scratch-like wheel behavior for Blockly
+  // Many laptops use trackpad pinch -> Ctrl+Wheel, which triggers browser zoom.
+  // We intercept Ctrl/Meta+Wheel over the workspace and zoom the WORKSPACE
+  // instead, while preventing the page from zooming.
+  // Additionally: Shift+Wheel pans horizontally.
+  // ------------------------------------------------------------
+  function enableScratchWheel(ws){
+    try{
+      if (!ws || ws.__rcScratchWheel) return;
+      ws.__rcScratchWheel = true;
+
+      const div = (ws.getInjectionDiv && ws.getInjectionDiv()) || null;
+      if (!div) return;
+      const svg = div.querySelector && div.querySelector('svg.blocklySvg');
+      if (!svg) return;
+
+      const scrollBy = (dx, dy)=>{
+        if (typeof ws.scroll === 'function'){
+          ws.scroll(dx, dy);
+          return;
+        }
+        const sb = ws.scrollbar;
+        if (sb && typeof sb.set === 'function'){
+          const curX = (typeof sb.x === 'number') ? sb.x : 0;
+          const curY = (typeof sb.y === 'number') ? sb.y : 0;
+          sb.set(curX + dx, curY + dy);
+        }
+      };
+
+      const zoomAt = (clientX, clientY, amount)=>{
+        try{
+          const rect = svg.getBoundingClientRect();
+          const x = clientX - rect.left;
+          const y = clientY - rect.top;
+          if (typeof ws.zoom === 'function') ws.zoom(x, y, amount);
+          else if (typeof ws.zoomCenter === 'function') ws.zoomCenter(amount);
+        }catch(e){}
+      };
+
+      const onWheel = (e)=>{
+        // Always handle wheel ourselves so Blockly can't also treat it as zoom.
+        // This fixes cases where a mouse wheel scroll ALSO triggers zoom.
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Normalize wheel units (some browsers use lines instead of pixels)
+        const mul = (e.deltaMode === 1) ? 16 : (e.deltaMode === 2 ? 120 : 1);
+        const dx0 = (e.deltaX || 0) * mul;
+        const dy0 = (e.deltaY || 0) * mul;
+
+        // Ctrl/Meta + wheel: zoom workspace (and block browser zoom)
+        if (e.ctrlKey || e.metaKey){
+          const amount = (dy0 < 0) ? 1 : -1; // up -> zoom in
+          zoomAt(e.clientX, e.clientY, amount);
+          return;
+        }
+
+        // Shift + wheel: horizontal pan (Scratch-ish)
+        if (e.shiftKey){
+          const dx = (Math.abs(dx0) > 0 ? dx0 : dy0);
+          scrollBy(dx, 0);
+          return;
+        }
+
+        // Normal wheel: pan both axes (dx usually 0 on a mouse)
+        scrollBy(dx0, dy0);
+      };
+
+      // capture + passive:false is required to reliably prevent browser zoom
+      svg.addEventListener('wheel', onWheel, { capture:true, passive:false });
+    }catch(e){}
+  }
+
+  // ------------------------------------------------------------
   // Toolbox category: ⭐ Мої блоки
   // ------------------------------------------------------------
   function ensureCustomCategory(){
@@ -1388,6 +1462,8 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 
     // Ensure background drag pans like Scratch (works even on older Blockly builds)
     enableScratchPan(miniUI.ws);
+    // Make Ctrl/Meta+Wheel zoom the WORKSPACE (not the browser page)
+    enableScratchWheel(miniUI.ws);
 
     // Force dark toolbox/flyout for Mini-Blockly too
     try{
@@ -1605,9 +1681,8 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 
     // Ensure background drag pans like Scratch (works even on older Blockly builds)
     enableScratchPan(builder.ws);
-
-    // Ensure background drag pans like Scratch
-    enableScratchPan(builder.ws);
+    // Make Ctrl/Meta+Wheel zoom the WORKSPACE (not the browser page)
+    enableScratchWheel(builder.ws);
 
     // Force dark toolbox/flyout in case global styles override theme (index styles can be aggressive)
     try{
