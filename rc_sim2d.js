@@ -43,11 +43,11 @@
   .rcsim2d-btn{user-select:none;cursor:pointer;border-radius:14px;padding:10px 14px;background:rgba(148,163,184,.08);border:1px solid rgba(148,163,184,.14);color:#e2e8f0;font-weight:900;}
   .rcsim2d-btn:hover{background:rgba(148,163,184,.12)}
   .rcsim2d-btn.primary{background:rgba(59,130,246,.92);border-color:rgba(59,130,246,.95)}
-  .rcsim2d-content{position:absolute;inset:56px 0 0 0;display:grid;grid-template-columns:280px 1fr;}
-  .rcsim2d-side{border-right:1px solid rgba(148,163,184,.10);padding:14px;overflow:auto;}
+  .rcsim2d-content{position:absolute;left:0;right:0;top:56px;bottom:0;display:flex;gap:0;padding:0;}
+  .rcsim2d-side{border-right:1px solid rgba(148,163,184,.10);padding:14px;overflow:auto;;flex:0 0 320px;min-width:280px;max-width:360px;}
   .rcsim2d-side::-webkit-scrollbar{width:0;height:0}
   .rcsim2d-side{scrollbar-width:none;}
-  .rcsim2d-main{position:relative;overflow:hidden;}
+  .rcsim2d-main{position:relative;overflow:hidden;;flex:1 1 auto;min-height:0;}
   .rcsim2d-hud{position:absolute;left:14px;top:14px;display:flex;gap:8px;z-index:3;}
   .rcsim2d-pill{background:rgba(2,6,23,.55);border:1px solid rgba(148,163,184,.14);color:#e2e8f0;border-radius:999px;padding:7px 10px;font-weight:900;font-size:12px;backdrop-filter: blur(6px);}
   .rcsim2d-footer{position:absolute;right:14px;bottom:14px;display:flex;gap:10px;z-index:3;}
@@ -4811,7 +4811,7 @@
         const my = e.clientY-rect.top;
         const wx = this.screenToWorldX(mx);
         const wy = this.screenToWorldY(my);
-        const k = Math.exp(-e.deltaY*0.0012);
+        const k = Math.exp(-e.deltaY*0.0009);
         this.targetZoom = clamp(this.targetZoom*k, 0.15, 3.2);
         // zoom around cursor
         const nz = this.targetZoom;
@@ -4957,9 +4957,8 @@
       s.appendChild(sl);
 
       s.appendChild(makeEl('div',{class:'rcsim2d-help'},[
-        makeEl('div',null, (this.trackName==='Arena' ? 'Арена + стіни' : 'Траса для line-follow') ),
-        makeEl('div',null,'Колесо — zoom. Перетяг ЛКМ/ПКМ/СКМ — pan. Shift — швидше. Стрілки — ручний рух.'),
-        makeEl('div',null,'Run виконує програму (якщо є) і візуалізує рух. Стоп: натисни Pause або ESC.'),
+        makeEl('div',null,(this.trackName==='Arena' ? 'Арена + стіни' : 'Траса для line-follow')),
+        makeEl('div',null,'Колесо—zoom, drag мишкою—pan. Для датчиків увімкни «Редагувати 4 сенсори» і перетягни точки S1–S4.'),
       ]));
 
       // Program source controls
@@ -5245,7 +5244,7 @@ ${code}
         this.lastT = t;
         dt = clamp(dt, 0, 0.05);
         // Smooth zoom
-        this.zoom = lerp(this.zoom, this.targetZoom, 0.18);
+        this.zoom = lerp(this.zoom, this.targetZoom, 0.12);
         this.dt = dt;
         if (!this.paused){
           this.tick(dt);
