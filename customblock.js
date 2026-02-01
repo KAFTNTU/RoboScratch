@@ -1,4 +1,4 @@
-/* customblock.js v2.9.7
+/* customblock.js v2.9.9
    RoboControl - Custom Blocks (Variant B) — "mini-blocks" builder + manager
    Adds (requested): everything except restriction modes.
    - Parameters for custom blocks (fields on the big block) + rc_param value block
@@ -485,6 +485,10 @@
 .rcModal .body{scrollbar-width:none;-ms-overflow-style:none;}
 .rcModal .body::-webkit-scrollbar{width:0!important;height:0!important;}
 
+.rcCodePane{scrollbar-width:none;-ms-overflow-style:none;}
+.rcCodePane::-webkit-scrollbar{width:0!important;height:0!important;}
+.rcCodePane.grabbing{cursor:grabbing!important;}
+
 /* List rows */
 .rcRow{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid rgba(148,163,184,.12);border-radius:14px;background:rgba(30,41,59,.35);margin-bottom:10px;}
 .rcRow .name{flex:1;color:#e2e8f0;font-weight:950;}
@@ -539,8 +543,95 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 
 #rcMiniModal .blocklyFlyoutBackground{fill:rgba(2,6,23,.55)!important;}
 #rcMiniModal .blocklyMainBackground{fill:rgba(2,6,23,.35)!important;}
+
+/* Scratch-like navigation:
+   1) Allow panning with "grab" cursor on background
+   2) Keep Blockly scrollbars enabled but invisible (still functional) */
+#view-customblocks .blocklyMainBackground,
+#rcMiniModal .blocklyMainBackground{cursor:grab !important;}
+#view-customblocks .blocklyMainBackground:active,
+#rcMiniModal .blocklyMainBackground:active{cursor:grabbing !important;}
+
+#view-customblocks .blocklyScrollbarHorizontal,
+#view-customblocks .blocklyScrollbarVertical,
+#rcMiniModal .blocklyScrollbarHorizontal,
+#rcMiniModal .blocklyScrollbarVertical{opacity:0 !important;}
+
+#view-customblocks .blocklyScrollbarBackground,
+#view-customblocks .blocklyScrollbarHandle,
+#rcMiniModal .blocklyScrollbarBackground,
+#rcMiniModal .blocklyScrollbarHandle{opacity:0 !important;}
 `;
     document.head.appendChild(s);
+  }
+
+  // ------------------------------------------------------------
+  // Scratch-like panning for Blockly workspaces
+  // Some Blockly builds don't pan on background drag even with move.drag=true.
+  // This helper enables: LMB drag on empty background -> pan (both axes).
+  // ------------------------------------------------------------
+  function enableScratchPan(ws){
+    try{
+      if (!ws || ws.__rcScratchPan) return;
+      ws.__rcScratchPan = true;
+
+      const div = (ws.getInjectionDiv && ws.getInjectionDiv()) || null;
+      if (!div) return;
+      const svg = div.querySelector && div.querySelector('svg.blocklySvg');
+      if (!svg) return;
+
+      let down = false;
+      let lastX = 0, lastY = 0;
+
+      const isBg = (t)=>{
+        if (!t || !t.classList) return false;
+        return t.classList.contains('blocklyMainBackground');
+      };
+
+      const scrollBy = (dx, dy)=>{
+        // Prefer public API when available
+        if (typeof ws.scroll === 'function'){
+          ws.scroll(dx, dy);
+          return;
+        }
+        // Fallback: try scrollbar pair
+        const sb = ws.scrollbar;
+        if (sb && typeof sb.set === 'function'){
+          // Many versions expose current x/y as sb.x/sb.y
+          const curX = (typeof sb.x === 'number') ? sb.x : 0;
+          const curY = (typeof sb.y === 'number') ? sb.y : 0;
+          sb.set(curX + dx, curY + dy);
+        }
+      };
+
+      const onDown = (e)=>{
+        if (e.button !== 0) return;
+        if (!isBg(e.target)) return;
+        down = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        try{ svg.classList.add('rcPanOn'); }catch(_){ }
+        e.preventDefault();
+        e.stopPropagation();
+      };
+
+      const onMove = (e)=>{
+        if (!down) return;
+        const dx = e.clientX - lastX;
+        const dy = e.clientY - lastY;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        // Map-drag style: drag right -> view follows pointer (pan), so scroll opposite
+        scrollBy(-dx, -dy);
+        e.preventDefault();
+      };
+
+      const onUp = ()=>{ down = false; };
+
+      svg.addEventListener('mousedown', onDown, true);
+      window.addEventListener('mousemove', onMove, { passive:false });
+      window.addEventListener('mouseup', onUp, true);
+    }catch(e){}
   }
 
   // ------------------------------------------------------------
@@ -1206,7 +1297,8 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       ])
     ]);
 
-    miniUI.pre = u.el('pre', {}, '// (empty)');
+    // Preview area (keep empty when nothing generated)
+    miniUI.pre = u.el('pre', {}, '');
     const copyBtn = u.el('button', {
       class:'btn',
       style:'align-self:flex-start;',
@@ -1287,11 +1379,15 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       toolboxPosition: 'start',
       trashcan: false,
       scrollbars: true,
-      zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
+      // Scratch-like: mouse wheel pans (move.wheel), not zoom.
+      zoom: { controls: false, wheel: false, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
       move: { scrollbars: true, drag: true, wheel: true },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
+
+    // Ensure background drag pans like Scratch (works even on older Blockly builds)
+    enableScratchPan(miniUI.ws);
 
     // Force dark toolbox/flyout for Mini-Blockly too
     try{
@@ -1308,7 +1404,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     const updatePreview = u.debounce(()=>{
       try{
         const jsGen = Blockly.JavaScript || Blockly.javascriptGenerator;
-        miniUI.pre.textContent = (jsGen && miniUI.ws) ? ((jsGen.workspaceToCode(miniUI.ws) || '').trim() || '// (empty)') : '// (no generator)';
+        miniUI.pre.textContent = (jsGen && miniUI.ws) ? ((jsGen.workspaceToCode(miniUI.ws) || '').trim() || '') : '';
       }catch(e){ miniUI.pre.textContent='// (error)'; }
     }, 100);
     miniUI.ws.addChangeListener(updatePreview);
@@ -1500,11 +1596,18 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       toolboxPosition: 'start',
       trashcan: false,
       scrollbars: true,
-      zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
+      // Scratch-like: mouse wheel pans (move.wheel), not zoom.
+      zoom: { controls: false, wheel: false, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
       move: { scrollbars: true, drag: true, wheel: true },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
+
+    // Ensure background drag pans like Scratch (works even on older Blockly builds)
+    enableScratchPan(builder.ws);
+
+    // Ensure background drag pans like Scratch
+    enableScratchPan(builder.ws);
 
     // Force dark toolbox/flyout in case global styles override theme (index styles can be aggressive)
     try{
@@ -2729,6 +2832,35 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
   // ------------------------------------------------------------
   const cUI = { backdrop:null, modal:null, tabs:null, area:null };
 
+
+function enablePanScroll(el){
+  if (!el || el._rcPanBound) return;
+  el._rcPanBound = true;
+  let down = false;
+  let sx = 0, sy = 0, sl = 0, st = 0;
+  el.addEventListener('mousedown', (e)=>{
+    if (e.button !== 0) return;
+    down = true;
+    sx = e.clientX; sy = e.clientY;
+    sl = el.scrollLeft; st = el.scrollTop;
+    el.classList.add('grabbing');
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', (e)=>{
+    if (!down) return;
+    const dx = e.clientX - sx;
+    const dy = e.clientY - sy;
+    el.scrollLeft = sl - dx;
+    el.scrollTop  = st - dy;
+  });
+  window.addEventListener('mouseup', ()=>{
+    if (!down) return;
+    down = false;
+    el.classList.remove('grabbing');
+  });
+}
+
+
   let _cArtifacts = null;
   let _cTab = 'c';
   let _cMainPatched = null;
@@ -2781,8 +2913,12 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       'Згенеровано для STM32 HAL (CubeMX). 1) Налаштуй мапінг в rc_board_conf.h, 2) додай файли в проект, 3) (опціонально) Load main.c → отримаєш main.c з вставленими USER CODE (init/step).'
     ));
 
-    cUI.area = u.el('textarea', { style:'flex:1; width:100%; min-height:0; resize:none; background:rgba(2,6,23,.55); color:#e2e8f0; border:1px solid rgba(148,163,184,.14); border-radius:14px; padding:12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; line-height:1.4; outline:none; overflow:auto;' });
-    body.appendChild(cUI.area);
+    
+cUI.area = u.el('div', { class:'rcCodePane', style:'flex:1; width:100%; min-height:0; background:rgba(2,6,23,.55); color:#e2e8f0; border:1px solid rgba(148,163,184,.14); border-radius:14px; padding:12px; outline:none; overflow:auto; cursor:grab; user-select:none;' });
+cUI.pre = u.el('pre', { class:'rcCodePre', style:'margin:0; min-height:100%; white-space:pre; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; line-height:1.4;' }, '');
+cUI.area.appendChild(cUI.pre);
+enablePanScroll(cUI.area);
+body.appendChild(cUI.area);
 
     cUI.modal.appendChild(header);
     cUI.modal.appendChild(bar);
@@ -2830,19 +2966,41 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     if (!cUI.area) return;
     const a = _cArtifacts || {};
     const map = { c: a.c || '', h: a.h || '', platc: a.platformC || '', plath: a.platformH || '', board: a.boardConfH || '', main: a.mainC || _cMainPatched || '' };
-    cUI.area.value = map[_cTab] || '';
+    const txt = map[_cTab] || '';
+    if (cUI.pre) cUI.pre.textContent = txt;
+    else cUI.area.value = txt;
     // highlight active tab
     for (const [k,btn] of Object.entries(cUI.tabs||{})){
       btn.classList.toggle('primary', k===_cTab);
     }
   }
 
-  function copyCText(){
-    try{
-      cUI.area.select();
-      document.execCommand('copy');
-    }catch(e){}
-  }
+  
+function copyCText(){
+  try{
+    const txt = (cUI.pre ? cUI.pre.textContent : cUI.area.value) || '';
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).catch(()=> _rcFallbackCopy(txt));
+    }else{
+      _rcFallbackCopy(txt);
+    }
+  }catch(e){}
+}
+
+function _rcFallbackCopy(txt){
+  try{
+    const ta = document.createElement('textarea');
+    ta.value = String(txt||'');
+    ta.setAttribute('readonly','');
+    ta.style.position='fixed';
+    ta.style.left='-9999px';
+    ta.style.top='0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }catch(e){}
+}
 
   function downloadText(filename, content){
     const blob = new Blob([content], {type:'text/plain;charset=utf-8'});
@@ -3058,7 +3216,6 @@ place(/\.c$/i,'_patched.c');
     structLines.push(`} rc_cb_${id}_params_t;`);
 
     const h = [
-      '/* Auto-generated by customblock.js ' + VERSION + ' */',
       '#ifndef ' + guard,
       '#define ' + guard,
       '',
@@ -3077,10 +3234,7 @@ place(/\.c$/i,'_patched.c');
     const cBody = jsToC(jsCode);
 
     const c = [
-      '/* Auto-generated by customblock.js ' + VERSION + ' */',
-      '/* Block: ' + blockName + ' */',
-      '',
-      '#include "main.h"  // STM32Cube HAL',
+      '#include "main.h"',
       '#include "rc_platform.h"',
       '#include "' + ('rc_cb_' + id + '.h') + '"',
       '',
@@ -3096,10 +3250,7 @@ place(/\.c$/i,'_patched.c');
       '',
       'void rc_cb_' + id + '(const rc_cb_' + id + '_params_t* p){',
       '  (void)p;',
-      '  // NOTE: This body is converted from the JS generator output.',
-      '  // Adjust types and replace rc_* hooks with your real motor/sensor drivers.',
-      '',
-      (cBody ? cBody.split('\n').map(l=>'  ' + l).join('\n') : '  // (empty)'),
+      (cBody ? cBody.split('\n').map(l=>'  ' + l).join('\n') : ''),
       '',
       '}',
       ''
