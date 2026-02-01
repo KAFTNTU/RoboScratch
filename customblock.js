@@ -33,7 +33,30 @@
       try{ return window.localStorage.getItem(k); }catch(e){ s.ok = false; return null; }
     };
     s.set = function(k,v){
-      try{ window.localStorage.setItem(k,v); }catch(e){ s.ok = false; }
+      try{
+        window.localStorage.setItem(k,v);
+        return true;
+      }catch(e){
+        s.ok = false;
+        s.lastError = e;
+        // If quota exceeded, try to free simulator state and retry once.
+        try{
+          const name = (e && e.name) ? String(e.name) : '';
+          const code = (e && typeof e.code === 'number') ? e.code : -1;
+          const quota = (name === 'QuotaExceededError' || code === 22 || code === 1014);
+          if(quota){
+            try{ window.localStorage.removeItem('rc_sim2d_v1'); }catch(_){}
+            try{ window.localStorage.removeItem('rc_sim2d_v2'); }catch(_){}
+            try{ window.localStorage.removeItem('rc_sim2d_state'); }catch(_){}
+            try{
+              window.localStorage.setItem(k,v);
+              s.ok = true;
+              return true;
+            }catch(_e2){}
+          }
+        }catch(_){}
+        return false;
+      }
     };
     s.remove = function(k){
       try{ window.localStorage.removeItem(k); }catch(e){ s.ok = false; }
@@ -239,6 +262,7 @@
       `});
       document.body.appendChild(el);
     }
+  window.RC_CB_TOAST = toast;
     el.textContent = msg;
     el.style.display='block';
     clearTimeout(toastT);
@@ -269,7 +293,7 @@
     const data = u.jparse(raw, []);
     return Array.isArray(data) ? data : [];
   }
-  function saveBlocks(arr){ store.set(CFG.storageKeyBlocks, u.jstring(arr || [])); }
+  function saveBlocks(arr){ if(!store.set(CFG.storageKeyBlocks, u.jstring(arr || []))) warnStorageIfNeeded(); }
   function rebuildDefsMap(){
     RC._defsByType.clear();
     for (const d of loadBlocks()){
@@ -1292,7 +1316,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       trashcan: false,
       scrollbars: true,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      move: { scrollbars: true, drag: true, wheel: true },
+      move: { scrollbars: true, drag: true, wheel: false },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
@@ -1505,7 +1529,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       trashcan: false,
       scrollbars: true,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      move: { scrollbars: true, drag: true, wheel: true },
+      move: { scrollbars: true, drag: true, wheel: false },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
@@ -1885,7 +1909,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       }}, 'Назва');
 
       const colorInput = u.el('input', { type:'color', value: d.colour || CFG.defaultCustomBlockColour, style:'width:38px;height:34px;border:none;background:transparent;cursor:pointer;' });
-      colorInput.addEventListener('input', ()=>{
+      colorInput.addEventListener('change', ()=>{
         updateDef(d.blockType, { colour: colorInput.value });
         const mainWs = window.workspace || window._workspace;
         mainWs && rebuildCustomCategory(mainWs);
