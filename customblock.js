@@ -1,4 +1,4 @@
-/* customblock.js v2.9.10
+/* customblock.js v2.9.5
    RoboControl - Custom Blocks (Variant B) — "mini-blocks" builder + manager
    Adds (requested): everything except restriction modes.
    - Parameters for custom blocks (fields on the big block) + rc_param value block
@@ -17,7 +17,7 @@
   'use strict';
 
   const RC = window.RC_CUSTOMBLOCK = window.RC_CUSTOMBLOCK || {};
-  const VERSION = 'v2.9.10';
+  const VERSION = 'v2.9.5';
 
 
   // Expose version for debugging
@@ -485,10 +485,6 @@
 .rcModal .body{scrollbar-width:none;-ms-overflow-style:none;}
 .rcModal .body::-webkit-scrollbar{width:0!important;height:0!important;}
 
-.rcCodePane{scrollbar-width:none;-ms-overflow-style:none;}
-.rcCodePane::-webkit-scrollbar{width:0!important;height:0!important;}
-.rcCodePane.grabbing{cursor:grabbing!important;}
-
 /* List rows */
 .rcRow{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid rgba(148,163,184,.12);border-radius:14px;background:rgba(30,41,59,.35);margin-bottom:10px;}
 .rcRow .name{flex:1;color:#e2e8f0;font-weight:950;}
@@ -544,272 +540,54 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 #rcMiniModal .blocklyFlyoutBackground{fill:rgba(2,6,23,.55)!important;}
 #rcMiniModal .blocklyMainBackground{fill:rgba(2,6,23,.35)!important;}
 
-/* Scratch-like navigation:
-   1) Allow panning with "grab" cursor on background
-   2) Keep Blockly scrollbars enabled but invisible (still functional) */
-#view-customblocks .blocklyMainBackground,
-#rcMiniModal .blocklyMainBackground{cursor:grab !important;}
-#view-customblocks .blocklyMainBackground:active,
-#rcMiniModal .blocklyMainBackground:active{cursor:grabbing !important;}
+/* Hide ALL scrollbars inside CustomBlocks (toolbox + flyout + textareas) */
+#view-customblocks .blocklyToolboxDiv,
+#view-customblocks .blocklyToolboxDiv .blocklyToolboxContents,
+#view-customblocks .blocklyToolboxDiv .blocklyTreeRoot,
+#rcMiniModal .blocklyToolboxDiv,
+#rcMiniModal .blocklyToolboxDiv .blocklyToolboxContents,
+#rcMiniModal .blocklyToolboxDiv .blocklyTreeRoot{
+  scrollbar-width:none !important;
+  -ms-overflow-style:none !important;
+}
+#view-customblocks .blocklyToolboxDiv::-webkit-scrollbar,
+#view-customblocks .blocklyToolboxDiv .blocklyToolboxContents::-webkit-scrollbar,
+#view-customblocks .blocklyToolboxDiv .blocklyTreeRoot::-webkit-scrollbar,
+#rcMiniModal .blocklyToolboxDiv::-webkit-scrollbar,
+#rcMiniModal .blocklyToolboxDiv .blocklyToolboxContents::-webkit-scrollbar,
+#rcMiniModal .blocklyToolboxDiv .blocklyTreeRoot::-webkit-scrollbar{
+  width:0 !important;
+  height:0 !important;
+}
 
+/* Hide Blockly SVG scrollbars (workspace scroll handles) */
 #view-customblocks .blocklyScrollbarHorizontal,
 #view-customblocks .blocklyScrollbarVertical,
-#rcMiniModal .blocklyScrollbarHorizontal,
-#rcMiniModal .blocklyScrollbarVertical{opacity:0 !important;}
-
-#view-customblocks .blocklyScrollbarBackground,
 #view-customblocks .blocklyScrollbarHandle,
-#rcMiniModal .blocklyScrollbarBackground,
-#rcMiniModal .blocklyScrollbarHandle{opacity:0 !important;}
+#view-customblocks .blocklyScrollbarBackground,
+#rcMiniModal .blocklyScrollbarHorizontal,
+#rcMiniModal .blocklyScrollbarVertical,
+#rcMiniModal .blocklyScrollbarHandle,
+#rcMiniModal .blocklyScrollbarBackground{
+  opacity:0 !important;
+}
 
-/* Zoom controls overlay (Scratch-like +/-) */
-#view-customblocks .rcZoomCtrl,
-#rcMiniModal .rcZoomCtrl{position:absolute;right:16px;bottom:16px;z-index:40;display:flex;flex-direction:column;gap:10px;pointer-events:auto;}
-#view-customblocks .rcZoomBtn,
-#rcMiniModal .rcZoomBtn{width:40px;height:40px;border-radius:14px;border:1px solid rgba(148,163,184,.16);background:rgba(30,41,59,.78);color:#e2e8f0;font-weight:950;cursor:pointer;}
-#view-customblocks .rcZoomBtn:hover,
-#rcMiniModal .rcZoomBtn:hover{background:rgba(59,130,246,.20);border-color:rgba(96,165,250,.55);}
-
-/* Zoom controls overlay (Scratch-like +/-) */
-#view-customblocks .rcZoomCtrl,
-#rcMiniModal .rcZoomCtrl{position:absolute;right:16px;bottom:16px;z-index:40;display:flex;flex-direction:column;gap:10px;pointer-events:auto;}
-#view-customblocks .rcZoomBtn,
-#rcMiniModal .rcZoomBtn{width:40px;height:40px;border-radius:14px;border:1px solid rgba(148,163,184,.16);background:rgba(30,41,59,.78);color:#e2e8f0;font-weight:950;cursor:pointer;}
-#view-customblocks .rcZoomBtn:hover,
-#rcMiniModal .rcZoomBtn:hover{background:rgba(59,130,246,.20);border-color:rgba(96,165,250,.55);}
+/* Hide textarea scrollbars in our modals (export/import/etc.) */
+.rcModal textarea,
+#rcMiniModal textarea{
+  scrollbar-width:none !important;
+  -ms-overflow-style:none !important;
+}
+.rcModal textarea::-webkit-scrollbar,
+#rcMiniModal textarea::-webkit-scrollbar{
+  width:0 !important;
+  height:0 !important;
+}
 `;
     document.head.appendChild(s);
   }
 
   // ------------------------------------------------------------
-  // Scratch-like panning for Blockly workspaces
-  // Some Blockly builds don't pan on background drag even with move.drag=true.
-  // This helper enables: LMB drag on empty background -> pan (both axes).
-  // ------------------------------------------------------------
-  function enableScratchPan(ws){
-    try{
-      if (!ws || ws.__rcScratchPan) return;
-      ws.__rcScratchPan = true;
-
-      const div = (ws.getInjectionDiv && ws.getInjectionDiv()) || null;
-      if (!div) return;
-      const svg = div.querySelector && div.querySelector('svg.blocklySvg');
-      if (!svg) return;
-
-      let down = false;
-      let lastX = 0, lastY = 0;
-
-      const isIn = (t, sel)=>{
-        try{ return !!(t && t.closest && t.closest(sel)); }catch(e){ return false; }
-      };
-
-      // Start panning when user drags on EMPTY workspace area (background/grid),
-      // but NOT when dragging blocks, flyout/toolbox, scrollbars, widgets, etc.
-      const canStartPan = (t)=>{
-        if (!t) return false;
-
-        if (isIn(t, '.blocklyToolboxDiv')) return false;
-        if (isIn(t, '.blocklyFlyout') || isIn(t, '.blocklyFlyoutWrapper')) return false;
-        if (isIn(t, '.blocklyScrollbarHandle') || isIn(t, '.blocklyScrollbarBackground')) return false;
-        if (isIn(t, '.blocklyWidgetDiv') || isIn(t, '.blocklyDropdownMenu')) return false;
-
-        // Don't start pan if click is on a block (draggable group)
-        if (isIn(t, '.blocklyDraggable')) return false;
-
-        // Background / grid / svg area
-        if (t.classList && t.classList.contains('blocklyMainBackground')) return true;
-        if (isIn(t, '.blocklyMainBackground')) return true;
-        if (t.classList && (t.classList.contains('blocklyGridLine') || t.classList.contains('blocklyGridPattern'))) return true;
-
-        // Fallback: if it's inside the main SVG and not blocked above, allow panning.
-        return true;
-      };
-
-      const scrollBy = (dx, dy)=>{
-        if (typeof ws.scroll === 'function'){
-          ws.scroll(dx, dy);
-          return;
-        }
-        const sb = ws.scrollbar;
-        if (sb && typeof sb.set === 'function'){
-          const curX = (typeof sb.x === 'number') ? sb.x : 0;
-          const curY = (typeof sb.y === 'number') ? sb.y : 0;
-          sb.set(curX + dx, curY + dy);
-        }
-      };
-
-      const onDown = (e)=>{
-        if (e.button !== 0) return;
-        if (!canStartPan(e.target)) return;
-        down = true;
-        lastX = e.clientX;
-        lastY = e.clientY;
-        e.preventDefault();
-        e.stopPropagation();
-      };
-
-      const onMove = (e)=>{
-        if (!down) return;
-        const dx = e.clientX - lastX;
-        const dy = e.clientY - lastY;
-        lastX = e.clientX;
-        lastY = e.clientY;
-        // Drag right/down -> camera follows pointer (map style), so scroll opposite
-        scrollBy(-dx, -dy);
-        e.preventDefault();
-      };
-
-      const onUp = ()=>{ down = false; };
-
-      svg.addEventListener('mousedown', onDown, true);
-      window.addEventListener('mousemove', onMove, { passive:false });
-      window.addEventListener('mouseup', onUp, true);
-    }catch(e){}
-  }
-
-  
-  // ------------------------------------------------------------
-  // Scratch-like wheel behavior for Blockly
-  // - Wheel pans the workspace (like Scratch)
-  // - Shift+Wheel pans horizontally
-  // - Ctrl/Meta+Wheel zooms the WORKSPACE (and blocks browser zoom)
-  // ------------------------------------------------------------
-  function enableScratchWheel(ws){
-    try{
-      if (!ws || ws.__rcScratchWheel) return;
-      ws.__rcScratchWheel = true;
-
-      const div = (ws.getInjectionDiv && ws.getInjectionDiv()) || null;
-      if (!div) return;
-      const svg = div.querySelector && div.querySelector('svg.blocklySvg');
-      if (!svg) return;
-
-      const isIn = (t, sel)=>{
-        try{ return !!(t && t.closest && t.closest(sel)); }catch(e){ return false; }
-      };
-
-      // Handle wheel only over MAIN workspace, not toolbox/flyout (so they can scroll)
-      const isWorkspaceWheel = (t)=>{
-        if (!t) return false;
-        if (isIn(t, '.blocklyToolboxDiv')) return false;
-        if (isIn(t, '.blocklyFlyout') || isIn(t, '.blocklyFlyoutWrapper')) return false;
-        if (isIn(t, '.blocklyScrollbarHandle') || isIn(t, '.blocklyScrollbarBackground')) return false;
-        return true;
-      };
-
-      const scrollBy = (dx, dy)=>{
-        if (typeof ws.scroll === 'function'){
-          ws.scroll(dx, dy);
-          return;
-        }
-        const sb = ws.scrollbar;
-        if (sb && typeof sb.set === 'function'){
-          const curX = (typeof sb.x === 'number') ? sb.x : 0;
-          const curY = (typeof sb.y === 'number') ? sb.y : 0;
-          sb.set(curX + dx, curY + dy);
-        }
-      };
-
-      const zoomAt = (clientX, clientY, amount)=>{
-        try{
-          const rect = svg.getBoundingClientRect();
-          const x = clientX - rect.left;
-          const y = clientY - rect.top;
-          if (typeof ws.zoom === 'function') ws.zoom(x, y, amount);
-          else if (typeof ws.zoomCenter === 'function') ws.zoomCenter(amount);
-        }catch(e){}
-      };
-
-      const onWheel = (e)=>{
-        if (!isWorkspaceWheel(e.target)) return;
-
-        // Prevent page scroll/zoom when the pointer is over workspace
-        e.preventDefault();
-        e.stopPropagation();
-
-        const mul = (e.deltaMode === 1) ? 16 : (e.deltaMode === 2 ? 120 : 1);
-        const dx0 = (e.deltaX || 0) * mul;
-        const dy0 = (e.deltaY || 0) * mul;
-
-        // Ctrl/Meta + wheel => zoom workspace
-        if (e.ctrlKey || e.metaKey){
-          const amount = (dy0 < 0) ? 1 : -1;
-          zoomAt(e.clientX, e.clientY, amount);
-          return;
-        }
-
-        // Shift + wheel => horizontal pan
-        if (e.shiftKey){
-          const dx = (Math.abs(dx0) > 0 ? dx0 : dy0);
-          scrollBy(dx, 0);
-          return;
-        }
-
-        // Normal wheel => pan (trackpads can include dx)
-        scrollBy(dx0, dy0);
-      };
-
-      div.addEventListener('wheel', onWheel, { capture:true, passive:false });
-    }catch(e){}
-  }
-
-  // ------------------------------------------------------------
-  // Zoom controls overlay (like Scratch +/-)
-  // Adds small + / - / home buttons on the workspace (bottom-right).
-  // ------------------------------------------------------------
-  function attachZoomControls(ws, opts){
-    try{
-      if (!ws || ws.__rcZoomCtrl) return;
-      ws.__rcZoomCtrl = true;
-      opts = opts || {};
-      const startScale = (typeof opts.startScale === 'number') ? opts.startScale : 0.95;
-
-      const div = (ws.getInjectionDiv && ws.getInjectionDiv()) || null;
-      if (!div) return;
-
-      // Ensure overlay positioning works
-      const cs = window.getComputedStyle(div);
-      if (cs.position === 'static') div.style.position = 'relative';
-
-      const wrap = document.createElement('div');
-      wrap.className = 'rcZoomCtrl';
-
-      const mk = (label, title, fn)=>{
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'rcZoomBtn';
-        b.textContent = label;
-        b.title = title;
-        b.addEventListener('click', (e)=>{
-          e.preventDefault(); e.stopPropagation();
-          try{ fn(); }catch(_){}
-        }, true);
-        return b;
-      };
-
-      const zoomCenter = (amount)=>{
-        try{
-          if (typeof ws.zoomCenter === 'function') { ws.zoomCenter(amount); return; }
-          const host = div.querySelector && div.querySelector('svg.blocklySvg');
-          if (host && typeof ws.zoom === 'function'){
-            const r = host.getBoundingClientRect();
-            ws.zoom(r.width/2, r.height/2, amount);
-          }
-        }catch(e){}
-      };
-
-      wrap.appendChild(mk('+', 'Приблизити', ()=> zoomCenter(1)));
-      wrap.appendChild(mk('–', 'Віддалити', ()=> zoomCenter(-1)));
-      wrap.appendChild(mk('⌂', 'Скинути вигляд', ()=>{
-        try{ if (typeof ws.setScale === 'function') ws.setScale(startScale); }catch(e){}
-        try{ if (typeof ws.scrollCenter === 'function') ws.scrollCenter(); }catch(e){}
-      }));
-
-      div.appendChild(wrap);
-    }catch(e){}
-  }
-
-// ------------------------------------------------------------
   // Toolbox category: ⭐ Мої блоки
   // ------------------------------------------------------------
   function ensureCustomCategory(){
@@ -1472,8 +1250,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       ])
     ]);
 
-    // Preview area (keep empty when nothing generated)
-    miniUI.pre = u.el('pre', {}, '');
+    miniUI.pre = u.el('pre', {}, '// (empty)');
     const copyBtn = u.el('button', {
       class:'btn',
       style:'align-self:flex-start;',
@@ -1554,17 +1331,11 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       toolboxPosition: 'start',
       trashcan: false,
       scrollbars: true,
-      // Scratch-like: mouse wheel pans (move.wheel), not zoom.
-      zoom: { controls: false, wheel: false, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      move: { scrollbars: true, drag: true, wheel: true },
+      zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
+      move: { scrollbars: true, drag: true, wheel: false },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
-
-    // Scratch-like navigation (pan + zoom)
-    enableScratchPan(miniUI.ws);
-    enableScratchWheel(miniUI.ws);
-    attachZoomControls(miniUI.ws, { startScale: 0.95 });
 
     // Force dark toolbox/flyout for Mini-Blockly too
     try{
@@ -1581,7 +1352,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     const updatePreview = u.debounce(()=>{
       try{
         const jsGen = Blockly.JavaScript || Blockly.javascriptGenerator;
-        miniUI.pre.textContent = (jsGen && miniUI.ws) ? ((jsGen.workspaceToCode(miniUI.ws) || '').trim() || '') : '';
+        miniUI.pre.textContent = (jsGen && miniUI.ws) ? ((jsGen.workspaceToCode(miniUI.ws) || '').trim() || '// (empty)') : '// (no generator)';
       }catch(e){ miniUI.pre.textContent='// (error)'; }
     }, 100);
     miniUI.ws.addChangeListener(updatePreview);
@@ -1773,17 +1544,11 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       toolboxPosition: 'start',
       trashcan: false,
       scrollbars: true,
-      // Scratch-like: mouse wheel pans (move.wheel), not zoom.
-      zoom: { controls: false, wheel: false, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      move: { scrollbars: true, drag: true, wheel: true },
+      zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
+      move: { scrollbars: true, drag: true, wheel: false },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
-
-    // Scratch-like navigation (pan + zoom)
-    enableScratchPan(builder.ws);
-    enableScratchWheel(builder.ws);
-    attachZoomControls(builder.ws, { startScale: 0.95 });
 
     // Force dark toolbox/flyout in case global styles override theme (index styles can be aggressive)
     try{
@@ -3008,35 +2773,6 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
   // ------------------------------------------------------------
   const cUI = { backdrop:null, modal:null, tabs:null, area:null };
 
-
-function enablePanScroll(el){
-  if (!el || el._rcPanBound) return;
-  el._rcPanBound = true;
-  let down = false;
-  let sx = 0, sy = 0, sl = 0, st = 0;
-  el.addEventListener('mousedown', (e)=>{
-    if (e.button !== 0) return;
-    down = true;
-    sx = e.clientX; sy = e.clientY;
-    sl = el.scrollLeft; st = el.scrollTop;
-    el.classList.add('grabbing');
-    e.preventDefault();
-  });
-  window.addEventListener('mousemove', (e)=>{
-    if (!down) return;
-    const dx = e.clientX - sx;
-    const dy = e.clientY - sy;
-    el.scrollLeft = sl - dx;
-    el.scrollTop  = st - dy;
-  });
-  window.addEventListener('mouseup', ()=>{
-    if (!down) return;
-    down = false;
-    el.classList.remove('grabbing');
-  });
-}
-
-
   let _cArtifacts = null;
   let _cTab = 'c';
   let _cMainPatched = null;
@@ -3089,12 +2825,8 @@ function enablePanScroll(el){
       'Згенеровано для STM32 HAL (CubeMX). 1) Налаштуй мапінг в rc_board_conf.h, 2) додай файли в проект, 3) (опціонально) Load main.c → отримаєш main.c з вставленими USER CODE (init/step).'
     ));
 
-    
-cUI.area = u.el('div', { class:'rcCodePane', style:'flex:1; width:100%; min-height:0; background:rgba(2,6,23,.55); color:#e2e8f0; border:1px solid rgba(148,163,184,.14); border-radius:14px; padding:12px; outline:none; overflow:auto; cursor:grab; user-select:none;' });
-cUI.pre = u.el('pre', { class:'rcCodePre', style:'margin:0; min-height:100%; white-space:pre; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; line-height:1.4;' }, '');
-cUI.area.appendChild(cUI.pre);
-enablePanScroll(cUI.area);
-body.appendChild(cUI.area);
+    cUI.area = u.el('textarea', { style:'flex:1; width:100%; min-height:0; resize:none; background:rgba(2,6,23,.55); color:#e2e8f0; border:1px solid rgba(148,163,184,.14); border-radius:14px; padding:12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; line-height:1.4; outline:none; overflow:auto;' });
+    body.appendChild(cUI.area);
 
     cUI.modal.appendChild(header);
     cUI.modal.appendChild(bar);
@@ -3142,41 +2874,19 @@ body.appendChild(cUI.area);
     if (!cUI.area) return;
     const a = _cArtifacts || {};
     const map = { c: a.c || '', h: a.h || '', platc: a.platformC || '', plath: a.platformH || '', board: a.boardConfH || '', main: a.mainC || _cMainPatched || '' };
-    const txt = map[_cTab] || '';
-    if (cUI.pre) cUI.pre.textContent = txt;
-    else cUI.area.value = txt;
+    cUI.area.value = map[_cTab] || '';
     // highlight active tab
     for (const [k,btn] of Object.entries(cUI.tabs||{})){
       btn.classList.toggle('primary', k===_cTab);
     }
   }
 
-  
-function copyCText(){
-  try{
-    const txt = (cUI.pre ? cUI.pre.textContent : cUI.area.value) || '';
-    if (navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(txt).catch(()=> _rcFallbackCopy(txt));
-    }else{
-      _rcFallbackCopy(txt);
-    }
-  }catch(e){}
-}
-
-function _rcFallbackCopy(txt){
-  try{
-    const ta = document.createElement('textarea');
-    ta.value = String(txt||'');
-    ta.setAttribute('readonly','');
-    ta.style.position='fixed';
-    ta.style.left='-9999px';
-    ta.style.top='0';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    ta.remove();
-  }catch(e){}
-}
+  function copyCText(){
+    try{
+      cUI.area.select();
+      document.execCommand('copy');
+    }catch(e){}
+  }
 
   function downloadText(filename, content){
     const blob = new Blob([content], {type:'text/plain;charset=utf-8'});
@@ -3392,6 +3102,7 @@ place(/\.c$/i,'_patched.c');
     structLines.push(`} rc_cb_${id}_params_t;`);
 
     const h = [
+      '/* Auto-generated by customblock.js ' + VERSION + ' */',
       '#ifndef ' + guard,
       '#define ' + guard,
       '',
@@ -3410,7 +3121,10 @@ place(/\.c$/i,'_patched.c');
     const cBody = jsToC(jsCode);
 
     const c = [
-      '#include "main.h"',
+      '/* Auto-generated by customblock.js ' + VERSION + ' */',
+      '/* Block: ' + blockName + ' */',
+      '',
+      '#include "main.h"  // STM32Cube HAL',
       '#include "rc_platform.h"',
       '#include "' + ('rc_cb_' + id + '.h') + '"',
       '',
@@ -3426,7 +3140,10 @@ place(/\.c$/i,'_patched.c');
       '',
       'void rc_cb_' + id + '(const rc_cb_' + id + '_params_t* p){',
       '  (void)p;',
-      (cBody ? cBody.split('\n').map(l=>'  ' + l).join('\n') : ''),
+      '  // NOTE: This body is converted from the JS generator output.',
+      '  // Adjust types and replace rc_* hooks with your real motor/sensor drivers.',
+      '',
+      (cBody ? cBody.split('\n').map(l=>'  ' + l).join('\n') : '  // (empty)'),
       '',
       '}',
       ''
