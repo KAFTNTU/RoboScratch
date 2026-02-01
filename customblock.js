@@ -816,7 +816,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       div.style.position='fixed'; div.style.left='-99999px'; div.style.top='-99999px';
       div.style.width='10px'; div.style.height='10px'; div.style.opacity='0';
       document.body.appendChild(div);
-      hiddenWs = Blockly.inject(div, { toolbox:'<xml></xml>', readOnly:false, scrollbars:false, trashcan:false });
+      hiddenWs = Blockly.inject(div, { toolbox:'<xml></xml>', readOnly:false, scrollbars: true, trashcan:false });
       return hiddenWs;
     }
 
@@ -1098,7 +1098,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
 
       let tmpWs = null;
       try{
-        tmpWs = Blockly.inject(div, { toolbox:'<xml></xml>', readOnly:false, scrollbars:false, trashcan:false });
+        tmpWs = Blockly.inject(div, { toolbox:'<xml></xml>', readOnly:false, scrollbars: true, trashcan:false });
         if (def.program && def.program.kind === 'json' && Blockly.serialization?.workspaces?.load){
           Blockly.serialization.workspaces.load(def.program.payload, tmpWs);
         } else if (def.program && def.program.kind === 'xml'){
@@ -1313,9 +1313,9 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       trashcan: false,
       // Remove Blockly scrollbars for mini-editor too (cleaner UI).
       // Workspace still pans with drag + wheel.
-      scrollbars: false,
+      scrollbars: true,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      move: { scrollbars: false, drag: true, wheel: false },
+      move: { scrollbars: true, drag: true, wheel: false },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
@@ -1528,9 +1528,9 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       trashcan: false,
       // Remove Blockly scrollbars completely (looks cleaner than CSS-hiding).
       // Workspace still pans with drag + wheel.
-      scrollbars: false,
+      scrollbars: true,
       zoom: { controls: false, wheel: true, startScale: 0.95, maxScale: 2, minScale: 0.5, scaleSpeed: 1.1 },
-      move: { scrollbars: false, drag: true, wheel: false },
+      move: { scrollbars: true, drag: true, wheel: false },
       grid: { spacing: 26, length: 3, colour: 'rgba(148,163,184,.22)', snap: true },
       renderer: 'zelos'
     });
@@ -2176,7 +2176,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
         tmpDiv.style.width='10px'; tmpDiv.style.height='10px'; tmpDiv.style.opacity='0';
         document.body.appendChild(tmpDiv);
 
-        const ws = Blockly.inject(tmpDiv, { toolbox:'<xml></xml>', readOnly:false, scrollbars:false, trashcan:false });
+        const ws = Blockly.inject(tmpDiv, { toolbox:'<xml></xml>', readOnly:false, scrollbars: true, trashcan:false });
 
         if (kind === 'stmt' && Blockly.Blocks?.start_hat){
           const start = ws.newBlock('start_hat');
