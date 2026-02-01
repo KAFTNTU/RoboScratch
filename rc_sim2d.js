@@ -4971,21 +4971,119 @@
   ];
   const DEFAULT_DIST = { name:'D1', x: 50, y:0, angDeg: 0 };
 
-  const STORAGE_KEY = 'rc_sim2d_v1';
+  const STORAGE_KEY = 'rc_sim2d_v2';
+  const STORAGE_KEY_OLD = 'rc_sim2d_v1';
+  const STORAGE_SOFT_LIMIT = 850 * 1024; // ~850KB: keep room for user blocks in localStorage
+
+  function safeStorageGet(k){
+    try{ return window.localStorage.getItem(k); }catch(e){ return null; }
+  }
+  function safeStorageRemove(k){
+    try{ window.localStorage.removeItem(k); }catch(e){}
+  }
+  function safeStorageSet(k,v){
+    try{
+      window.localStorage.setItem(k,v);
+      return true;
+    }catch(e){
+      // Quota exceeded or storage blocked. Try to free the old state and retry once.
+      try{
+        const name = (e && e.name) ? String(e.name) : '';
+        const code = (e && typeof e.code === 'number') ? e.code : -1;
+        const quota = (name === 'QuotaExceededError' || code === 22 || code === 1014);
+        if(quota){
+          safeStorageRemove(STORAGE_KEY_OLD);
+          try{
+            window.localStorage.setItem(k,v);
+            return true;
+          }catch(_e2){}
+        }
+      }catch(_){}
+      return false;
+    }
+  }
+
+  function compactUserTrack(ut, maxPointsTotal){
+    maxPointsTotal = Math.max(200, maxPointsTotal|0 || 900);
+    if(!ut || !Array.isArray(ut.strokes)) return ut;
+    const strokes = ut.strokes;
+    // Count points
+    let total = 0;
+    for(const s of strokes) total += (Array.isArray(s) ? s.length : 0);
+    if(total <= maxPointsTotal) return ut;
+
+    const out = { strokes: [] };
+    const perStrokeMin = 50;
+    const perStrokeMax = Math.max(perStrokeMin, Math.floor(maxPointsTotal / Math.max(1, strokes.length)));
+    for(const s of strokes){
+      const arr = Array.isArray(s) ? s : [];
+      if(arr.length <= perStrokeMax){
+        out.strokes.push(arr);
+        continue;
+      }
+      const keep = Math.max(perStrokeMin, perStrokeMax);
+      const step = Math.max(1, Math.ceil(arr.length / keep));
+      const ds = [];
+      for(let i=0;i<arr.length;i+=step) ds.push(arr[i]);
+      // Ensure last point kept
+      if(ds.length && ds[ds.length-1] !== arr[arr.length-1]) ds.push(arr[arr.length-1]);
+      out.strokes.push(ds);
+    }
+    return out;
+  }
+
+  function pruneStateForStorage(state){
+    // clone shallow
+    const s = JSON.parse(JSON.stringify(state || {}));
+    // Compact user track aggressively (it can be huge if you draw a lot)
+    if(s.userTrack) s.userTrack = compactUserTrack(s.userTrack, 900);
+    // Drop big debug logs if any
+    if(s.log && Array.isArray(s.log) && s.log.length > 300) s.log = s.log.slice(-300);
+    return s;
+  }
 
   function loadState(){
+    const raw2 = safeStorageGet(STORAGE_KEY);
+    const raw1 = raw2 ? null : safeStorageGet(STORAGE_KEY_OLD);
+    const raw = raw2 || raw1;
+    if(!raw) return null;
+
     try{
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if(!raw) return null;
-      const s = JSON.parse(raw);
-      if(!s || typeof s !== 'object') return null;
-      return s;
-    }catch(e){ return null; }
+      const parsed = JSON.parse(raw);
+      // If it came from the old key, migrate (and prune).
+      if(raw1){
+        const pruned = pruneStateForStorage(parsed);
+        try{
+          safeStorageSet(STORAGE_KEY, JSON.stringify(pruned));
+          safeStorageRemove(STORAGE_KEY_OLD);
+        }catch(_){}
+        return pruned;
+      }
+      return parsed;
+    }catch(e){
+      // Corrupted state -> remove it to avoid breaking other saves
+      safeStorageRemove(STORAGE_KEY);
+      safeStorageRemove(STORAGE_KEY_OLD);
+      return null;
+    }
   }
+
   function saveState(s){
+    const pruned = pruneStateForStorage(s);
+    let raw = '';
     try{
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-    }catch(e){}
+      raw = JSON.stringify(pruned);
+    }catch(e){
+      return;
+    }
+
+    // If still too big, drop userTrack and retry (keep the sim usable & don't kill localStorage).
+    if(raw.length > STORAGE_SOFT_LIMIT){
+      const smaller = JSON.parse(JSON.stringify(pruned));
+      smaller.userTrack = { strokes: [] };
+      try{ raw = JSON.stringify(smaller); }catch(_){}
+    }
+    safeStorageSet(STORAGE_KEY, raw);
   }
 
   // ---------------------------------------------------------------------------
@@ -5544,7 +5642,9 @@
     const side = el('div', { class:'rcSimSide' });
 
     const trackSel = el('select', {});
+    const HIDDEN = new Set(['maze','spiral']);
     Object.values(BUILTIN_TRACKS).forEach(t=>{
+      if(HIDDEN.has(t.key)) return;
       trackSel.appendChild(el('option', { value:t.key }, t.name));
     });
 
@@ -5841,7 +5941,7 @@
       trackKey: sim.trackKey,
       sensors: sim.sensors.map(s=>({name:s.name,x:s.x,y:s.y})),
       dist: { ...sim.dist },
-      userTrack: sim.userTrack,
+      userTrack: compactUserTrack(sim.userTrack, 900),
       view: { ...sim.view },
       prefs: {
         editSensors: !!(sim.dom && sim.dom.editSensors),
