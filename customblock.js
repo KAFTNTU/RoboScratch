@@ -19,6 +19,29 @@
   const RC = window.RC_CUSTOMBLOCK = window.RC_CUSTOMBLOCK || {};
   const VERSION = 'v2.9.4';
 
+
+  // Expose version for debugging
+  RC.version = VERSION;
+
+  // Builder state holder (was missing in some broken uploads)
+  const builder = RC.builder = RC.builder || {};
+
+  // Safe storage wrapper (prevents crashes when Tracking Prevention blocks storage)
+  const store = (function(){
+    const s = { ok: true, warned: false };
+    s.get = function(k){
+      try{ return window.localStorage.getItem(k); }catch(e){ s.ok = false; return null; }
+    };
+    s.set = function(k,v){
+      try{ window.localStorage.setItem(k,v); }catch(e){ s.ok = false; }
+    };
+    s.remove = function(k){
+      try{ window.localStorage.removeItem(k); }catch(e){ s.ok = false; }
+    };
+    return s;
+  })();
+
+
   const CFG = {
     storageKeyBlocks: 'rc_cb_blocks_v2',
     storageKeyDraft: 'rc_cb_builder_draft_v2',
@@ -222,6 +245,18 @@
     toastT = setTimeout(()=>{ el.style.display='none'; }, 1400);
   }
 
+  // Warn once if browser blocks storage (then saving won't persist)
+  function warnStorageIfNeeded(){
+    try{
+      if (!store.ok && !store.warned){
+        store.warned = true;
+        toast('⚠️ Браузер блокує сховище (Tracking Prevention) — збереження може не працювати. Відкрий сайт у звичайному браузері/вкладці без блокування.');
+      }
+    }catch(e){}
+  }
+
+
+
   // ------------------------------------------------------------
   // Storage + defs map
   // ------------------------------------------------------------
@@ -230,11 +265,11 @@
   RC._currentParamOptions = []; // for rc_param dropdown in config modal
 
   function loadBlocks(){
-    const raw = localStorage.getItem(CFG.storageKeyBlocks);
+    const raw = store.get(CFG.storageKeyBlocks);
     const data = u.jparse(raw, []);
     return Array.isArray(data) ? data : [];
   }
-  function saveBlocks(arr){ localStorage.setItem(CFG.storageKeyBlocks, u.jstring(arr || [])); }
+  function saveBlocks(arr){ store.set(CFG.storageKeyBlocks, u.jstring(arr || [])); }
   function rebuildDefsMap(){
     RC._defsByType.clear();
     for (const d of loadBlocks()){
@@ -1078,12 +1113,12 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       label: block.getFieldValue('LABEL') || '',
       data: block.data || ''
     };
-    localStorage.setItem(CFG.storageKeyClipboard, u.jstring(state));
+    store.set(CFG.storageKeyClipboard, u.jstring(state));
     toast('Стан скопійовано');
   }
   function pasteMiniState(block){
     if (!block) return;
-    const raw = localStorage.getItem(CFG.storageKeyClipboard);
+    const raw = store.get(CFG.storageKeyClipboard);
     const st = u.jparse(raw, null);
     if (!st) return toast('Буфер порожній');
 
@@ -1541,14 +1576,14 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       params: getBuilderParams(),
       program: payload
     };
-    localStorage.setItem(getDraftKey(), u.jstring(draft));
+    store.set(getDraftKey(), u.jstring(draft));
 
     // Also push to short history list (only when meaningful)
     pushHistorySnapshot(draft);
   }
 
   function loadDraft(){
-    const raw = localStorage.getItem(getDraftKey());
+    const raw = store.get(getDraftKey());
     const d = u.jparse(raw, null);
     if (!d) return false;
     applyDraft(d);
@@ -1579,12 +1614,12 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     return CFG.storageKeyHistoryPrefix + (builder.editingType || 'new');
   }
   function getHistory(){
-    const raw = localStorage.getItem(historyKey());
+    const raw = store.get(historyKey());
     const arr = u.jparse(raw, []);
     return Array.isArray(arr) ? arr : [];
   }
   function setHistory(arr){
-    localStorage.setItem(historyKey(), u.jstring(arr || []));
+    store.set(historyKey(), u.jstring(arr || []));
   }
   function pushHistorySnapshot(draft){
     // push only if changed enough (basic hash)
@@ -3024,14 +3059,14 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     const m = h.match(/#cb=([A-Za-z0-9\-_]+)/);
     if (!m) return;
     const b64 = m[1];
-    const already = localStorage.getItem(CFG.storageKeyImportedHash);
+    const already = store.get(CFG.storageKeyImportedHash);
     if (already === b64) return;
     const txt = u.b64dec(b64);
     if (!txt) return;
     const ok = confirm('Імпортувати кастомні блоки з лінка?');
     if (!ok) return;
     importDefsFromText(txt);
-    localStorage.setItem(CFG.storageKeyImportedHash, b64);
+    store.set(CFG.storageKeyImportedHash, b64);
   }
 
   // ------------------------------------------------------------
@@ -3049,6 +3084,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     if (!Blockly || !ws) return false;
 
     injectCss();
+    warnStorageIfNeeded();
     hookSwitchView();
     ensureCustomBlocksView();
 
