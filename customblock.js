@@ -1,4 +1,4 @@
-/* customblock.js v2.8
+/* customblock.js v2.9.4
    RoboControl - Custom Blocks (Variant B) — "mini-blocks" builder + manager
    Adds (requested): everything except restriction modes.
    - Parameters for custom blocks (fields on the big block) + rc_param value block
@@ -16,20 +16,8 @@
 (function(){
   'use strict';
 
-  // Auto-load dedicated STM32 generator if present (index keeps only customblock.js)
-  (function(){
-    try{
-      if (window.RC_STM32_CGEN) return;
-      var s = document.createElement('script');
-      s.src = 'stm32_cgen.js';
-      s.async = true;
-      document.head.appendChild(s);
-    }catch(e){}
-  })();
-
-
   const RC = window.RC_CUSTOMBLOCK = window.RC_CUSTOMBLOCK || {};
-  const VERSION = 'v2.9';
+  const VERSION = 'v2.9.4';
 
   const CFG = {
     storageKeyBlocks: 'rc_cb_blocks_v2',
@@ -44,6 +32,25 @@
     uiZ: 96,
     maxHistory: 14
   };
+
+  // ------------------------------------------------------------
+  // Optional: auto-load STM32 generator (stm32_cgen.js)
+  // NOTE: index must include ONLY customblock.js; this file can load extras.
+  // ------------------------------------------------------------
+  (function loadStm32Cgen(){
+    try{
+      if (window.RC_STM32_CGEN) return;
+      const existing = Array.from(document.scripts || []).some(s => (s.src || '').endsWith('/stm32_cgen.js') || (s.src || '').endsWith('stm32_cgen.js'));
+      if (existing) return;
+      const s = document.createElement('script');
+      s.src = 'stm32_cgen.js';
+      s.async = true;
+      s.onload = ()=>{ try{ console.log('[RC_CUSTOMBLOCK] stm32_cgen.js loaded'); }catch(e){} };
+      s.onerror = ()=>{ try{ console.warn('[RC_CUSTOMBLOCK] stm32_cgen.js not found (optional)'); }catch(e){} };
+      document.head.appendChild(s);
+    }catch(e){}
+  })();
+
 
   // ------------------------------------------------------------
   // Desktop detect (PC only)
@@ -613,18 +620,33 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       input.appendField(field, 'GEAR');
     }
 
+    
+    // NOTE: In this build we DO NOT expose WRAP_TYPE dropdown anymore.
+    // Mini blocks store a whole inner-workspace (JSON/XML) in block.data.
     Blockly.Blocks['rc_mini'] = {
       init: function(){
         const input = this.appendDummyInput();
         input.appendField('🧩')
-          .appendField(new Blockly.FieldTextInput('mini'), 'LABEL')
-          .appendField(new Blockly.FieldDropdown(getAllBlockTypesDropdown), 'WRAP_TYPE');
+          .appendField(new Blockly.FieldTextInput('mini'), 'LABEL');
         addGearField(input, ()=>this);
         this.setPreviousStatement(true, null);
         this.setNextStatement(true, null);
         this.setColour('#64748B');
-        this.setTooltip('Міні-блок: обгортає існуючий блок і зберігає його стан');
+        this.setTooltip('Міні-блок: зберігає маленький фрагмент програми (внутрішній workspace)');
         this.data = this.data || '';
+        // Persist internal state in workspace serialization:
+        this.saveExtraState = ()=>({ rcMini: this.data || '' });
+        this.loadExtraState = (st)=>{ if (st && typeof st.rcMini === 'string') this.data = st.rcMini; };
+        // Back-compat for XML-only builds:
+        this.mutationToDom = ()=>{
+          const m = document.createElement('mutation');
+          m.setAttribute('rcMini', this.data || '');
+          return m;
+        };
+        this.domToMutation = (xml)=>{
+          const v = xml && xml.getAttribute && xml.getAttribute('rcMini');
+          if (v !== null && v !== undefined) this.data = v;
+        };
       }
     };
 
@@ -632,15 +654,26 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       init: function(){
         const input = this.appendDummyInput();
         input.appendField('🔹')
-          .appendField(new Blockly.FieldTextInput('val'), 'LABEL')
-          .appendField(new Blockly.FieldDropdown(getAllBlockTypesDropdown), 'WRAP_TYPE');
+          .appendField(new Blockly.FieldTextInput('val'), 'LABEL');
         addGearField(input, ()=>this);
         this.setOutput(true, null);
         this.setColour('#475569');
-        this.setTooltip('Міні-значення: обгортає value-блок і зберігає його стан');
+        this.setTooltip('Міні-значення: зберігає value-вираз (внутрішній workspace)');
         this.data = this.data || '';
+        this.saveExtraState = ()=>({ rcMini: this.data || '' });
+        this.loadExtraState = (st)=>{ if (st && typeof st.rcMini === 'string') this.data = st.rcMini; };
+        this.mutationToDom = ()=>{
+          const m = document.createElement('mutation');
+          m.setAttribute('rcMini', this.data || '');
+          return m;
+        };
+        this.domToMutation = (xml)=>{
+          const v = xml && xml.getAttribute && xml.getAttribute('rcMini');
+          if (v !== null && v !== undefined) this.data = v;
+        };
       }
     };
+
 
     // Parameter block (value)
     Blockly.Blocks['rc_param'] = {
@@ -765,43 +798,137 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       return b;
     }
 
-    RC._miniSerialize = serializeBlock;
-    RC._miniDeserializeTo = deserializeBlockTo;
+    // Workspace-level serialization for mini blocks (preferred).
+    function serializeWorkspace(ws){
+      try{
+        if (Blockly.serialization?.workspaces?.save){
+          return { kind:'wsjson', payload: Blockly.serialization.workspaces.save(ws) };
+        }
+      }catch(e){}
+      try{
+        const xml = Blockly.Xml.workspaceToDom(ws);
+        return { kind:'wsxml', payload: Blockly.Xml.domToText(xml) };
+      }catch(e){}
+      return { kind:'wsxml', payload: '<xml></xml>' };
+    }
+
+    function deserializeWorkspaceTo(ws, stateObj){
+      if (!ws) return;
+      try { ws.clear(); } catch(e){}
+      if (!stateObj) return;
+
+      // New explicit kinds
+      const kind = stateObj.kind;
+      if ((kind === 'wsjson') || (kind === 'json' && stateObj.payload && stateObj.payload.blocks)){
+        if (Blockly.serialization?.workspaces?.load){
+          try{ Blockly.serialization.workspaces.load(stateObj.payload, ws); return; }catch(e){}
+        }
+      }
+      if ((kind === 'wsxml') || (kind === 'xml' && typeof stateObj.payload === 'string' && stateObj.payload.trim().startsWith('<xml'))){
+        try{
+          const dom = Blockly.Xml.textToDom(stateObj.payload);
+          Blockly.Xml.domToWorkspace(dom, ws);
+          return;
+        }catch(e){}
+      }
+
+      // Legacy single-block formats (block json/xml)
+      if (kind === 'json' && Blockly.serialization?.blocks?.load){
+        try{ Blockly.serialization.blocks.load(stateObj.payload, ws); return; }catch(e){}
+      }
+      if (kind === 'xml' && typeof stateObj.payload === 'string'){
+        try{
+          const dom = Blockly.Xml.textToDom(stateObj.payload);
+          Blockly.Xml.domToBlock(dom, ws);
+          return;
+        }catch(e){}
+      }
+    }
+
+    RC._miniSerialize = serializeBlock;         // legacy: one block
+    RC._miniDeserializeTo = deserializeBlockTo; // legacy: one block
+    RC._miniSerializeWS = serializeWorkspace;   // new: whole workspace
+    RC._miniDeserializeWS = deserializeWorkspaceTo;
+
 
     jsGen.forBlock = jsGen.forBlock || {};
 
+    
+    // Helper: load mini state (workspace JSON/XML OR legacy single-block JSON/XML) into a workspace.
+    function loadMiniStateIntoWs(ws, state){
+      if (!ws) return;
+      try { ws.clear(); } catch(e){}
+      if (!state) return;
+
+      // Preferred (new): workspace serialization
+      if (RC._miniDeserializeWS){
+        try { RC._miniDeserializeWS(ws, state); return; } catch(e){}
+      }
+
+      // Legacy: single block serialization
+      try{
+        if (state.kind === 'json' && Blockly.serialization?.blocks?.load){
+          Blockly.serialization.blocks.load(state.payload, ws);
+          return;
+        }
+      }catch(e){}
+      try{
+        if (state.kind === 'xml' && typeof state.payload === 'string'){
+          const dom = Blockly.Xml.textToDom(state.payload);
+          ws.clear();
+          Blockly.Xml.domToBlock(dom, ws);
+          return;
+        }
+      }catch(e){}
+    }
+
     jsGen.forBlock['rc_mini'] = function(block, generator){
-      const wrapType = block.getFieldValue('WRAP_TYPE');
       const state = u.jparse(block.data || '', null);
       const ws = ensureHiddenWs();
-      const real = deserializeBlockTo(ws, wrapType, state);
+      loadMiniStateIntoWs(ws, state);
+
       let code = '';
-      if (real){
-        try{ code = (jsGen.blockToCode ? jsGen.blockToCode(real) : generator.blockToCode(real)) || ''; }catch(e){ code=''; }
-      }
-      if (Array.isArray(code)) code = code[0] || '';
+      try{
+        // workspaceToCode outputs code for all top blocks (safe for stacks under start_hat)
+        code = (jsGen.workspaceToCode ? jsGen.workspaceToCode(ws) : '') || '';
+      }catch(e){ code=''; }
+
       if (typeof code !== 'string') code = String(code || '');
       if (code && !code.endsWith('\n')) code += '\n';
       return code;
     };
 
     jsGen.forBlock['rc_mini_value'] = function(block, generator){
-      const wrapType = block.getFieldValue('WRAP_TYPE');
       const state = u.jparse(block.data || '', null);
       const ws = ensureHiddenWs();
-      const real = deserializeBlockTo(ws, wrapType, state);
-      let out = '';
-      let order = 0;
-      if (real){
-        try{
-          const r = (jsGen.blockToCode ? jsGen.blockToCode(real) : generator.blockToCode(real));
-          if (Array.isArray(r)){ out = r[0] || ''; order = r[1] || 0; }
-          else out = r || '';
-        }catch(e){ out=''; }
+      loadMiniStateIntoWs(ws, state);
+
+      let target = null;
+      try{
+        const tops = ws.getTopBlocks(true);
+        target = tops.find(b => b && b.outputConnection);
+        if (!target){
+          const all = ws.getAllBlocks(false) || [];
+          target = all.find(b => b && b.outputConnection) || null;
+        }
+      }catch(e){ target=null; }
+
+      if (!target){
+        return ['0', jsGen.ORDER_ATOMIC || 0];
       }
-      if (typeof out !== 'string') out = String(out || '');
+
+      let out = '';
+      let order = jsGen.ORDER_ATOMIC || 0;
+      try{
+        const r = (jsGen.blockToCode ? jsGen.blockToCode(target) : generator.blockToCode(target));
+        if (Array.isArray(r)){ out = r[0] || ''; order = r[1] || order; }
+        else out = r || '';
+      }catch(e){ out = '0'; }
+
+      if (typeof out !== 'string') out = String(out || '0');
       return [out, order];
     };
+
 
     jsGen.forBlock['rc_param'] = function(block, generator){
       const name = block.getFieldValue('PNAME') || '';
@@ -943,12 +1070,12 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
   // ------------------------------------------------------------
   // Mini-block quick actions helpers
   // ------------------------------------------------------------
+  
   function copyMiniState(block){
     if (!block) return;
     const state = {
       type: block.type,
       label: block.getFieldValue('LABEL') || '',
-      wrap: block.getFieldValue('WRAP_TYPE') || '',
       data: block.data || ''
     };
     localStorage.setItem(CFG.storageKeyClipboard, u.jstring(state));
@@ -959,13 +1086,17 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     const raw = localStorage.getItem(CFG.storageKeyClipboard);
     const st = u.jparse(raw, null);
     if (!st) return toast('Буфер порожній');
-    if (block.type !== st.type){
-      // allow paste even if type differs (statement/value), keep wrap + data
-    }
+
     try{
       if (st.label) block.setFieldValue(st.label, 'LABEL');
-      if (st.wrap) block.setFieldValue(st.wrap, 'WRAP_TYPE');
       block.data = st.data || '';
+
+      // Tell Blockly that block state changed (important for autosave/undo)
+      const Blockly = window.Blockly;
+      if (Blockly?.Events?.isEnabled && Blockly.Events.isEnabled()){
+        try{ Blockly.Events.fire(new Blockly.Events.BlockChange(block, 'mutation', 'rcMini', '', block.data || '')); }catch(e){}
+      }
+      try{ if (typeof saveDraft === 'function') saveDraft(); }catch(e){}
       toast('Вставлено');
     }catch(e){ toast('Не вдалось вставити'); }
   }
@@ -978,7 +1109,6 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       nb.initSvg(); nb.render();
       nb.moveBy(xy.x + 30, xy.y + 30);
       nb.setFieldValue(block.getFieldValue('LABEL') || '', 'LABEL');
-      nb.setFieldValue(block.getFieldValue('WRAP_TYPE') || '', 'WRAP_TYPE');
       nb.data = block.data || '';
       toast('Дубль');
     }catch(e){}
@@ -993,12 +1123,12 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       nb.initSvg(); nb.render();
       nb.moveBy(xy.x + 20, xy.y + 20);
       nb.setFieldValue(block.getFieldValue('LABEL') || '', 'LABEL');
-      nb.setFieldValue(block.getFieldValue('WRAP_TYPE') || '', 'WRAP_TYPE');
       nb.data = block.data || '';
       block.dispose(true);
       toast('Конвертовано');
     }catch(e){}
   }
+
 
   // ------------------------------------------------------------
   // Mini config modal (large) + grid + add "Параметри" category
@@ -1087,10 +1217,8 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     const Blockly = window.Blockly;
     if (!Blockly || !miniUI.modal) return;
     miniUI.current = miniBlock;
-
-    const wrapType = miniBlock.getFieldValue('WRAP_TYPE') || '(none)';
     const kind = miniBlock.type === 'rc_mini_value' ? 'VALUE' : 'STATEMENT';
-    miniUI.metaType.textContent = wrapType;
+    miniUI.metaType.textContent = '—';
     miniUI.metaKind.textContent = kind;
 
     miniUI.backdrop.style.display='block';
@@ -1164,58 +1292,104 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     miniUI.ws = null;
   }
 
+  
   function restoreMiniInner(miniBlock, forceFresh=false){
     const Blockly = window.Blockly;
     if (!Blockly || !miniUI.ws) return;
-    miniUI.ws.clear();
+    try{ miniUI.ws.clear(); }catch(e){}
 
-    const wrapType = miniBlock.getFieldValue('WRAP_TYPE');
     let state = null;
     if (!forceFresh) state = u.jparse(miniBlock.data || '', null);
 
-    let real = null;
-    if (RC._miniDeserializeTo){
-      try { real = RC._miniDeserializeTo(miniUI.ws, wrapType, state); } catch(e){ real=null; }
+    // Load saved inner workspace if possible
+    if (state && RC._miniDeserializeWS){
+      try{ RC._miniDeserializeWS(miniUI.ws, state); }catch(e){}
+    } else if (state && RC._miniDeserializeTo){
+      // Back-compat: legacy single-block state
+      try{ RC._miniDeserializeTo(miniUI.ws, 'start_hat', state); }catch(e){}
     }
-    if (!real){
-      try { real = miniUI.ws.newBlock(wrapType); real.initSvg(); real.render(); } catch(e){}
+
+    // If still empty — create a default starter block
+    let blocksCount = 0;
+    try{ blocksCount = (miniUI.ws.getAllBlocks(false) || []).length; }catch(e){ blocksCount = 0; }
+    if (!blocksCount){
+      const isVal = (miniBlock.type === 'rc_mini_value');
+      const defaultType = isVal ? (Blockly.Blocks?.math_number ? 'math_number' : null)
+                                : (Blockly.Blocks?.start_hat ? 'start_hat' : (Blockly.Blocks?.controls_if ? 'controls_if' : null));
+      if (defaultType){
+        try{
+          const b = miniUI.ws.newBlock(defaultType);
+          b.initSvg(); b.render();
+          b.moveBy(60, 60);
+        }catch(e){}
+      }
     }
-    const top = miniUI.ws.getTopBlocks(true)[0];
-    if (top) { try{ top.moveBy(60, 60); }catch(e){} }
-    try { Blockly.svgResize(miniUI.ws); } catch(e){}
+
+    // Arrange tops a bit (nice)
+    try{
+      const tops = miniUI.ws.getTopBlocks(true);
+      let y = 40;
+      for (const t of tops){
+        t.moveBy(40, y);
+        y += 80;
+      }
+    }catch(e){}
+
+    // Update modal meta: show what types exist inside
+    try{
+      if (miniUI.metaType){
+        const tops = miniUI.ws.getTopBlocks(true);
+        const types = tops.map(b=>b.type).filter(Boolean);
+        miniUI.metaType.textContent = types.length ? types.slice(0,3).join(', ') + (types.length>3?'…':'') : '—';
+      }
+    }catch(e){}
+
+    try{ Blockly.svgResize(miniUI.ws); }catch(e){}
   }
 
   function saveMini(){
     const b = miniUI.current;
     if (!b || !miniUI.ws) return;
-    const top = miniUI.ws.getTopBlocks(true)[0];
-    if (!top){ b.data=''; toast('Порожньо'); closeMiniModal(); return; }
-    const ser = RC._miniSerialize ? RC._miniSerialize(top) : null;
+
+    const oldData = b.data || '';
+
+    // Save whole workspace (preferred)
+    const ser = (RC._miniSerializeWS ? RC._miniSerializeWS(miniUI.ws) : null);
     b.data = ser ? u.jstring(ser) : '';
-    toast('Збережено');
+
+    // Tell Blockly “this block changed” (needed for autosave + undo)
+    try{
+      const Blockly = window.Blockly;
+      if (Blockly?.Events?.isEnabled && Blockly.Events.isEnabled()){
+        Blockly.Events.fire(new Blockly.Events.BlockChange(b, 'mutation', 'rcMini', oldData, b.data || ''));
+      }
+    }catch(e){}
+
+    // Force save draft immediately (fixes: changes inside inner if/stack)
+    try{ if (typeof saveDraft === 'function') saveDraft(); }catch(e){}
+
+    let cnt = 0;
+    try{ cnt = (miniUI.ws.getAllBlocks(false) || []).length; }catch(e){ cnt = 0; }
+    toast(`Збережено: ${cnt} блоків`);
     closeMiniModal();
   }
 
   function resetMini(){
     const b = miniUI.current;
     if (!b || !miniUI.ws) return;
-    b.data='';
+    const oldData = b.data || '';
+    b.data = '';
+    try{
+      const Blockly = window.Blockly;
+      if (Blockly?.Events?.isEnabled && Blockly.Events.isEnabled()){
+        Blockly.Events.fire(new Blockly.Events.BlockChange(b, 'mutation', 'rcMini', oldData, ''));
+      }
+    }catch(e){}
+    try{ if (typeof saveDraft === 'function') saveDraft(); }catch(e){}
     restoreMiniInner(b, true);
     toast('Скинуто');
   }
 
-  // ------------------------------------------------------------
-  // Custom Blocks view (separate like Scratch) + builder ws
-  // ------------------------------------------------------------
-  const builder = {
-    section:null, wsDiv:null, ws:null,
-    nameInput:null, colourInput:null,
-    editingType:null,
-    // panels
-    btnMgr:null, btnParams:null, btnTemplates:null, btnValidate:null, btnSim:null, btnHistory:null,
-    // draft autosave
-    draftTimer:null
-  };
 
   function ensureCustomBlocksView(){
     if (builder.section) return;
@@ -1915,6 +2089,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     }
   }
 
+  
   function insertTemplate(id, tmpl=null){
     const Blockly = window.Blockly;
     ensureBuilderWorkspace();
@@ -1925,43 +2100,63 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     const type = (kind==='val') ? 'rc_mini_value' : 'rc_mini';
     const wrap = t.wrap || (id==='if'?'controls_if': id==='repeat'?'controls_repeat_ext': id==='while'?'controls_whileUntil':'math_number');
 
-    try{
-      const xy = builder.ws.getMetrics ? builder.ws.getMetrics().viewLeft : 0;
-    }catch(e){}
-
     const nb = builder.ws.newBlock(type);
     nb.initSvg(); nb.render();
     nb.setFieldValue(kind==='val'?'val':'mini', 'LABEL');
-    if (wrap) nb.setFieldValue(wrap, 'WRAP_TYPE');
 
-    // preset inner state for math_number
-    if (t.preset && RC._miniSerialize && RC._miniDeserializeTo){
-      try{
+    // Build a default inner workspace for the template and serialize it into nb.data
+    try{
+      if (RC._miniSerializeWS && wrap){
         const tmpDiv = document.createElement('div');
         tmpDiv.style.position='fixed'; tmpDiv.style.left='-99999px'; tmpDiv.style.top='-99999px';
         tmpDiv.style.width='10px'; tmpDiv.style.height='10px'; tmpDiv.style.opacity='0';
         document.body.appendChild(tmpDiv);
-        const ws = Blockly.inject(tmpDiv, { toolbox:'<xml></xml>', readOnly:false, scrollbars:false, trashcan:false });
-        const b = ws.newBlock(wrap);
-        b.initSvg(); b.render();
-        if (t.preset.field) b.setFieldValue(t.preset.value, t.preset.field);
-        const ser = RC._miniSerialize(b);
-        nb.data = ser ? u.jstring(ser) : '';
-        ws.dispose();
-        tmpDiv.remove();
-      }catch(e){}
-    }
 
-    const m = builder.ws.getMetrics && builder.ws.getMetrics();
-    const x = (m ? m.viewLeft + m.viewWidth/2 : 120);
-    const y = (m ? m.viewTop + 120 : 120);
+        const ws = Blockly.inject(tmpDiv, { toolbox:'<xml></xml>', readOnly:false, scrollbars:false, trashcan:false });
+
+        if (kind === 'stmt' && Blockly.Blocks?.start_hat){
+          const start = ws.newBlock('start_hat');
+          start.initSvg(); start.render();
+          start.moveBy(60, 60);
+
+          const inner = ws.newBlock(wrap);
+          inner.initSvg(); inner.render();
+          inner.moveBy(60, 140);
+
+          // Connect start -> inner if possible
+          try{
+            if (start.nextConnection && inner.previousConnection){
+              start.nextConnection.connect(inner.previousConnection);
+            }
+          }catch(e){}
+        } else {
+          const b = ws.newBlock(wrap);
+          b.initSvg(); b.render();
+          b.moveBy(60, 60);
+          if (t.preset && t.preset.field){
+            try{ b.setFieldValue(t.preset.value, t.preset.field); }catch(e){}
+          }
+        }
+
+        const ser = RC._miniSerializeWS(ws);
+        nb.data = ser ? u.jstring(ser) : '';
+        try { ws.dispose(); } catch(e){}
+        try { tmpDiv.remove(); } catch(e){}
+      }
+    }catch(e){}
+
+    const mtr = builder.ws.getMetrics && builder.ws.getMetrics();
+    const x = (mtr ? mtr.viewLeft + mtr.viewWidth/2 : 120);
+    const y = (mtr ? mtr.viewTop + 120 : 120);
     nb.moveBy(x, y);
 
+    try{ if (typeof saveDraft === 'function') saveDraft(); }catch(e){}
     toast('Шаблон додано');
   }
 
   // ------------------------------------------------------------
   // Validation modal
+
   // ------------------------------------------------------------
   const valUI = { backdrop:null, modal:null, body:null };
 
@@ -2004,6 +2199,7 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
     valUI.modal.style.display='none';
   }
 
+  
   function validateBuilder(){
     const issues = [];
     const Blockly = window.Blockly;
@@ -2014,14 +2210,55 @@ background:rgba(15,23,42,.96);border:1px solid rgba(148,163,184,.16);border-radi
       issues.push({ level:'error', title:'Порожньо', detail:'Додай хоча б один міні-блок.' });
     }
 
-    // orphan mini blocks: value mini without connection and not top? (all top blocks are allowed)
+    function countBlocksInState(st){
+      if (!st) return 0;
+      const p = st.payload;
+
+      // workspace xml
+      if ((st.kind === 'wsxml') || (st.kind === 'xml' && typeof p === 'string' && p.trim().startsWith('<xml'))){
+        try { return (p.match(/<block\b/g) || []).length; } catch(e){ return 0; }
+      }
+
+      // workspace json (or legacy json that is actually workspace json)
+      if ((st.kind === 'wsjson') || (st.kind === 'json' && p && p.blocks)){
+        let count = 0;
+        const walk = (o)=>{
+          if (!o) return;
+          if (Array.isArray(o)) return o.forEach(walk);
+          if (typeof o === 'object'){
+            if (typeof o.type === 'string') count++;
+            for (const k in o) walk(o[k]);
+          }
+        };
+        try { walk(p); } catch(e){}
+        return count;
+      }
+
+      // legacy single-block
+      if (st.kind === 'json' && p && typeof p.type === 'string') return 1;
+      if (st.kind === 'xml' && typeof p === 'string' && p.includes('<block')) return 1;
+      return 0;
+    }
+
     const all = builder.ws.getAllBlocks(false);
     for (const b of all){
       if (b.type === 'rc_mini' || b.type === 'rc_mini_value'){
-        const wrap = b.getFieldValue('WRAP_TYPE') || '';
-        if (!wrap) issues.push({ level:'warn', title:'WRAP_TYPE порожній', detail:`Міні-блок без вибраного типу.` });
         const st = u.jparse(b.data || '', null);
-        if (!st) issues.push({ level:'warn', title:'Міні-блок без збереження', detail:`Використай ⚙ і натисни “Зберегти”.` });
+        if (!st){
+          issues.push({ level:'warn', title:'Міні-блок без збереження', detail:`Використай ⚙ і натисни “Зберегти”.` });
+          continue;
+        }
+        const cnt = countBlocksInState(st);
+        if (cnt <= 0){
+          issues.push({ level:'warn', title:'Порожній міні-блок', detail:'Всередині немає блоків.' });
+        } else if (cnt === 1){
+          const isOnlyStart =
+            (st.kind === 'wsxml' && typeof st.payload === 'string' && st.payload.includes('type="start_hat"')) ||
+            ((st.kind === 'wsjson' || (st.kind === 'json' && st.payload?.blocks)) && JSON.stringify(st.payload).includes('"type":"start_hat"'));
+          if (isOnlyStart){
+            issues.push({ level:'warn', title:'Збережено лише START', detail:'Переконайся, що блоки знизу реально “прилипли” до старту (є клац). Потім знову ⚙ → Зберегти.' });
+          }
+        }
       }
     }
 
