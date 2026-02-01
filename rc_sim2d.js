@@ -1,270 +1,5606 @@
-(function(){'use strict';if(window.RCSim2D&&window.RCSim2D.__rcVersion)return;
-var U={cl:function(x,a,b){return x<a?a:x>b?b:x},lerp:function(a,b,t){return a+(b-a)*t},now:function(){return (performance&&performance.now)?performance.now():Date.now()},rot:function(p,a){var c=Math.cos(a),s=Math.sin(a);return{x:p.x*c-p.y*s,y:p.x*s+p.y*c}},add:function(a,b){return{x:a.x+b.x,y:a.y+b.y}},sub:function(a,b){return{x:a.x-b.x,y:a.y-b.y}}};
-function segCP(p,a,b){var abx=b.x-a.x,aby=b.y-a.y,apx=p.x-a.x,apy=p.y-a.y,den=abx*abx+aby*aby||1e-9,t=(apx*abx+apy*aby)/den;t=U.cl(t,0,1);return{x:a.x+abx*t,y:a.y+aby*t}}
-function segD(p,a,b){var q=segCP(p,a,b),dx=p.x-q.x,dy=p.y-q.y;return Math.sqrt(dx*dx+dy*dy)}
-function polyD(p,pts,cl){if(!pts||pts.length<2)return 1e9;var best=1e9;for(var i=0;i<pts.length-1;i++)best=Math.min(best,segD(p,pts[i],pts[i+1]));if(cl)best=Math.min(best,segD(p,pts[pts.length-1],pts[0]));return best}
-function raySeg(o,d,a,b){var vx=b.x-a.x,vy=b.y-a.y,det=d.x*(-vy)-d.y*(-vx);if(Math.abs(det)<1e-9)return null;var ax=a.x-o.x,ay=a.y-o.y,t=(ax*(-vy)-ay*(-vx))/det,u=(d.x*ay-d.y*ax)/det;if(t>=0&&u>=0&&u<=1)return{t:t,pt:{x:o.x+d.x*t,y:o.y+d.y*t}};return null}
-function mkTracks(){
-function oval(){var pts=[],rx=300,ry=190;for(var i=0;i<=260;i++){var t=i/260*2*Math.PI;pts.push({x:Math.cos(t)*rx,y:Math.sin(t)*ry})}return{name:"Oval",hint:"Овал для line-follow",line:{pts:pts,closed:true,width:14},walls:[]}}
-function fig8(){var pts=[],r=190;for(var i=0;i<=320;i++){var t=i/320*2*Math.PI;pts.push({x:Math.sin(t)*r,y:Math.sin(t)*Math.cos(t)*r})}return{name:"Figure-8",hint:"Вісімка",line:{pts:pts,closed:true,width:14},walls:[]}}
-function s(){var pts=[],w=680;for(var i=0;i<=300;i++){var t=i/300;pts.push({x:U.lerp(-w/2,w/2,t),y:Math.sin(t*Math.PI*2)*140})}return{name:"S-curve",hint:"S крива",line:{pts:pts,closed:false,width:14},walls:[]}}
-function arena(){var lp=[{x:-340,y:0},{x:-130,y:-130},{x:130,y:-130},{x:340,y:0},{x:130,y:130},{x:-130,y:130},{x:-340,y:0}],walls=[];function rect(x1,y1,x2,y2){walls.push({a:{x:x1,y:y1},b:{x:x2,y:y1}});walls.push({a:{x:x2,y:y1},b:{x:x2,y:y2}});walls.push({a:{x:x2,y:y2},b:{x:x1,y:y2}});walls.push({a:{x:x1,y:y2},b:{x:x1,y:y1}})}rect(-460,-290,460,290);rect(-260,-120,260,120);return{name:"Arena",hint:"Арена + стіни",line:{pts:lp,closed:true,width:12},walls:walls}}
-function rectLine(){var pts=[{x:-320,y:-180},{x:320,y:-180},{x:320,y:180},{x:-320,y:180},{x:-320,y:-180}];return{name:"Rectangle",hint:"Прямокутник",line:{pts:pts,closed:true,width:14},walls:[]}}
-return[oval(),fig8(),s(),arena(),rectLine()]
-}
-function css(){if(document.getElementById("rc_sim2d_css_v2"))return;var s=document.createElement("style");s.id="rc_sim2d_css_v2";s.textContent=
-".rcsimTab{position:fixed;inset:0;z-index:2147483647;display:none;background:#0b1020;color:#e5e7eb;font-family:system-ui,Segoe UI,Roboto}"+
-".rcsimHead{height:54px;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03)}"+
-".rcsimDot{width:9px;height:9px;border-radius:999px;background:#fbbf24}"+
-".rcsimTitle{font-weight:950;letter-spacing:.08em;text-transform:uppercase;font-size:12px}"+
-".rcsimSpacer{flex:1}"+
-".rcsimBtn{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#e5e7eb;border-radius:12px;padding:8px 12px;font-weight:950;font-size:12px;cursor:pointer}"+
-".rcsimBtn:hover{background:rgba(255,255,255,.09)}"+
-".rcsimBody{position:absolute;left:0;right:0;top:54px;bottom:0;display:grid;grid-template-columns:285px 1fr;min-height:0}"+
-".rcsimLeft{padding:12px 12px;overflow:auto;border-right:1px solid rgba(255,255,255,.08)}"+
-".rcsimLeft::-webkit-scrollbar{width:10px}"+
-".rcsimLeft::-webkit-scrollbar-thumb{background:rgba(255,255,255,.10);border-radius:10px}"+
-".rcsimH{margin:6px 0 8px;font-weight:950;letter-spacing:.08em;text-transform:uppercase;font-size:12px;color:rgba(229,231,235,.85)}"+
-".rcsimRow{display:flex;align-items:center;justify-content:space-between;margin:8px 0}"+
-".rcsimLbl{font-weight:900;font-size:13px}"+
-".rcsimVal{font-weight:950;font-size:13px;color:#93c5fd;min-width:56px;text-align:right}"+
-".rcsimSel{width:100%;padding:10px 12px;border-radius:14px;border:1px solid rgba(148,163,184,.14);background:rgba(2,6,23,.25);color:#e2e8f0;font-weight:950;outline:none}"+
-".rcsimChk{display:flex;align-items:center;gap:10px;margin-top:10px;font-weight:900;font-size:13px;color:#e2e8f0;cursor:pointer}"+
-".rcsimChk input{width:16px;height:16px}"+
-".rcsimHint{margin-top:10px;font-size:12px;line-height:1.35;color:rgba(229,231,235,.72)}"+
-".rcsimCtrl{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}"+
-".rcsimRight{position:relative;min-height:0}"+
-".rcsimCanvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;background:#6b7078;touch-action:none}"+
-".rcsimCanvas.grab{cursor:grabbing}"+
-".rcsimPills{position:absolute;left:10px;top:10px;display:flex;gap:8px;flex-wrap:wrap;z-index:3}"+
-".rcsimPill{border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);backdrop-filter:blur(6px);border-radius:999px;padding:7px 10px;font-weight:950;font-size:12px}"+
-".rcsimFoot{position:absolute;right:10px;bottom:10px;display:flex;gap:8px;z-index:3}"+
-".rcsimSmall{border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);backdrop-filter:blur(6px);border-radius:12px;padding:7px 10px;font-weight:950;font-size:12px;cursor:pointer;color:#e5e7eb}"+
-".rcsimSmall:hover{background:rgba(0,0,0,.26)}";document.head.appendChild(s)}
-function storage(){var ok=true;try{var k="__t";localStorage.setItem(k,"1");localStorage.removeItem(k)}catch(e){ok=false}return{get:function(k){if(!ok)return null;try{return localStorage.getItem(k)}catch(e){return null}},set:function(k,v){if(!ok)return;try{localStorage.setItem(k,v)}catch(e){}}}}
-function Sim(){this.tracks=mkTracks();this.i=0;this.t=this.tracks[0];this.v={x:0,y:0,s:1,drag:false,sx:0,sy:0,vx0:0,vy0:0};this.cv=null;this.ctx=null;this.w=1;this.h=1;this.car={p:{x:0,y:0},a:-Math.PI/2,v:0,w:0,l:0,r:0,wb:74,ms:260,ma:560,mw:4.4,rad:30,wid:72,hei:46};this.s=[{x:-18,y:40},{x:-6,y:42},{x:6,y:42},{x:18,y:40}];this.es=false;this.ds=-1;this.sv=[0,0,0,0];this.dv=0;this.run=false;this.pause=false;this.step=false;this.last=U.now();this.ui={root:null,sel:null,hint:null,pS:null,pZ:null,vals:[],chkE:null,chkF:null,chkR:null,pFPS:null};this.follow=false;this.showRays=true;this.st=storage();this.hooked=false;this.keys={u:false,d:false,l:false,r:false};this.fps={t:U.now(),n:0,val:60}}
-Sim.prototype.reset=function(){var c=this.car;c.p.x=0;c.p.y=0;c.a=-Math.PI/2;c.v=0;c.w=0;c.l=0;c.r=0;this.v.x=0;this.v.y=0;this.v.s=1};
-Sim.prototype.setTrack=function(i){i=U.cl(i,0,this.tracks.length-1);this.i=i;this.t=this.tracks[i];this.reset();this.save()};
-Sim.prototype.w2s=function(p){var s=this.v.s;return{x:(p.x-this.v.x)*s+this.w*0.5,y:(p.y-this.v.y)*s+this.h*0.5}};
-Sim.prototype.s2w=function(p){var s=this.v.s;return{x:(p.x-this.w*0.5)/s+this.v.x,y:(p.y-this.h*0.5)/s+this.v.y}};
-Sim.prototype.wheel=function(cx,cy,dy){var s=this.v.s,z=Math.pow(1.0015,-dy),ns=U.cl(s*z,0.35,3.6),b=this.s2w({x:cx,y:cy});this.v.s=ns;var a=this.s2w({x:cx,y:cy});this.v.x+=b.x-a.x;this.v.y+=b.y-a.y;this.save();if(this.ui.pZ)this.ui.pZ.textContent="x"+this.v.s.toFixed(2)};
-Sim.prototype.save=function(){try{this.st.set("rc_sim2d_state_v2",JSON.stringify({i:this.i,s:this.s,v:{x:this.v.x,y:this.v.y,s:this.v.s},f:this.follow,r:this.showRays}))}catch(e){}};
-Sim.prototype.load=function(){try{var raw=this.st.get("rc_sim2d_state_v2");if(!raw)return;var o=JSON.parse(raw);if(o&&typeof o.i==="number")this.setTrack(o.i);if(o&&o.s&&o.s.length===4){for(var i=0;i<4;i++){this.s[i].x=Number(o.s[i].x)||this.s[i].x;this.s[i].y=Number(o.s[i].y)||this.s[i].y}}if(o&&o.v){this.v.x=Number(o.v.x)||0;this.v.y=Number(o.v.y)||0;this.v.s=U.cl(Number(o.v.s)||1,0.35,3.6)}this.follow=!!(o&&o.f);this.showRays=!(o&&o.r===false)}catch(e){}};
-Sim.prototype.handleKeys=function(){var c=this.car,spd=70;var L=c.l,R=c.r;if(this.keys.u){L+=spd;R+=spd}if(this.keys.d){L-=spd;R-=spd}if(this.keys.l){L-=spd;R+=spd}if(this.keys.r){L+=spd;R-=spd}c.l=U.cl(L,-100,100);c.r=U.cl(R,-100,100)};
-Sim.prototype.phys=function(dt){
-this.handleKeys();
-var c=this.car,tl=U.cl(c.l,-100,100)/100*c.ms,tr=U.cl(c.r,-100,100)/100*c.ms,tv=(tl+tr)*0.5,tw=(tr-tl)/c.wb;
-var dv=U.cl(tv-c.v,-c.ma*dt,c.ma*dt);c.v+=dv;
-var dw=U.cl(tw-c.w,-c.mw*dt,c.mw*dt);c.w+=dw;
-c.a+=c.w*dt;
-c.p.x+=Math.cos(c.a)*c.v*dt;c.p.y+=Math.sin(c.a)*c.v*dt;
-c.v*=Math.pow(0.985,dt*60);c.w*=Math.pow(0.985,dt*60);
-this.coll();
-if(this.follow){this.v.x=c.p.x;this.v.y=c.p.y}
-};
-Sim.prototype.coll=function(){var t=this.t;if(!t||!t.walls||!t.walls.length)return;var p=this.car.p,r=this.car.rad;for(var i=0;i<t.walls.length;i++){var w=t.walls[i],q=segCP(p,w.a,w.b),dx=p.x-q.x,dy=p.y-q.y,d=Math.sqrt(dx*dx+dy*dy);if(d<r&&d>1e-6){var push=r-d;p.x+=dx/d*push;p.y+=dy/d*push}}};
-Sim.prototype.sample=function(){
-var t=this.t;if(!t||!t.line||!t.line.pts){this.sv=[0,0,0,0];this.dv=0;return}
-var line=t.line,c=this.car,vals=[],w=line.width||12;
-for(var i=0;i<4;i++){
-var wp=U.add(c.p,U.rot({x:this.s[i].x,y:this.s[i].y},c.a));
-var d=polyD(wp,line.pts,!!line.closed),v=0;
-if(d<=w*1.3){var x=U.cl(1-d/(w*1.3),0,1);v=x*100}
-vals.push(v)
-}
-this.sv=vals;
-var o=U.add(c.p,U.rot({x:0,y:34},c.a)),dir=U.rot({x:1,y:0},c.a);
-var best=999,hit=null;
-if(t.walls&&t.walls.length){best=1e9;for(var j=0;j<t.walls.length;j++){var rr=raySeg(o,dir,t.walls[j].a,t.walls[j].b);if(rr&&rr.t<best){best=rr.t;hit=rr.pt}}}
-this.dv=isFinite(best)?U.cl(best,0,999):999;
-window.sensorData=vals.slice(0,4);window.distanceData=[this.dv];
-this._ray={o:o,dir:dir,best:best,hit:hit}
-};
-Sim.prototype.draw=function(){
-var ctx=this.ctx;if(!ctx)return;
-ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,this.w,this.h);
-ctx.fillStyle="#6b7078";ctx.fillRect(0,0,this.w,this.h);
-var s=this.v.s;ctx.setTransform(s,0,0,s,this.w*0.5-this.v.x*s,this.h*0.5-this.v.y*s);
-this.grid(ctx);this.track(ctx);this.carDraw(ctx);this.sensors(ctx);
-};
-Sim.prototype.grid=function(ctx){
-var step=50,s=this.v.s,x0=Math.floor((this.v.x-this.w/s)/step)*step,x1=Math.ceil((this.v.x+this.w/s)/step)*step,y0=Math.floor((this.v.y-this.h/s)/step)*step,y1=Math.ceil((this.v.y+this.h/s)/step)*step;
-ctx.lineWidth=1/s;ctx.strokeStyle="rgba(0,0,0,.12)";ctx.beginPath();
-for(var x=x0;x<=x1;x+=step){ctx.moveTo(x,y0);ctx.lineTo(x,y1)}
-for(var y=y0;y<=y1;y+=step){ctx.moveTo(x0,y);ctx.lineTo(x1,y)}
-ctx.stroke();
-ctx.strokeStyle="rgba(255,255,255,.06)";ctx.beginPath();
-ctx.moveTo(0,y0);ctx.lineTo(0,y1);ctx.moveTo(x0,0);ctx.lineTo(x1,0);ctx.stroke();
-};
-Sim.prototype.track=function(ctx){
-var t=this.t;if(!t)return;var line=t.line;
-if(line&&line.pts&&line.pts.length>1){
-ctx.lineCap="round";ctx.lineJoin="round";
-ctx.strokeStyle="rgba(16,16,16,.92)";ctx.lineWidth=(line.width||12);ctx.beginPath();
-ctx.moveTo(line.pts[0].x,line.pts[0].y);for(var i=1;i<line.pts.length;i++)ctx.lineTo(line.pts[i].x,line.pts[i].y);if(line.closed)ctx.closePath();ctx.stroke();
-ctx.strokeStyle="rgba(0,0,0,.22)";ctx.lineWidth=(line.width||12)+6;ctx.beginPath();
-ctx.moveTo(line.pts[0].x,line.pts[0].y);for(var j=1;j<line.pts.length;j++)ctx.lineTo(line.pts[j].x,line.pts[j].y);if(line.closed)ctx.closePath();ctx.stroke();
-}
-if(t.walls&&t.walls.length){
-ctx.strokeStyle="rgba(255,255,255,.18)";ctx.lineWidth=6;ctx.beginPath();
-for(var k=0;k<t.walls.length;k++){var w=t.walls[k];ctx.moveTo(w.a.x,w.a.y);ctx.lineTo(w.b.x,w.b.y)}ctx.stroke();
-ctx.strokeStyle="rgba(0,0,0,.22)";ctx.lineWidth=2;ctx.beginPath();
-for(var m=0;m<t.walls.length;m++){var w2=t.walls[m];ctx.moveTo(w2.a.x,w2.a.y);ctx.lineTo(w2.b.x,w2.b.y)}ctx.stroke();
-}
-};
-function rr(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath()}
-Sim.prototype.carDraw=function(ctx){
-var c=this.car;ctx.save();ctx.translate(c.p.x,c.p.y);ctx.rotate(c.a);
-var bw=c.wid,bh=c.hei;
-ctx.fillStyle="rgba(0,0,0,.28)";rr(ctx,-bw/2-6,-bh/2-6,bw+12,bh+12,14);ctx.fill();
-ctx.fillStyle="#60a5fa";rr(ctx,-bw/2,-bh/2,bw,bh,12);ctx.fill();
-ctx.fillStyle="rgba(255,255,255,.22)";rr(ctx,-bw/2+8,-bh/2+6,bw-16,14,10);ctx.fill();
-ctx.fillStyle="rgba(2,6,23,.65)";rr(ctx,-bw/2-10,-bh/2+4,14,bh-8,7);ctx.fill();rr(ctx,bw/2-4,-bh/2+4,14,bh-8,7);ctx.fill();
-ctx.fillStyle="rgba(255,255,255,.85)";ctx.beginPath();ctx.moveTo(bw/2-2,0);ctx.lineTo(bw/2+16,0);ctx.lineTo(bw/2-2,-7);ctx.closePath();ctx.fill();
-ctx.fillStyle="rgba(15,23,42,.75)";rr(ctx,-12,-10,24,20,10);ctx.fill();
-ctx.restore();
-};
-Sim.prototype.sensors=function(ctx){
-var c=this.car;
-for(var i=0;i<4;i++){
-var wp=U.add(c.p,U.rot({x:this.s[i].x,y:this.s[i].y},c.a));
-ctx.fillStyle=this.es?"rgba(251,191,36,.95)":"rgba(147,197,253,.92)";
-ctx.strokeStyle="rgba(0,0,0,.35)";ctx.lineWidth=2;ctx.beginPath();ctx.arc(wp.x,wp.y,6,0,Math.PI*2);ctx.fill();ctx.stroke();
-}
-if(this.showRays){
-var r=this._ray;if(r){var o=r.o,dir=r.dir,b=isFinite(r.best)?Math.min(r.best,260):260;
-ctx.strokeStyle="rgba(167,243,208,.72)";ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(o.x,o.y);ctx.lineTo(o.x+dir.x*b,o.y+dir.y*b);ctx.stroke();
-if(r.hit){ctx.fillStyle="rgba(167,243,208,.95)";ctx.beginPath();ctx.arc(r.hit.x,r.hit.y,5,0,Math.PI*2);ctx.fill()}
-}}
-};
-Sim.prototype.uiBuild=function(){
-css();
-var root=document.createElement("div");root.className="rcsimTab";root.id="rcsimTabRoot";
-root.innerHTML='<div class="rcsimHead"><div class="rcsimDot"></div><div class="rcsimTitle">Симулятор (2D)</div><div class="rcsimSpacer"></div><button class="rcsimBtn" data-a="back">Назад</button></div>'+
-'<div class="rcsimBody"><div class="rcsimLeft">'+
-'<div class="rcsimH">Траса</div><select class="rcsimSel" data-a="track"></select>'+
-'<label class="rcsimChk"><input type="checkbox" data-a="follow">Камера за машинкою</label>'+
-'<label class="rcsimChk"><input type="checkbox" data-a="rays" checked>Промінь distance</label>'+
-'<label class="rcsimChk"><input type="checkbox" data-a="edit">Редагувати 4 сенсори</label>'+
-'<div class="rcsimCtrl"><button class="rcsimBtn" data-a="reset">Reset</button><button class="rcsimBtn" data-a="center">Center</button></div>'+
-'<div class="rcsimH" style="margin-top:14px">Сенсори</div>'+
-'<div class="rcsimRow"><div class="rcsimLbl">S1</div><div class="rcsimVal" data-s="0">0</div></div>'+
-'<div class="rcsimRow"><div class="rcsimLbl">S2</div><div class="rcsimVal" data-s="1">0</div></div>'+
-'<div class="rcsimRow"><div class="rcsimLbl">S3</div><div class="rcsimVal" data-s="2">0</div></div>'+
-'<div class="rcsimRow"><div class="rcsimLbl">S4</div><div class="rcsimVal" data-s="3">0</div></div>'+
-'<div class="rcsimRow"><div class="rcsimLbl">DIST</div><div class="rcsimVal" data-s="4">0</div></div>'+
-'<div class="rcsimHint" data-a="hint"></div>'+
-'<div class="rcsimHint">Колесо — zoom. Перетяг ЛКМ/ПКМ/СКМ — pan. Shift — швидше. Стрілки — ручний рух.</div>'+
-'</div><div class="rcsimRight">'+
-'<canvas class="rcsimCanvas" data-a="cv"></canvas>'+
-'<div class="rcsimPills"><div class="rcsimPill" data-a="pS">L 0  R 0</div><div class="rcsimPill" data-a="pZ">x1.00</div><div class="rcsimPill" data-a="pF">60 FPS</div></div>'+
-'<div class="rcsimFoot"><button class="rcsimSmall" data-a="pause">Pause</button><button class="rcsimSmall" data-a="step">Step</button><button class="rcsimSmall" data-a="run">Run</button></div>'+
-'</div></div>';
-document.body.appendChild(root);
-this.ui.root=root;this.ui.sel=root.querySelector('[data-a="track"]');this.ui.hint=root.querySelector('[data-a="hint"]');
-this.ui.pS=root.querySelector('[data-a="pS"]');this.ui.pZ=root.querySelector('[data-a="pZ"]');this.ui.pFPS=root.querySelector('[data-a="pF"]');
-this.ui.chkE=root.querySelector('[data-a="edit"]');this.ui.chkF=root.querySelector('[data-a="follow"]');this.ui.chkR=root.querySelector('[data-a="rays"]');
-this.cv=root.querySelector('[data-a="cv"]');this.ctx=this.cv.getContext("2d",{alpha:false});
-var self=this;
-this.ui.sel.innerHTML="";for(var i=0;i<this.tracks.length;i++){var o=document.createElement("option");o.value=String(i);o.textContent=this.tracks[i].name;this.ui.sel.appendChild(o)}
-root.querySelector('[data-a="back"]').onclick=function(){window.RCSim2D.close()};
-root.querySelector('[data-a="reset"]').onclick=function(){self.reset();self.save();self.draw();self.uiUpdate()};
-root.querySelector('[data-a="center"]').onclick=function(){self.v.x=0;self.v.y=0;self.v.s=1;self.save();self.draw();self.uiUpdate()};
-this.ui.sel.onchange=function(){self.setTrack(Number(self.ui.sel.value)||0);self.ui.hint.textContent=self.t.hint||"";self.draw();self.uiUpdate()};
-this.ui.chkE.onchange=function(){self.es=!!self.ui.chkE.checked;self.save();self.draw()};
-this.ui.chkF.onchange=function(){self.follow=!!self.ui.chkF.checked;self.save()};
-this.ui.chkR.onchange=function(){self.showRays=!!self.ui.chkR.checked;self.save();self.draw()};
-root.querySelector('[data-a="pause"]').onclick=function(){self.pause=!self.pause;root.querySelector('[data-a="pause"]').textContent=self.pause?"Resume":"Pause"};
-root.querySelector('[data-a="step"]').onclick=function(){self.step=true;self.pause=true;root.querySelector('[data-a="pause"]').textContent="Resume"};
-root.querySelector('[data-a="run"]').onclick=function(){self.pause=false;root.querySelector('[data-a="pause"]').textContent="Pause"};
-this.bindInput();
-this.resize();
-this.load();
-this.ui.sel.value=String(this.i);this.ui.hint.textContent=this.t.hint||"";this.ui.chkE.checked=this.es;this.ui.chkF.checked=this.follow;this.ui.chkR.checked=this.showRays;
-if(this.ui.pZ)this.ui.pZ.textContent="x"+this.v.s.toFixed(2);
-this.draw();this.uiUpdate();
-var onResize=function(){if(self.ui.root&&self.ui.root.style.display!=="none"){self.resize();self.draw()}};
-window.addEventListener("resize",onResize,{passive:true});
-};
-Sim.prototype.resize=function(){if(!this.cv)return;var r=this.cv.getBoundingClientRect();this.w=Math.max(1,Math.floor(r.width));this.h=Math.max(1,Math.floor(r.height));this.cv.width=this.w;this.cv.height=this.h};
-Sim.prototype.bindInput=function(){
-var self=this,cv=this.cv;
-cv.addEventListener("contextmenu",function(e){e.preventDefault()});
-cv.addEventListener("wheel",function(e){e.preventDefault();var r=cv.getBoundingClientRect();self.wheel(e.clientX-r.left,e.clientY-r.top,e.deltaY||0);self.draw()},{passive:false});
-cv.addEventListener("pointerdown",function(e){
-cv.setPointerCapture(e.pointerId);
-var r=cv.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top,wp=self.s2w({x:sx,y:sy});
-if(self.es){
-for(var i=0;i<4;i++){
-var sp=U.add(self.car.p,U.rot({x:self.s[i].x,y:self.s[i].y},self.car.a));
-var dx=wp.x-sp.x,dy=wp.y-sp.y;
-if(dx*dx+dy*dy<12*12){self.ds=i;cv.classList.add("grab");return}
-}
-}
-self.v.drag=true;self.v.sx=sx;self.v.sy=sy;self.v.vx0=self.v.x;self.v.vy0=self.v.y;cv.classList.add("grab");
-});
-cv.addEventListener("pointermove",function(e){
-var r=cv.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top;
-if(self.ds>=0){
-var wp=self.s2w({x:sx,y:sy}),local=U.sub(wp,self.car.p);local=U.rot(local,-self.car.a);
-self.s[self.ds].x=U.cl(local.x,-self.car.wid/2,self.car.wid/2);
-self.s[self.ds].y=U.cl(local.y,-self.car.hei/2-20,self.car.hei/2+20);
-self.save();self.draw();return
-}
-if(!self.v.drag)return;
-var dx=(sx-self.v.sx)/self.v.s,dy=(sy-self.v.sy)/self.v.s,boost=e.shiftKey?1.9:1.0;
-self.v.x=self.v.vx0-dx*boost;self.v.y=self.v.vy0-dy*boost;self.draw();
-});
-function end(){self.v.drag=false;self.ds=-1;cv.classList.remove("grab");self.save()}
-cv.addEventListener("pointerup",end);cv.addEventListener("pointercancel",end);
-window.addEventListener("keydown",function(e){if(self.ui.root&&self.ui.root.style.display!=="none"){if(e.key==="ArrowUp")self.keys.u=true;else if(e.key==="ArrowDown")self.keys.d=true;else if(e.key==="ArrowLeft")self.keys.l=true;else if(e.key==="ArrowRight")self.keys.r=true}});
-window.addEventListener("keyup",function(e){if(self.ui.root&&self.ui.root.style.display!=="none"){if(e.key==="ArrowUp")self.keys.u=false;else if(e.key==="ArrowDown")self.keys.d=false;else if(e.key==="ArrowLeft")self.keys.l=false;else if(e.key==="ArrowRight")self.keys.r=false}});
-};
-Sim.prototype.uiUpdate=function(){
-if(!this.ui.root)return;
-var els=this.ui.root.querySelectorAll("[data-s]");
-for(var i=0;i<els.length;i++){var idx=Number(els[i].getAttribute("data-s"));els[i].textContent=idx<4?String(Math.round(this.sv[idx]||0)):String(Math.round(this.dv||0))}
-if(this.ui.pS)this.ui.pS.textContent="L "+Math.round(this.car.l)+"  R "+Math.round(this.car.r);
-if(this.ui.pZ)this.ui.pZ.textContent="x"+this.v.s.toFixed(2);
-this.fps.n++;var t=U.now();if(t-this.fps.t>350){this.fps.val=Math.round(this.fps.n*1000/(t-this.fps.t));this.fps.n=0;this.fps.t=t}
-if(this.ui.pFPS)this.ui.pFPS.textContent=this.fps.val+" FPS";
-};
-Sim.prototype.installHook=function(){
-if(this.hooked)return;this.hooked=true;
-var self=this,orig=window.sendDrivePacket;
-window.__rcsim2d_origSendDrivePacket=orig;
-window.sendDrivePacket=async function(L,R){
-self.car.l=Number(L)||0;self.car.r=Number(R)||0;
-if(self.ui.pS)self.ui.pS.textContent="L "+Math.round(self.car.l)+"  R "+Math.round(self.car.r);
-if(typeof orig==="function"){try{return await orig.apply(this,arguments)}catch(e){}}
-};
-};
-Sim.prototype.tick=function(){
-if(!this.run)return;
-var t=U.now(),dt=(t-this.last)/1000;this.last=t;dt=U.cl(dt,0,0.05);
-if(!this.pause||this.step){if(this.step){dt=1/60;this.step=false}this.phys(dt)}
-this.sample();this.draw();this.uiUpdate();
-var self=this;requestAnimationFrame(function(){self.tick()})
-};
-Sim.prototype.open=function(){
-if(!this.ui.root)this.uiBuild();
-this.ui.root.style.display="block";this.resize();this.draw();this.uiUpdate();
-this.run=true;this.pause=false;this.step=false;this.last=U.now();
-this.installHook();this.tick()
-};
-Sim.prototype.close=function(){if(!this.ui.root)return;this.run=false;this.ui.root.style.display="none";this.save()};
-var sim=new Sim();
-var api={__rcVersion:"tab-v2",open:function(){sim.open()},close:function(){sim.close()},_sim:sim};
-window.RCSim2D=api;
-function autoHook(){
-var cand=[].slice.call(document.querySelectorAll("button,a,.btn"));
-for(var i=0;i<cand.length;i++){
-var t=(cand[i].textContent||"").trim().toLowerCase();
-if(t==="симулятор"||t.includes("симулятор")){
-cand[i].addEventListener("click",function(e){try{api.open();e.preventDefault();e.stopPropagation()}catch(_){}},true);
-break;
-}
-}
-}
-if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",autoHook);else setTimeout(autoHook,0);
+
+/* RoboScratch 2D Simulator (single-file) */
+(function(){
+  'use strict';
+
+  // ========== Small utilities ==========
+  const clamp = (v,a,b)=> (v<a?a:(v>b?b:v));
+  const lerp = (a,b,t)=> a + (b-a)*t;
+  const hypot = Math.hypot;
+
+  const now = ()=> (typeof performance!=='undefined' && performance.now)? performance.now() : Date.now();
+
+  function makeEl(tag, attrs, children){
+    const el = document.createElement(tag);
+    if (attrs){
+      for (const k in attrs){
+        if (k==='style') el.style.cssText = attrs[k];
+        else if (k==='class') el.className = attrs[k];
+        else if (k==='html') el.innerHTML = attrs[k];
+        else if (k.startsWith('on') && typeof attrs[k]==='function') el.addEventListener(k.slice(2), attrs[k]);
+        else el.setAttribute(k, attrs[k]);
+      }
+    }
+    if (children!=null){
+      const add = (c)=>{
+        if (c==null) return;
+        if (Array.isArray(c)) c.forEach(add);
+        else if (c instanceof Node) el.appendChild(c);
+        else el.appendChild(document.createTextNode(String(c)));
+      };
+      add(children);
+    }
+    return el;
+  }
+
+  // Hide scrollbars visually but keep scrolling capability (important for drag-pan to work in some UIs)
+  const CSS = `
+  .rcsim2d-root{position:fixed;inset:0;z-index:999999;background:rgba(3,6,18,.88);backdrop-filter: blur(10px);display:none;}
+  .rcsim2d-shell{position:absolute;inset:14px;border-radius:22px;background:rgba(8,16,32,.72);box-shadow:0 20px 80px rgba(0,0,0,.55);border:1px solid rgba(148,163,184,.18);overflow:hidden;}
+  .rcsim2d-top{height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-bottom:1px solid rgba(148,163,184,.12);}
+  .rcsim2d-title{display:flex;gap:10px;align-items:center;font-weight:950;color:#e2e8f0;letter-spacing:.08em;text-transform:uppercase;font-size:12px;}
+  .rcsim2d-dot{width:10px;height:10px;border-radius:999px;background:#f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,.12);}
+  .rcsim2d-btn{user-select:none;cursor:pointer;border-radius:14px;padding:10px 14px;background:rgba(148,163,184,.08);border:1px solid rgba(148,163,184,.14);color:#e2e8f0;font-weight:900;}
+  .rcsim2d-btn:hover{background:rgba(148,163,184,.12)}
+  .rcsim2d-btn.primary{background:rgba(59,130,246,.92);border-color:rgba(59,130,246,.95)}
+  .rcsim2d-content{position:absolute;inset:56px 0 0 0;display:grid;grid-template-columns:280px 1fr;}
+  .rcsim2d-side{border-right:1px solid rgba(148,163,184,.10);padding:14px;overflow:auto;}
+  .rcsim2d-side::-webkit-scrollbar{width:0;height:0}
+  .rcsim2d-side{scrollbar-width:none;}
+  .rcsim2d-main{position:relative;overflow:hidden;}
+  .rcsim2d-hud{position:absolute;left:14px;top:14px;display:flex;gap:8px;z-index:3;}
+  .rcsim2d-pill{background:rgba(2,6,23,.55);border:1px solid rgba(148,163,184,.14);color:#e2e8f0;border-radius:999px;padding:7px 10px;font-weight:900;font-size:12px;backdrop-filter: blur(6px);}
+  .rcsim2d-footer{position:absolute;right:14px;bottom:14px;display:flex;gap:10px;z-index:3;}
+  .rcsim2d-canvas{position:absolute;inset:0;}
+  .rcsim2d-panelTitle{color:#e2e8f0;font-weight:950;letter-spacing:.08em;text-transform:uppercase;font-size:12px;margin:10px 0 8px 0;}
+  .rcsim2d-field{margin:10px 0;}
+  .rcsim2d-label{display:flex;align-items:center;justify-content:space-between;color:#cbd5e1;font-weight:800;font-size:12px;margin-bottom:6px;}
+  .rcsim2d-select,.rcsim2d-input{width:100%;border-radius:14px;padding:10px 12px;background:rgba(2,6,23,.45);border:1px solid rgba(148,163,184,.18);color:#e2e8f0;outline:none;}
+  .rcsim2d-check{display:flex;align-items:center;gap:10px;color:#e2e8f0;font-weight:800;font-size:13px;margin:10px 0;}
+  .rcsim2d-check input{width:18px;height:18px}
+  .rcsim2d-row{display:flex;gap:10px}
+  .rcsim2d-row .rcsim2d-btn{flex:1;justify-content:center;display:flex}
+  .rcsim2d-slist{display:grid;grid-template-columns:1fr auto;row-gap:8px;column-gap:10px;align-items:center;}
+  .rcsim2d-sname{color:#e2e8f0;font-weight:900}
+  .rcsim2d-sval{color:#93c5fd;font-weight:950;min-width:52px;text-align:right}
+  .rcsim2d-help{margin-top:10px;color:#94a3b8;font-weight:900;font-size:12px;line-height:1.35;}
+  `;
+
+  function ensureStyle(){
+    if (document.getElementById('rcsim2d-style')) return;
+    const st = document.createElement('style');
+    st.id = 'rcsim2d-style';
+    st.textContent = CSS;
+    document.head.appendChild(st);
+  }
+
+  // ========== Tracks (large prebuilt point sets) ==========
+  const TRACKS = {
+  "Oval": {
+    kind: 'line',
+    lineWidth: 16,
+    line: [
+      [220.0, 0.0],
+      [219.99, 1.35],
+      [219.96, 2.71],
+      [219.91, 4.06],
+      [219.84, 5.41],
+      [219.74, 6.76],
+      [219.63, 8.12],
+      [219.5, 9.47],
+      [219.34, 10.82],
+      [219.17, 12.16],
+      [218.97, 13.51],
+      [218.76, 14.86],
+      [218.52, 16.2],
+      [218.27, 17.55],
+      [217.99, 18.89],
+      [217.69, 20.23],
+      [217.37, 21.57],
+      [217.04, 22.9],
+      [216.68, 24.24],
+      [216.3, 25.57],
+      [215.9, 26.9],
+      [215.48, 28.22],
+      [215.04, 29.55],
+      [214.59, 30.87],
+      [214.11, 32.19],
+      [213.61, 33.5],
+      [213.09, 34.82],
+      [212.55, 36.13],
+      [211.99, 37.43],
+      [211.41, 38.73],
+      [210.81, 40.03],
+      [210.2, 41.33],
+      [209.56, 42.62],
+      [208.9, 43.91],
+      [208.22, 45.19],
+      [207.53, 46.47],
+      [206.81, 47.74],
+      [206.08, 49.01],
+      [205.32, 50.28],
+      [204.55, 51.54],
+      [203.76, 52.79],
+      [202.95, 54.04],
+      [202.12, 55.29],
+      [201.27, 56.53],
+      [200.4, 57.77],
+      [199.51, 59.0],
+      [198.61, 60.22],
+      [197.68, 61.44],
+      [196.74, 62.65],
+      [195.78, 63.86],
+      [194.8, 65.06],
+      [193.8, 66.26],
+      [192.79, 67.45],
+      [191.75, 68.63],
+      [190.7, 69.8],
+      [189.63, 70.97],
+      [188.55, 72.14],
+      [187.44, 73.29],
+      [186.32, 74.44],
+      [185.18, 75.59],
+      [184.02, 76.72],
+      [182.85, 77.85],
+      [181.66, 78.97],
+      [180.45, 80.09],
+      [179.23, 81.19],
+      [177.98, 82.29],
+      [176.73, 83.38],
+      [175.45, 84.46],
+      [174.16, 85.54],
+      [172.85, 86.61],
+      [171.53, 87.67],
+      [170.19, 88.72],
+      [168.83, 89.76],
+      [167.46, 90.79],
+      [166.07, 91.82],
+      [164.67, 92.84],
+      [163.25, 93.85],
+      [161.82, 94.85],
+      [160.37, 95.84],
+      [158.91, 96.82],
+      [157.43, 97.79],
+      [155.94, 98.76],
+      [154.43, 99.71],
+      [152.91, 100.66],
+      [151.37, 101.59],
+      [149.82, 102.52],
+      [148.26, 103.43],
+      [146.68, 104.34],
+      [145.09, 105.24],
+      [143.48, 106.13],
+      [141.87, 107.0],
+      [140.23, 107.87],
+      [138.59, 108.73],
+      [136.93, 109.58],
+      [135.26, 110.41],
+      [133.58, 111.24],
+      [131.88, 112.06],
+      [130.17, 112.86],
+      [128.45, 113.66],
+      [126.72, 114.44],
+      [124.97, 115.22],
+      [123.22, 115.98],
+      [121.45, 116.73],
+      [119.67, 117.48],
+      [117.88, 118.21],
+      [116.08, 118.93],
+      [114.27, 119.63],
+      [112.45, 120.33],
+      [110.61, 121.02],
+      [108.77, 121.69],
+      [106.92, 122.36],
+      [105.05, 123.01],
+      [103.18, 123.65],
+      [101.3, 124.28],
+      [99.4, 124.89],
+      [97.5, 125.5],
+      [95.59, 126.09],
+      [93.67, 126.68],
+      [91.74, 127.25],
+      [89.81, 127.8],
+      [87.86, 128.35],
+      [85.91, 128.89],
+      [83.94, 129.41],
+      [81.98, 129.92],
+      [80.0, 130.42],
+      [78.01, 130.9],
+      [76.02, 131.38],
+      [74.02, 131.84],
+      [72.02, 132.29],
+      [70.0, 132.72],
+      [67.98, 133.15],
+      [65.96, 133.56],
+      [63.93, 133.96],
+      [61.89, 134.35],
+      [59.84, 134.72],
+      [57.8, 135.08],
+      [55.74, 135.43],
+      [53.68, 135.77],
+      [51.62, 136.09],
+      [49.55, 136.4],
+      [47.47, 136.7],
+      [45.39, 136.99],
+      [43.31, 137.26],
+      [41.22, 137.52],
+      [39.13, 137.77],
+      [37.04, 138.0],
+      [34.94, 138.22],
+      [32.84, 138.43],
+      [30.74, 138.63],
+      [28.63, 138.81],
+      [26.52, 138.98],
+      [24.41, 139.14],
+      [22.29, 139.28],
+      [20.17, 139.41],
+      [18.06, 139.53],
+      [15.94, 139.63],
+      [13.81, 139.72],
+      [11.69, 139.8],
+      [9.57, 139.87],
+      [7.44, 139.92],
+      [5.32, 139.96],
+      [3.19, 139.99],
+      [1.06, 140.0],
+      [-1.06, 140.0],
+      [-3.19, 139.99],
+      [-5.32, 139.96],
+      [-7.44, 139.92],
+      [-9.57, 139.87],
+      [-11.69, 139.8],
+      [-13.81, 139.72],
+      [-15.94, 139.63],
+      [-18.06, 139.53],
+      [-20.17, 139.41],
+      [-22.29, 139.28],
+      [-24.41, 139.14],
+      [-26.52, 138.98],
+      [-28.63, 138.81],
+      [-30.74, 138.63],
+      [-32.84, 138.43],
+      [-34.94, 138.22],
+      [-37.04, 138.0],
+      [-39.13, 137.77],
+      [-41.22, 137.52],
+      [-43.31, 137.26],
+      [-45.39, 136.99],
+      [-47.47, 136.7],
+      [-49.55, 136.4],
+      [-51.62, 136.09],
+      [-53.68, 135.77],
+      [-55.74, 135.43],
+      [-57.8, 135.08],
+      [-59.84, 134.72],
+      [-61.89, 134.35],
+      [-63.93, 133.96],
+      [-65.96, 133.56],
+      [-67.98, 133.15],
+      [-70.0, 132.72],
+      [-72.02, 132.29],
+      [-74.02, 131.84],
+      [-76.02, 131.38],
+      [-78.01, 130.9],
+      [-80.0, 130.42],
+      [-81.98, 129.92],
+      [-83.94, 129.41],
+      [-85.91, 128.89],
+      [-87.86, 128.35],
+      [-89.81, 127.8],
+      [-91.74, 127.25],
+      [-93.67, 126.68],
+      [-95.59, 126.09],
+      [-97.5, 125.5],
+      [-99.4, 124.89],
+      [-101.3, 124.28],
+      [-103.18, 123.65],
+      [-105.05, 123.01],
+      [-106.92, 122.36],
+      [-108.77, 121.69],
+      [-110.61, 121.02],
+      [-112.45, 120.33],
+      [-114.27, 119.63],
+      [-116.08, 118.93],
+      [-117.88, 118.21],
+      [-119.67, 117.48],
+      [-121.45, 116.73],
+      [-123.22, 115.98],
+      [-124.97, 115.22],
+      [-126.72, 114.44],
+      [-128.45, 113.66],
+      [-130.17, 112.86],
+      [-131.88, 112.06],
+      [-133.58, 111.24],
+      [-135.26, 110.41],
+      [-136.93, 109.58],
+      [-138.59, 108.73],
+      [-140.23, 107.87],
+      [-141.87, 107.0],
+      [-143.48, 106.13],
+      [-145.09, 105.24],
+      [-146.68, 104.34],
+      [-148.26, 103.43],
+      [-149.82, 102.52],
+      [-151.37, 101.59],
+      [-152.91, 100.66],
+      [-154.43, 99.71],
+      [-155.94, 98.76],
+      [-157.43, 97.79],
+      [-158.91, 96.82],
+      [-160.37, 95.84],
+      [-161.82, 94.85],
+      [-163.25, 93.85],
+      [-164.67, 92.84],
+      [-166.07, 91.82],
+      [-167.46, 90.79],
+      [-168.83, 89.76],
+      [-170.19, 88.72],
+      [-171.53, 87.67],
+      [-172.85, 86.61],
+      [-174.16, 85.54],
+      [-175.45, 84.46],
+      [-176.73, 83.38],
+      [-177.98, 82.29],
+      [-179.23, 81.19],
+      [-180.45, 80.09],
+      [-181.66, 78.97],
+      [-182.85, 77.85],
+      [-184.02, 76.72],
+      [-185.18, 75.59],
+      [-186.32, 74.44],
+      [-187.44, 73.29],
+      [-188.55, 72.14],
+      [-189.63, 70.97],
+      [-190.7, 69.8],
+      [-191.75, 68.63],
+      [-192.79, 67.45],
+      [-193.8, 66.26],
+      [-194.8, 65.06],
+      [-195.78, 63.86],
+      [-196.74, 62.65],
+      [-197.68, 61.44],
+      [-198.61, 60.22],
+      [-199.51, 59.0],
+      [-200.4, 57.77],
+      [-201.27, 56.53],
+      [-202.12, 55.29],
+      [-202.95, 54.04],
+      [-203.76, 52.79],
+      [-204.55, 51.54],
+      [-205.32, 50.28],
+      [-206.08, 49.01],
+      [-206.81, 47.74],
+      [-207.53, 46.47],
+      [-208.22, 45.19],
+      [-208.9, 43.91],
+      [-209.56, 42.62],
+      [-210.2, 41.33],
+      [-210.81, 40.03],
+      [-211.41, 38.73],
+      [-211.99, 37.43],
+      [-212.55, 36.13],
+      [-213.09, 34.82],
+      [-213.61, 33.5],
+      [-214.11, 32.19],
+      [-214.59, 30.87],
+      [-215.04, 29.55],
+      [-215.48, 28.22],
+      [-215.9, 26.9],
+      [-216.3, 25.57],
+      [-216.68, 24.24],
+      [-217.04, 22.9],
+      [-217.37, 21.57],
+      [-217.69, 20.23],
+      [-217.99, 18.89],
+      [-218.27, 17.55],
+      [-218.52, 16.2],
+      [-218.76, 14.86],
+      [-218.97, 13.51],
+      [-219.17, 12.16],
+      [-219.34, 10.82],
+      [-219.5, 9.47],
+      [-219.63, 8.12],
+      [-219.74, 6.76],
+      [-219.84, 5.41],
+      [-219.91, 4.06],
+      [-219.96, 2.71],
+      [-219.99, 1.35],
+      [-220.0, 0.0],
+      [-219.99, -1.35],
+      [-219.96, -2.71],
+      [-219.91, -4.06],
+      [-219.84, -5.41],
+      [-219.74, -6.76],
+      [-219.63, -8.12],
+      [-219.5, -9.47],
+      [-219.34, -10.82],
+      [-219.17, -12.16],
+      [-218.97, -13.51],
+      [-218.76, -14.86],
+      [-218.52, -16.2],
+      [-218.27, -17.55],
+      [-217.99, -18.89],
+      [-217.69, -20.23],
+      [-217.37, -21.57],
+      [-217.04, -22.9],
+      [-216.68, -24.24],
+      [-216.3, -25.57],
+      [-215.9, -26.9],
+      [-215.48, -28.22],
+      [-215.04, -29.55],
+      [-214.59, -30.87],
+      [-214.11, -32.19],
+      [-213.61, -33.5],
+      [-213.09, -34.82],
+      [-212.55, -36.13],
+      [-211.99, -37.43],
+      [-211.41, -38.73],
+      [-210.81, -40.03],
+      [-210.2, -41.33],
+      [-209.56, -42.62],
+      [-208.9, -43.91],
+      [-208.22, -45.19],
+      [-207.53, -46.47],
+      [-206.81, -47.74],
+      [-206.08, -49.01],
+      [-205.32, -50.28],
+      [-204.55, -51.54],
+      [-203.76, -52.79],
+      [-202.95, -54.04],
+      [-202.12, -55.29],
+      [-201.27, -56.53],
+      [-200.4, -57.77],
+      [-199.51, -59.0],
+      [-198.61, -60.22],
+      [-197.68, -61.44],
+      [-196.74, -62.65],
+      [-195.78, -63.86],
+      [-194.8, -65.06],
+      [-193.8, -66.26],
+      [-192.79, -67.45],
+      [-191.75, -68.63],
+      [-190.7, -69.8],
+      [-189.63, -70.97],
+      [-188.55, -72.14],
+      [-187.44, -73.29],
+      [-186.32, -74.44],
+      [-185.18, -75.59],
+      [-184.02, -76.72],
+      [-182.85, -77.85],
+      [-181.66, -78.97],
+      [-180.45, -80.09],
+      [-179.23, -81.19],
+      [-177.98, -82.29],
+      [-176.73, -83.38],
+      [-175.45, -84.46],
+      [-174.16, -85.54],
+      [-172.85, -86.61],
+      [-171.53, -87.67],
+      [-170.19, -88.72],
+      [-168.83, -89.76],
+      [-167.46, -90.79],
+      [-166.07, -91.82],
+      [-164.67, -92.84],
+      [-163.25, -93.85],
+      [-161.82, -94.85],
+      [-160.37, -95.84],
+      [-158.91, -96.82],
+      [-157.43, -97.79],
+      [-155.94, -98.76],
+      [-154.43, -99.71],
+      [-152.91, -100.66],
+      [-151.37, -101.59],
+      [-149.82, -102.52],
+      [-148.26, -103.43],
+      [-146.68, -104.34],
+      [-145.09, -105.24],
+      [-143.48, -106.13],
+      [-141.87, -107.0],
+      [-140.23, -107.87],
+      [-138.59, -108.73],
+      [-136.93, -109.58],
+      [-135.26, -110.41],
+      [-133.58, -111.24],
+      [-131.88, -112.06],
+      [-130.17, -112.86],
+      [-128.45, -113.66],
+      [-126.72, -114.44],
+      [-124.97, -115.22],
+      [-123.22, -115.98],
+      [-121.45, -116.73],
+      [-119.67, -117.48],
+      [-117.88, -118.21],
+      [-116.08, -118.93],
+      [-114.27, -119.63],
+      [-112.45, -120.33],
+      [-110.61, -121.02],
+      [-108.77, -121.69],
+      [-106.92, -122.36],
+      [-105.05, -123.01],
+      [-103.18, -123.65],
+      [-101.3, -124.28],
+      [-99.4, -124.89],
+      [-97.5, -125.5],
+      [-95.59, -126.09],
+      [-93.67, -126.68],
+      [-91.74, -127.25],
+      [-89.81, -127.8],
+      [-87.86, -128.35],
+      [-85.91, -128.89],
+      [-83.94, -129.41],
+      [-81.98, -129.92],
+      [-80.0, -130.42],
+      [-78.01, -130.9],
+      [-76.02, -131.38],
+      [-74.02, -131.84],
+      [-72.02, -132.29],
+      [-70.0, -132.72],
+      [-67.98, -133.15],
+      [-65.96, -133.56],
+      [-63.93, -133.96],
+      [-61.89, -134.35],
+      [-59.84, -134.72],
+      [-57.8, -135.08],
+      [-55.74, -135.43],
+      [-53.68, -135.77],
+      [-51.62, -136.09],
+      [-49.55, -136.4],
+      [-47.47, -136.7],
+      [-45.39, -136.99],
+      [-43.31, -137.26],
+      [-41.22, -137.52],
+      [-39.13, -137.77],
+      [-37.04, -138.0],
+      [-34.94, -138.22],
+      [-32.84, -138.43],
+      [-30.74, -138.63],
+      [-28.63, -138.81],
+      [-26.52, -138.98],
+      [-24.41, -139.14],
+      [-22.29, -139.28],
+      [-20.17, -139.41],
+      [-18.06, -139.53],
+      [-15.94, -139.63],
+      [-13.81, -139.72],
+      [-11.69, -139.8],
+      [-9.57, -139.87],
+      [-7.44, -139.92],
+      [-5.32, -139.96],
+      [-3.19, -139.99],
+      [-1.06, -140.0],
+      [1.06, -140.0],
+      [3.19, -139.99],
+      [5.32, -139.96],
+      [7.44, -139.92],
+      [9.57, -139.87],
+      [11.69, -139.8],
+      [13.81, -139.72],
+      [15.94, -139.63],
+      [18.06, -139.53],
+      [20.17, -139.41],
+      [22.29, -139.28],
+      [24.41, -139.14],
+      [26.52, -138.98],
+      [28.63, -138.81],
+      [30.74, -138.63],
+      [32.84, -138.43],
+      [34.94, -138.22],
+      [37.04, -138.0],
+      [39.13, -137.77],
+      [41.22, -137.52],
+      [43.31, -137.26],
+      [45.39, -136.99],
+      [47.47, -136.7],
+      [49.55, -136.4],
+      [51.62, -136.09],
+      [53.68, -135.77],
+      [55.74, -135.43],
+      [57.8, -135.08],
+      [59.84, -134.72],
+      [61.89, -134.35],
+      [63.93, -133.96],
+      [65.96, -133.56],
+      [67.98, -133.15],
+      [70.0, -132.72],
+      [72.02, -132.29],
+      [74.02, -131.84],
+      [76.02, -131.38],
+      [78.01, -130.9],
+      [80.0, -130.42],
+      [81.98, -129.92],
+      [83.94, -129.41],
+      [85.91, -128.89],
+      [87.86, -128.35],
+      [89.81, -127.8],
+      [91.74, -127.25],
+      [93.67, -126.68],
+      [95.59, -126.09],
+      [97.5, -125.5],
+      [99.4, -124.89],
+      [101.3, -124.28],
+      [103.18, -123.65],
+      [105.05, -123.01],
+      [106.92, -122.36],
+      [108.77, -121.69],
+      [110.61, -121.02],
+      [112.45, -120.33],
+      [114.27, -119.63],
+      [116.08, -118.93],
+      [117.88, -118.21],
+      [119.67, -117.48],
+      [121.45, -116.73],
+      [123.22, -115.98],
+      [124.97, -115.22],
+      [126.72, -114.44],
+      [128.45, -113.66],
+      [130.17, -112.86],
+      [131.88, -112.06],
+      [133.58, -111.24],
+      [135.26, -110.41],
+      [136.93, -109.58],
+      [138.59, -108.73],
+      [140.23, -107.87],
+      [141.87, -107.0],
+      [143.48, -106.13],
+      [145.09, -105.24],
+      [146.68, -104.34],
+      [148.26, -103.43],
+      [149.82, -102.52],
+      [151.37, -101.59],
+      [152.91, -100.66],
+      [154.43, -99.71],
+      [155.94, -98.76],
+      [157.43, -97.79],
+      [158.91, -96.82],
+      [160.37, -95.84],
+      [161.82, -94.85],
+      [163.25, -93.85],
+      [164.67, -92.84],
+      [166.07, -91.82],
+      [167.46, -90.79],
+      [168.83, -89.76],
+      [170.19, -88.72],
+      [171.53, -87.67],
+      [172.85, -86.61],
+      [174.16, -85.54],
+      [175.45, -84.46],
+      [176.73, -83.38],
+      [177.98, -82.29],
+      [179.23, -81.19],
+      [180.45, -80.09],
+      [181.66, -78.97],
+      [182.85, -77.85],
+      [184.02, -76.72],
+      [185.18, -75.59],
+      [186.32, -74.44],
+      [187.44, -73.29],
+      [188.55, -72.14],
+      [189.63, -70.97],
+      [190.7, -69.8],
+      [191.75, -68.63],
+      [192.79, -67.45],
+      [193.8, -66.26],
+      [194.8, -65.06],
+      [195.78, -63.86],
+      [196.74, -62.65],
+      [197.68, -61.44],
+      [198.61, -60.22],
+      [199.51, -59.0],
+      [200.4, -57.77],
+      [201.27, -56.53],
+      [202.12, -55.29],
+      [202.95, -54.04],
+      [203.76, -52.79],
+      [204.55, -51.54],
+      [205.32, -50.28],
+      [206.08, -49.01],
+      [206.81, -47.74],
+      [207.53, -46.47],
+      [208.22, -45.19],
+      [208.9, -43.91],
+      [209.56, -42.62],
+      [210.2, -41.33],
+      [210.81, -40.03],
+      [211.41, -38.73],
+      [211.99, -37.43],
+      [212.55, -36.13],
+      [213.09, -34.82],
+      [213.61, -33.5],
+      [214.11, -32.19],
+      [214.59, -30.87],
+      [215.04, -29.55],
+      [215.48, -28.22],
+      [215.9, -26.9],
+      [216.3, -25.57],
+      [216.68, -24.24],
+      [217.04, -22.9],
+      [217.37, -21.57],
+      [217.69, -20.23],
+      [217.99, -18.89],
+      [218.27, -17.55],
+      [218.52, -16.2],
+      [218.76, -14.86],
+      [218.97, -13.51],
+      [219.17, -12.16],
+      [219.34, -10.82],
+      [219.5, -9.47],
+      [219.63, -8.12],
+      [219.74, -6.76],
+      [219.84, -5.41],
+      [219.91, -4.06],
+      [219.96, -2.71],
+      [219.99, -1.35],
+    ],
+    start: { x:220.0, y:0.0, a:0 },
+  }
+  ,
+  "Figure8": {
+    kind: 'line',
+    lineWidth: 16,
+    line: [
+      [200.0, 0.0],
+      [199.97, 1.93],
+      [199.89, 3.86],
+      [199.75, 5.79],
+      [199.55, 7.71],
+      [199.3, 9.63],
+      [199.0, 11.53],
+      [198.63, 13.43],
+      [198.22, 15.31],
+      [197.75, 17.18],
+      [197.23, 19.04],
+      [196.66, 20.87],
+      [196.03, 22.69],
+      [195.35, 24.48],
+      [194.63, 26.26],
+      [193.85, 28.01],
+      [193.03, 29.74],
+      [192.16, 31.44],
+      [191.25, 33.11],
+      [190.29, 34.75],
+      [189.29, 36.37],
+      [188.24, 37.95],
+      [187.16, 39.5],
+      [186.03, 41.02],
+      [184.87, 42.5],
+      [183.67, 43.95],
+      [182.43, 45.37],
+      [181.16, 46.75],
+      [179.86, 48.09],
+      [178.53, 49.39],
+      [177.16, 50.66],
+      [175.77, 51.89],
+      [174.35, 53.08],
+      [172.9, 54.22],
+      [171.43, 55.33],
+      [169.94, 56.4],
+      [168.43, 57.44],
+      [166.89, 58.43],
+      [165.34, 59.38],
+      [163.76, 60.29],
+      [162.17, 61.15],
+      [160.57, 61.98],
+      [158.95, 62.77],
+      [157.32, 63.52],
+      [155.68, 64.23],
+      [154.02, 64.91],
+      [152.36, 65.54],
+      [150.69, 66.13],
+      [149.01, 66.69],
+      [147.33, 67.2],
+      [145.64, 67.68],
+      [143.94, 68.12],
+      [142.25, 68.53],
+      [140.55, 68.9],
+      [138.85, 69.23],
+      [137.15, 69.53],
+      [135.44, 69.79],
+      [133.74, 70.02],
+      [132.05, 70.21],
+      [130.35, 70.38],
+      [128.66, 70.51],
+      [126.97, 70.6],
+      [125.28, 70.67],
+      [123.6, 70.7],
+      [121.93, 70.71],
+      [120.26, 70.68],
+      [118.59, 70.63],
+      [116.94, 70.55],
+      [115.29, 70.44],
+      [113.65, 70.3],
+      [112.01, 70.14],
+      [110.39, 69.95],
+      [108.77, 69.74],
+      [107.17, 69.5],
+      [105.57, 69.24],
+      [103.98, 68.95],
+      [102.4, 68.64],
+      [100.83, 68.31],
+      [99.27, 67.96],
+      [97.73, 67.58],
+      [96.19, 67.19],
+      [94.66, 66.77],
+      [93.14, 66.34],
+      [91.64, 65.89],
+      [90.14, 65.41],
+      [88.66, 64.92],
+      [87.19, 64.42],
+      [85.73, 63.89],
+      [84.28, 63.35],
+      [82.84, 62.8],
+      [81.41, 62.22],
+      [79.99, 61.64],
+      [78.59, 61.03],
+      [77.19, 60.42],
+      [75.81, 59.79],
+      [74.44, 59.15],
+      [73.07, 58.49],
+      [71.72, 57.82],
+      [70.38, 57.14],
+      [69.05, 56.45],
+      [67.74, 55.75],
+      [66.43, 55.03],
+      [65.13, 54.31],
+      [63.84, 53.57],
+      [62.56, 52.82],
+      [61.3, 52.07],
+      [60.04, 51.31],
+      [58.79, 50.53],
+      [57.55, 49.75],
+      [56.32, 48.96],
+      [55.11, 48.16],
+      [53.9, 47.35],
+      [52.7, 46.54],
+      [51.5, 45.72],
+      [50.32, 44.89],
+      [49.15, 44.06],
+      [47.98, 43.21],
+      [46.82, 42.37],
+      [45.67, 41.51],
+      [44.53, 40.65],
+      [43.4, 39.79],
+      [42.27, 38.92],
+      [41.15, 38.04],
+      [40.04, 37.16],
+      [38.94, 36.27],
+      [37.84, 35.38],
+      [36.75, 34.49],
+      [35.67, 33.59],
+      [34.59, 32.68],
+      [33.52, 31.77],
+      [32.45, 30.86],
+      [31.39, 29.95],
+      [30.34, 29.03],
+      [29.29, 28.11],
+      [28.25, 27.18],
+      [27.21, 26.25],
+      [26.18, 25.32],
+      [25.15, 24.39],
+      [24.13, 23.45],
+      [23.11, 22.51],
+      [22.09, 21.57],
+      [21.08, 20.63],
+      [20.08, 19.68],
+      [19.07, 18.74],
+      [18.07, 17.79],
+      [17.08, 16.83],
+      [16.08, 15.88],
+      [15.1, 14.93],
+      [14.11, 13.97],
+      [13.12, 13.01],
+      [12.14, 12.05],
+      [11.16, 11.09],
+      [10.18, 10.13],
+      [9.21, 9.17],
+      [8.23, 8.21],
+      [7.26, 7.24],
+      [6.29, 6.28],
+      [5.32, 5.31],
+      [4.35, 4.35],
+      [3.38, 3.38],
+      [2.42, 2.42],
+      [1.45, 1.45],
+      [0.48, 0.48],
+      [-0.48, -0.48],
+      [-1.45, -1.45],
+      [-2.42, -2.42],
+      [-3.38, -3.38],
+      [-4.35, -4.35],
+      [-5.32, -5.31],
+      [-6.29, -6.28],
+      [-7.26, -7.24],
+      [-8.23, -8.21],
+      [-9.21, -9.17],
+      [-10.18, -10.13],
+      [-11.16, -11.09],
+      [-12.14, -12.05],
+      [-13.12, -13.01],
+      [-14.11, -13.97],
+      [-15.1, -14.93],
+      [-16.08, -15.88],
+      [-17.08, -16.83],
+      [-18.07, -17.79],
+      [-19.07, -18.74],
+      [-20.08, -19.68],
+      [-21.08, -20.63],
+      [-22.09, -21.57],
+      [-23.11, -22.51],
+      [-24.13, -23.45],
+      [-25.15, -24.39],
+      [-26.18, -25.32],
+      [-27.21, -26.25],
+      [-28.25, -27.18],
+      [-29.29, -28.11],
+      [-30.34, -29.03],
+      [-31.39, -29.95],
+      [-32.45, -30.86],
+      [-33.52, -31.77],
+      [-34.59, -32.68],
+      [-35.67, -33.59],
+      [-36.75, -34.49],
+      [-37.84, -35.38],
+      [-38.94, -36.27],
+      [-40.04, -37.16],
+      [-41.15, -38.04],
+      [-42.27, -38.92],
+      [-43.4, -39.79],
+      [-44.53, -40.65],
+      [-45.67, -41.51],
+      [-46.82, -42.37],
+      [-47.98, -43.21],
+      [-49.15, -44.06],
+      [-50.32, -44.89],
+      [-51.5, -45.72],
+      [-52.7, -46.54],
+      [-53.9, -47.35],
+      [-55.11, -48.16],
+      [-56.32, -48.96],
+      [-57.55, -49.75],
+      [-58.79, -50.53],
+      [-60.04, -51.31],
+      [-61.3, -52.07],
+      [-62.56, -52.82],
+      [-63.84, -53.57],
+      [-65.13, -54.31],
+      [-66.43, -55.03],
+      [-67.74, -55.75],
+      [-69.05, -56.45],
+      [-70.38, -57.14],
+      [-71.72, -57.82],
+      [-73.07, -58.49],
+      [-74.44, -59.15],
+      [-75.81, -59.79],
+      [-77.19, -60.42],
+      [-78.59, -61.03],
+      [-79.99, -61.64],
+      [-81.41, -62.22],
+      [-82.84, -62.8],
+      [-84.28, -63.35],
+      [-85.73, -63.89],
+      [-87.19, -64.42],
+      [-88.66, -64.92],
+      [-90.14, -65.41],
+      [-91.64, -65.89],
+      [-93.14, -66.34],
+      [-94.66, -66.77],
+      [-96.19, -67.19],
+      [-97.73, -67.58],
+      [-99.27, -67.96],
+      [-100.83, -68.31],
+      [-102.4, -68.64],
+      [-103.98, -68.95],
+      [-105.57, -69.24],
+      [-107.17, -69.5],
+      [-108.77, -69.74],
+      [-110.39, -69.95],
+      [-112.01, -70.14],
+      [-113.65, -70.3],
+      [-115.29, -70.44],
+      [-116.94, -70.55],
+      [-118.59, -70.63],
+      [-120.26, -70.68],
+      [-121.93, -70.71],
+      [-123.6, -70.7],
+      [-125.28, -70.67],
+      [-126.97, -70.6],
+      [-128.66, -70.51],
+      [-130.35, -70.38],
+      [-132.05, -70.21],
+      [-133.74, -70.02],
+      [-135.44, -69.79],
+      [-137.15, -69.53],
+      [-138.85, -69.23],
+      [-140.55, -68.9],
+      [-142.25, -68.53],
+      [-143.94, -68.12],
+      [-145.64, -67.68],
+      [-147.33, -67.2],
+      [-149.01, -66.69],
+      [-150.69, -66.13],
+      [-152.36, -65.54],
+      [-154.02, -64.91],
+      [-155.68, -64.23],
+      [-157.32, -63.52],
+      [-158.95, -62.77],
+      [-160.57, -61.98],
+      [-162.17, -61.15],
+      [-163.76, -60.29],
+      [-165.34, -59.38],
+      [-166.89, -58.43],
+      [-168.43, -57.44],
+      [-169.94, -56.4],
+      [-171.43, -55.33],
+      [-172.9, -54.22],
+      [-174.35, -53.08],
+      [-175.77, -51.89],
+      [-177.16, -50.66],
+      [-178.53, -49.39],
+      [-179.86, -48.09],
+      [-181.16, -46.75],
+      [-182.43, -45.37],
+      [-183.67, -43.95],
+      [-184.87, -42.5],
+      [-186.03, -41.02],
+      [-187.16, -39.5],
+      [-188.24, -37.95],
+      [-189.29, -36.37],
+      [-190.29, -34.75],
+      [-191.25, -33.11],
+      [-192.16, -31.44],
+      [-193.03, -29.74],
+      [-193.85, -28.01],
+      [-194.63, -26.26],
+      [-195.35, -24.48],
+      [-196.03, -22.69],
+      [-196.66, -20.87],
+      [-197.23, -19.04],
+      [-197.75, -17.18],
+      [-198.22, -15.31],
+      [-198.63, -13.43],
+      [-199.0, -11.53],
+      [-199.3, -9.63],
+      [-199.55, -7.71],
+      [-199.75, -5.79],
+      [-199.89, -3.86],
+      [-199.97, -1.93],
+      [-200.0, -0.0],
+      [-199.97, 1.93],
+      [-199.89, 3.86],
+      [-199.75, 5.79],
+      [-199.55, 7.71],
+      [-199.3, 9.63],
+      [-199.0, 11.53],
+      [-198.63, 13.43],
+      [-198.22, 15.31],
+      [-197.75, 17.18],
+      [-197.23, 19.04],
+      [-196.66, 20.87],
+      [-196.03, 22.69],
+      [-195.35, 24.48],
+      [-194.63, 26.26],
+      [-193.85, 28.01],
+      [-193.03, 29.74],
+      [-192.16, 31.44],
+      [-191.25, 33.11],
+      [-190.29, 34.75],
+      [-189.29, 36.37],
+      [-188.24, 37.95],
+      [-187.16, 39.5],
+      [-186.03, 41.02],
+      [-184.87, 42.5],
+      [-183.67, 43.95],
+      [-182.43, 45.37],
+      [-181.16, 46.75],
+      [-179.86, 48.09],
+      [-178.53, 49.39],
+      [-177.16, 50.66],
+      [-175.77, 51.89],
+      [-174.35, 53.08],
+      [-172.9, 54.22],
+      [-171.43, 55.33],
+      [-169.94, 56.4],
+      [-168.43, 57.44],
+      [-166.89, 58.43],
+      [-165.34, 59.38],
+      [-163.76, 60.29],
+      [-162.17, 61.15],
+      [-160.57, 61.98],
+      [-158.95, 62.77],
+      [-157.32, 63.52],
+      [-155.68, 64.23],
+      [-154.02, 64.91],
+      [-152.36, 65.54],
+      [-150.69, 66.13],
+      [-149.01, 66.69],
+      [-147.33, 67.2],
+      [-145.64, 67.68],
+      [-143.94, 68.12],
+      [-142.25, 68.53],
+      [-140.55, 68.9],
+      [-138.85, 69.23],
+      [-137.15, 69.53],
+      [-135.44, 69.79],
+      [-133.74, 70.02],
+      [-132.05, 70.21],
+      [-130.35, 70.38],
+      [-128.66, 70.51],
+      [-126.97, 70.6],
+      [-125.28, 70.67],
+      [-123.6, 70.7],
+      [-121.93, 70.71],
+      [-120.26, 70.68],
+      [-118.59, 70.63],
+      [-116.94, 70.55],
+      [-115.29, 70.44],
+      [-113.65, 70.3],
+      [-112.01, 70.14],
+      [-110.39, 69.95],
+      [-108.77, 69.74],
+      [-107.17, 69.5],
+      [-105.57, 69.24],
+      [-103.98, 68.95],
+      [-102.4, 68.64],
+      [-100.83, 68.31],
+      [-99.27, 67.96],
+      [-97.73, 67.58],
+      [-96.19, 67.19],
+      [-94.66, 66.77],
+      [-93.14, 66.34],
+      [-91.64, 65.89],
+      [-90.14, 65.41],
+      [-88.66, 64.92],
+      [-87.19, 64.42],
+      [-85.73, 63.89],
+      [-84.28, 63.35],
+      [-82.84, 62.8],
+      [-81.41, 62.22],
+      [-79.99, 61.64],
+      [-78.59, 61.03],
+      [-77.19, 60.42],
+      [-75.81, 59.79],
+      [-74.44, 59.15],
+      [-73.07, 58.49],
+      [-71.72, 57.82],
+      [-70.38, 57.14],
+      [-69.05, 56.45],
+      [-67.74, 55.75],
+      [-66.43, 55.03],
+      [-65.13, 54.31],
+      [-63.84, 53.57],
+      [-62.56, 52.82],
+      [-61.3, 52.07],
+      [-60.04, 51.31],
+      [-58.79, 50.53],
+      [-57.55, 49.75],
+      [-56.32, 48.96],
+      [-55.11, 48.16],
+      [-53.9, 47.35],
+      [-52.7, 46.54],
+      [-51.5, 45.72],
+      [-50.32, 44.89],
+      [-49.15, 44.06],
+      [-47.98, 43.21],
+      [-46.82, 42.37],
+      [-45.67, 41.51],
+      [-44.53, 40.65],
+      [-43.4, 39.79],
+      [-42.27, 38.92],
+      [-41.15, 38.04],
+      [-40.04, 37.16],
+      [-38.94, 36.27],
+      [-37.84, 35.38],
+      [-36.75, 34.49],
+      [-35.67, 33.59],
+      [-34.59, 32.68],
+      [-33.52, 31.77],
+      [-32.45, 30.86],
+      [-31.39, 29.95],
+      [-30.34, 29.03],
+      [-29.29, 28.11],
+      [-28.25, 27.18],
+      [-27.21, 26.25],
+      [-26.18, 25.32],
+      [-25.15, 24.39],
+      [-24.13, 23.45],
+      [-23.11, 22.51],
+      [-22.09, 21.57],
+      [-21.08, 20.63],
+      [-20.08, 19.68],
+      [-19.07, 18.74],
+      [-18.07, 17.79],
+      [-17.08, 16.83],
+      [-16.08, 15.88],
+      [-15.1, 14.93],
+      [-14.11, 13.97],
+      [-13.12, 13.01],
+      [-12.14, 12.05],
+      [-11.16, 11.09],
+      [-10.18, 10.13],
+      [-9.21, 9.17],
+      [-8.23, 8.21],
+      [-7.26, 7.24],
+      [-6.29, 6.28],
+      [-5.32, 5.31],
+      [-4.35, 4.35],
+      [-3.38, 3.38],
+      [-2.42, 2.42],
+      [-1.45, 1.45],
+      [-0.48, 0.48],
+      [0.48, -0.48],
+      [1.45, -1.45],
+      [2.42, -2.42],
+      [3.38, -3.38],
+      [4.35, -4.35],
+      [5.32, -5.31],
+      [6.29, -6.28],
+      [7.26, -7.24],
+      [8.23, -8.21],
+      [9.21, -9.17],
+      [10.18, -10.13],
+      [11.16, -11.09],
+      [12.14, -12.05],
+      [13.12, -13.01],
+      [14.11, -13.97],
+      [15.1, -14.93],
+      [16.08, -15.88],
+      [17.08, -16.83],
+      [18.07, -17.79],
+      [19.07, -18.74],
+      [20.08, -19.68],
+      [21.08, -20.63],
+      [22.09, -21.57],
+      [23.11, -22.51],
+      [24.13, -23.45],
+      [25.15, -24.39],
+      [26.18, -25.32],
+      [27.21, -26.25],
+      [28.25, -27.18],
+      [29.29, -28.11],
+      [30.34, -29.03],
+      [31.39, -29.95],
+      [32.45, -30.86],
+      [33.52, -31.77],
+      [34.59, -32.68],
+      [35.67, -33.59],
+      [36.75, -34.49],
+      [37.84, -35.38],
+      [38.94, -36.27],
+      [40.04, -37.16],
+      [41.15, -38.04],
+      [42.27, -38.92],
+      [43.4, -39.79],
+      [44.53, -40.65],
+      [45.67, -41.51],
+      [46.82, -42.37],
+      [47.98, -43.21],
+      [49.15, -44.06],
+      [50.32, -44.89],
+      [51.5, -45.72],
+      [52.7, -46.54],
+      [53.9, -47.35],
+      [55.11, -48.16],
+      [56.32, -48.96],
+      [57.55, -49.75],
+      [58.79, -50.53],
+      [60.04, -51.31],
+      [61.3, -52.07],
+      [62.56, -52.82],
+      [63.84, -53.57],
+      [65.13, -54.31],
+      [66.43, -55.03],
+      [67.74, -55.75],
+      [69.05, -56.45],
+      [70.38, -57.14],
+      [71.72, -57.82],
+      [73.07, -58.49],
+      [74.44, -59.15],
+      [75.81, -59.79],
+      [77.19, -60.42],
+      [78.59, -61.03],
+      [79.99, -61.64],
+      [81.41, -62.22],
+      [82.84, -62.8],
+      [84.28, -63.35],
+      [85.73, -63.89],
+      [87.19, -64.42],
+      [88.66, -64.92],
+      [90.14, -65.41],
+      [91.64, -65.89],
+      [93.14, -66.34],
+      [94.66, -66.77],
+      [96.19, -67.19],
+      [97.73, -67.58],
+      [99.27, -67.96],
+      [100.83, -68.31],
+      [102.4, -68.64],
+      [103.98, -68.95],
+      [105.57, -69.24],
+      [107.17, -69.5],
+      [108.77, -69.74],
+      [110.39, -69.95],
+      [112.01, -70.14],
+      [113.65, -70.3],
+      [115.29, -70.44],
+      [116.94, -70.55],
+      [118.59, -70.63],
+      [120.26, -70.68],
+      [121.93, -70.71],
+      [123.6, -70.7],
+      [125.28, -70.67],
+      [126.97, -70.6],
+      [128.66, -70.51],
+      [130.35, -70.38],
+      [132.05, -70.21],
+      [133.74, -70.02],
+      [135.44, -69.79],
+      [137.15, -69.53],
+      [138.85, -69.23],
+      [140.55, -68.9],
+      [142.25, -68.53],
+      [143.94, -68.12],
+      [145.64, -67.68],
+      [147.33, -67.2],
+      [149.01, -66.69],
+      [150.69, -66.13],
+      [152.36, -65.54],
+      [154.02, -64.91],
+      [155.68, -64.23],
+      [157.32, -63.52],
+      [158.95, -62.77],
+      [160.57, -61.98],
+      [162.17, -61.15],
+      [163.76, -60.29],
+      [165.34, -59.38],
+      [166.89, -58.43],
+      [168.43, -57.44],
+      [169.94, -56.4],
+      [171.43, -55.33],
+      [172.9, -54.22],
+      [174.35, -53.08],
+      [175.77, -51.89],
+      [177.16, -50.66],
+      [178.53, -49.39],
+      [179.86, -48.09],
+      [181.16, -46.75],
+      [182.43, -45.37],
+      [183.67, -43.95],
+      [184.87, -42.5],
+      [186.03, -41.02],
+      [187.16, -39.5],
+      [188.24, -37.95],
+      [189.29, -36.37],
+      [190.29, -34.75],
+      [191.25, -33.11],
+      [192.16, -31.44],
+      [193.03, -29.74],
+      [193.85, -28.01],
+      [194.63, -26.26],
+      [195.35, -24.48],
+      [196.03, -22.69],
+      [196.66, -20.87],
+      [197.23, -19.04],
+      [197.75, -17.18],
+      [198.22, -15.31],
+      [198.63, -13.43],
+      [199.0, -11.53],
+      [199.3, -9.63],
+      [199.55, -7.71],
+      [199.75, -5.79],
+      [199.89, -3.86],
+      [199.97, -1.93],
+    ],
+    start: { x:200.0, y:0.0, a:0 },
+  }
+  ,
+  "Slalom": {
+    kind: 'line',
+    lineWidth: 16,
+    line: [
+      [-350.0, 0.0],
+      [-348.65, 4.36],
+      [-347.3, 8.71],
+      [-345.95, 13.05],
+      [-344.61, 17.37],
+      [-343.26, 21.67],
+      [-341.91, 25.94],
+      [-340.56, 30.18],
+      [-339.21, 34.38],
+      [-337.86, 38.53],
+      [-336.51, 42.63],
+      [-335.16, 46.68],
+      [-333.82, 50.66],
+      [-332.47, 54.58],
+      [-331.12, 58.42],
+      [-329.77, 62.19],
+      [-328.42, 65.87],
+      [-327.07, 69.47],
+      [-325.72, 72.98],
+      [-324.37, 76.39],
+      [-323.03, 79.7],
+      [-321.68, 82.91],
+      [-320.33, 86.0],
+      [-318.98, 88.98],
+      [-317.63, 91.85],
+      [-316.28, 94.59],
+      [-314.93, 97.21],
+      [-313.58, 99.7],
+      [-312.24, 102.06],
+      [-310.89, 104.28],
+      [-309.54, 106.37],
+      [-308.19, 108.32],
+      [-306.84, 110.12],
+      [-305.49, 111.78],
+      [-304.14, 113.29],
+      [-302.79, 114.65],
+      [-301.45, 115.86],
+      [-300.1, 116.92],
+      [-298.75, 117.83],
+      [-297.4, 118.57],
+      [-296.05, 119.17],
+      [-294.7, 119.6],
+      [-293.35, 119.88],
+      [-292.0, 120.0],
+      [-290.66, 119.96],
+      [-289.31, 119.76],
+      [-287.96, 119.4],
+      [-286.61, 118.89],
+      [-285.26, 118.22],
+      [-283.91, 117.39],
+      [-282.56, 116.41],
+      [-281.21, 115.28],
+      [-279.87, 113.99],
+      [-278.52, 112.55],
+      [-277.17, 110.97],
+      [-275.82, 109.24],
+      [-274.47, 107.36],
+      [-273.12, 105.35],
+      [-271.77, 103.19],
+      [-270.42, 100.9],
+      [-269.08, 98.47],
+      [-267.73, 95.92],
+      [-266.38, 93.23],
+      [-265.03, 90.43],
+      [-263.68, 87.51],
+      [-262.33, 84.47],
+      [-260.98, 81.32],
+      [-259.63, 78.06],
+      [-258.29, 74.7],
+      [-256.94, 71.24],
+      [-255.59, 67.68],
+      [-254.24, 64.04],
+      [-252.89, 60.31],
+      [-251.54, 56.51],
+      [-250.19, 52.63],
+      [-248.84, 48.68],
+      [-247.5, 44.66],
+      [-246.15, 40.59],
+      [-244.8, 36.46],
+      [-243.45, 32.28],
+      [-242.1, 28.07],
+      [-240.75, 23.81],
+      [-239.4, 19.53],
+      [-238.05, 15.21],
+      [-236.71, 10.88],
+      [-235.36, 6.53],
+      [-234.01, 2.18],
+      [-232.66, -2.18],
+      [-231.31, -6.53],
+      [-229.96, -10.88],
+      [-228.61, -15.21],
+      [-227.26, -19.53],
+      [-225.92, -23.81],
+      [-224.57, -28.07],
+      [-223.22, -32.28],
+      [-221.87, -36.46],
+      [-220.52, -40.59],
+      [-219.17, -44.66],
+      [-217.82, -48.68],
+      [-216.47, -52.63],
+      [-215.13, -56.51],
+      [-213.78, -60.31],
+      [-212.43, -64.04],
+      [-211.08, -67.68],
+      [-209.73, -71.24],
+      [-208.38, -74.7],
+      [-207.03, -78.06],
+      [-205.68, -81.32],
+      [-204.34, -84.47],
+      [-202.99, -87.51],
+      [-201.64, -90.43],
+      [-200.29, -93.23],
+      [-198.94, -95.92],
+      [-197.59, -98.47],
+      [-196.24, -100.9],
+      [-194.89, -103.19],
+      [-193.55, -105.35],
+      [-192.2, -107.36],
+      [-190.85, -109.24],
+      [-189.5, -110.97],
+      [-188.15, -112.55],
+      [-186.8, -113.99],
+      [-185.45, -115.28],
+      [-184.1, -116.41],
+      [-182.76, -117.39],
+      [-181.41, -118.22],
+      [-180.06, -118.89],
+      [-178.71, -119.4],
+      [-177.36, -119.76],
+      [-176.01, -119.96],
+      [-174.66, -120.0],
+      [-173.31, -119.88],
+      [-171.97, -119.6],
+      [-170.62, -119.17],
+      [-169.27, -118.57],
+      [-167.92, -117.83],
+      [-166.57, -116.92],
+      [-165.22, -115.86],
+      [-163.87, -114.65],
+      [-162.52, -113.29],
+      [-161.18, -111.78],
+      [-159.83, -110.12],
+      [-158.48, -108.32],
+      [-157.13, -106.37],
+      [-155.78, -104.28],
+      [-154.43, -102.06],
+      [-153.08, -99.7],
+      [-151.73, -97.21],
+      [-150.39, -94.59],
+      [-149.04, -91.85],
+      [-147.69, -88.98],
+      [-146.34, -86.0],
+      [-144.99, -82.91],
+      [-143.64, -79.7],
+      [-142.29, -76.39],
+      [-140.94, -72.98],
+      [-139.6, -69.47],
+      [-138.25, -65.87],
+      [-136.9, -62.19],
+      [-135.55, -58.42],
+      [-134.2, -54.58],
+      [-132.85, -50.66],
+      [-131.5, -46.68],
+      [-130.15, -42.63],
+      [-128.81, -38.53],
+      [-127.46, -34.38],
+      [-126.11, -30.18],
+      [-124.76, -25.94],
+      [-123.41, -21.67],
+      [-122.06, -17.37],
+      [-120.71, -13.05],
+      [-119.36, -8.71],
+      [-118.02, -4.36],
+      [-116.67, -0.0],
+      [-115.32, 4.36],
+      [-113.97, 8.71],
+      [-112.62, 13.05],
+      [-111.27, 17.37],
+      [-109.92, 21.67],
+      [-108.57, 25.94],
+      [-107.23, 30.18],
+      [-105.88, 34.38],
+      [-104.53, 38.53],
+      [-103.18, 42.63],
+      [-101.83, 46.68],
+      [-100.48, 50.66],
+      [-99.13, 54.58],
+      [-97.78, 58.42],
+      [-96.44, 62.19],
+      [-95.09, 65.87],
+      [-93.74, 69.47],
+      [-92.39, 72.98],
+      [-91.04, 76.39],
+      [-89.69, 79.7],
+      [-88.34, 82.91],
+      [-86.99, 86.0],
+      [-85.65, 88.98],
+      [-84.3, 91.85],
+      [-82.95, 94.59],
+      [-81.6, 97.21],
+      [-80.25, 99.7],
+      [-78.9, 102.06],
+      [-77.55, 104.28],
+      [-76.2, 106.37],
+      [-74.86, 108.32],
+      [-73.51, 110.12],
+      [-72.16, 111.78],
+      [-70.81, 113.29],
+      [-69.46, 114.65],
+      [-68.11, 115.86],
+      [-66.76, 116.92],
+      [-65.41, 117.83],
+      [-64.07, 118.57],
+      [-62.72, 119.17],
+      [-61.37, 119.6],
+      [-60.02, 119.88],
+      [-58.67, 120.0],
+      [-57.32, 119.96],
+      [-55.97, 119.76],
+      [-54.62, 119.4],
+      [-53.28, 118.89],
+      [-51.93, 118.22],
+      [-50.58, 117.39],
+      [-49.23, 116.41],
+      [-47.88, 115.28],
+      [-46.53, 113.99],
+      [-45.18, 112.55],
+      [-43.83, 110.97],
+      [-42.49, 109.24],
+      [-41.14, 107.36],
+      [-39.79, 105.35],
+      [-38.44, 103.19],
+      [-37.09, 100.9],
+      [-35.74, 98.47],
+      [-34.39, 95.92],
+      [-33.04, 93.23],
+      [-31.7, 90.43],
+      [-30.35, 87.51],
+      [-29.0, 84.47],
+      [-27.65, 81.32],
+      [-26.3, 78.06],
+      [-24.95, 74.7],
+      [-23.6, 71.24],
+      [-22.25, 67.68],
+      [-20.91, 64.04],
+      [-19.56, 60.31],
+      [-18.21, 56.51],
+      [-16.86, 52.63],
+      [-15.51, 48.68],
+      [-14.16, 44.66],
+      [-12.81, 40.59],
+      [-11.46, 36.46],
+      [-10.12, 32.28],
+      [-8.77, 28.07],
+      [-7.42, 23.81],
+      [-6.07, 19.53],
+      [-4.72, 15.21],
+      [-3.37, 10.88],
+      [-2.02, 6.53],
+      [-0.67, 2.18],
+      [0.67, -2.18],
+      [2.02, -6.53],
+      [3.37, -10.88],
+      [4.72, -15.21],
+      [6.07, -19.53],
+      [7.42, -23.81],
+      [8.77, -28.07],
+      [10.12, -32.28],
+      [11.46, -36.46],
+      [12.81, -40.59],
+      [14.16, -44.66],
+      [15.51, -48.68],
+      [16.86, -52.63],
+      [18.21, -56.51],
+      [19.56, -60.31],
+      [20.91, -64.04],
+      [22.25, -67.68],
+      [23.6, -71.24],
+      [24.95, -74.7],
+      [26.3, -78.06],
+      [27.65, -81.32],
+      [29.0, -84.47],
+      [30.35, -87.51],
+      [31.7, -90.43],
+      [33.04, -93.23],
+      [34.39, -95.92],
+      [35.74, -98.47],
+      [37.09, -100.9],
+      [38.44, -103.19],
+      [39.79, -105.35],
+      [41.14, -107.36],
+      [42.49, -109.24],
+      [43.83, -110.97],
+      [45.18, -112.55],
+      [46.53, -113.99],
+      [47.88, -115.28],
+      [49.23, -116.41],
+      [50.58, -117.39],
+      [51.93, -118.22],
+      [53.28, -118.89],
+      [54.62, -119.4],
+      [55.97, -119.76],
+      [57.32, -119.96],
+      [58.67, -120.0],
+      [60.02, -119.88],
+      [61.37, -119.6],
+      [62.72, -119.17],
+      [64.07, -118.57],
+      [65.41, -117.83],
+      [66.76, -116.92],
+      [68.11, -115.86],
+      [69.46, -114.65],
+      [70.81, -113.29],
+      [72.16, -111.78],
+      [73.51, -110.12],
+      [74.86, -108.32],
+      [76.2, -106.37],
+      [77.55, -104.28],
+      [78.9, -102.06],
+      [80.25, -99.7],
+      [81.6, -97.21],
+      [82.95, -94.59],
+      [84.3, -91.85],
+      [85.65, -88.98],
+      [86.99, -86.0],
+      [88.34, -82.91],
+      [89.69, -79.7],
+      [91.04, -76.39],
+      [92.39, -72.98],
+      [93.74, -69.47],
+      [95.09, -65.87],
+      [96.44, -62.19],
+      [97.78, -58.42],
+      [99.13, -54.58],
+      [100.48, -50.66],
+      [101.83, -46.68],
+      [103.18, -42.63],
+      [104.53, -38.53],
+      [105.88, -34.38],
+      [107.23, -30.18],
+      [108.57, -25.94],
+      [109.92, -21.67],
+      [111.27, -17.37],
+      [112.62, -13.05],
+      [113.97, -8.71],
+      [115.32, -4.36],
+      [116.67, -0.0],
+      [118.02, 4.36],
+      [119.36, 8.71],
+      [120.71, 13.05],
+      [122.06, 17.37],
+      [123.41, 21.67],
+      [124.76, 25.94],
+      [126.11, 30.18],
+      [127.46, 34.38],
+      [128.81, 38.53],
+      [130.15, 42.63],
+      [131.5, 46.68],
+      [132.85, 50.66],
+      [134.2, 54.58],
+      [135.55, 58.42],
+      [136.9, 62.19],
+      [138.25, 65.87],
+      [139.6, 69.47],
+      [140.94, 72.98],
+      [142.29, 76.39],
+      [143.64, 79.7],
+      [144.99, 82.91],
+      [146.34, 86.0],
+      [147.69, 88.98],
+      [149.04, 91.85],
+      [150.39, 94.59],
+      [151.73, 97.21],
+      [153.08, 99.7],
+      [154.43, 102.06],
+      [155.78, 104.28],
+      [157.13, 106.37],
+      [158.48, 108.32],
+      [159.83, 110.12],
+      [161.18, 111.78],
+      [162.52, 113.29],
+      [163.87, 114.65],
+      [165.22, 115.86],
+      [166.57, 116.92],
+      [167.92, 117.83],
+      [169.27, 118.57],
+      [170.62, 119.17],
+      [171.97, 119.6],
+      [173.31, 119.88],
+      [174.66, 120.0],
+      [176.01, 119.96],
+      [177.36, 119.76],
+      [178.71, 119.4],
+      [180.06, 118.89],
+      [181.41, 118.22],
+      [182.76, 117.39],
+      [184.1, 116.41],
+      [185.45, 115.28],
+      [186.8, 113.99],
+      [188.15, 112.55],
+      [189.5, 110.97],
+      [190.85, 109.24],
+      [192.2, 107.36],
+      [193.55, 105.35],
+      [194.89, 103.19],
+      [196.24, 100.9],
+      [197.59, 98.47],
+      [198.94, 95.92],
+      [200.29, 93.23],
+      [201.64, 90.43],
+      [202.99, 87.51],
+      [204.34, 84.47],
+      [205.68, 81.32],
+      [207.03, 78.06],
+      [208.38, 74.7],
+      [209.73, 71.24],
+      [211.08, 67.68],
+      [212.43, 64.04],
+      [213.78, 60.31],
+      [215.13, 56.51],
+      [216.47, 52.63],
+      [217.82, 48.68],
+      [219.17, 44.66],
+      [220.52, 40.59],
+      [221.87, 36.46],
+      [223.22, 32.28],
+      [224.57, 28.07],
+      [225.92, 23.81],
+      [227.26, 19.53],
+      [228.61, 15.21],
+      [229.96, 10.88],
+      [231.31, 6.53],
+      [232.66, 2.18],
+      [234.01, -2.18],
+      [235.36, -6.53],
+      [236.71, -10.88],
+      [238.05, -15.21],
+      [239.4, -19.53],
+      [240.75, -23.81],
+      [242.1, -28.07],
+      [243.45, -32.28],
+      [244.8, -36.46],
+      [246.15, -40.59],
+      [247.5, -44.66],
+      [248.84, -48.68],
+      [250.19, -52.63],
+      [251.54, -56.51],
+      [252.89, -60.31],
+      [254.24, -64.04],
+      [255.59, -67.68],
+      [256.94, -71.24],
+      [258.29, -74.7],
+      [259.63, -78.06],
+      [260.98, -81.32],
+      [262.33, -84.47],
+      [263.68, -87.51],
+      [265.03, -90.43],
+      [266.38, -93.23],
+      [267.73, -95.92],
+      [269.08, -98.47],
+      [270.42, -100.9],
+      [271.77, -103.19],
+      [273.12, -105.35],
+      [274.47, -107.36],
+      [275.82, -109.24],
+      [277.17, -110.97],
+      [278.52, -112.55],
+      [279.87, -113.99],
+      [281.21, -115.28],
+      [282.56, -116.41],
+      [283.91, -117.39],
+      [285.26, -118.22],
+      [286.61, -118.89],
+      [287.96, -119.4],
+      [289.31, -119.76],
+      [290.66, -119.96],
+      [292.0, -120.0],
+      [293.35, -119.88],
+      [294.7, -119.6],
+      [296.05, -119.17],
+      [297.4, -118.57],
+      [298.75, -117.83],
+      [300.1, -116.92],
+      [301.45, -115.86],
+      [302.79, -114.65],
+      [304.14, -113.29],
+      [305.49, -111.78],
+      [306.84, -110.12],
+      [308.19, -108.32],
+      [309.54, -106.37],
+      [310.89, -104.28],
+      [312.24, -102.06],
+      [313.58, -99.7],
+      [314.93, -97.21],
+      [316.28, -94.59],
+      [317.63, -91.85],
+      [318.98, -88.98],
+      [320.33, -86.0],
+      [321.68, -82.91],
+      [323.03, -79.7],
+      [324.37, -76.39],
+      [325.72, -72.98],
+      [327.07, -69.47],
+      [328.42, -65.87],
+      [329.77, -62.19],
+      [331.12, -58.42],
+      [332.47, -54.58],
+      [333.82, -50.66],
+      [335.16, -46.68],
+      [336.51, -42.63],
+      [337.86, -38.53],
+      [339.21, -34.38],
+      [340.56, -30.18],
+      [341.91, -25.94],
+      [343.26, -21.67],
+      [344.61, -17.37],
+      [345.95, -13.05],
+      [347.3, -8.71],
+      [348.65, -4.36],
+      [350.0, -0.0],
+    ],
+    start: { x:-350.0, y:0.0, a:0 },
+  }
+  ,
+  "Circuit": {
+    kind: 'line',
+    lineWidth: 18,
+    line: [
+      [270.89, 0.0],
+      [273.5, 1.72],
+      [275.91, 3.47],
+      [278.11, 5.24],
+      [280.09, 7.04],
+      [281.85, 8.86],
+      [283.38, 10.69],
+      [284.69, 12.53],
+      [285.77, 14.38],
+      [286.63, 16.24],
+      [287.26, 18.09],
+      [287.67, 19.93],
+      [287.87, 21.77],
+      [287.85, 23.6],
+      [287.64, 25.41],
+      [287.23, 27.2],
+      [286.63, 28.98],
+      [285.86, 30.73],
+      [284.93, 32.45],
+      [283.84, 34.15],
+      [282.61, 35.82],
+      [281.25, 37.47],
+      [279.78, 39.08],
+      [278.21, 40.67],
+      [276.55, 42.23],
+      [274.82, 43.76],
+      [273.03, 45.27],
+      [271.19, 46.75],
+      [269.32, 48.2],
+      [267.43, 49.64],
+      [265.54, 51.05],
+      [263.64, 52.45],
+      [261.77, 53.83],
+      [259.92, 55.2],
+      [258.11, 56.56],
+      [256.35, 57.92],
+      [254.64, 59.27],
+      [253.0, 60.62],
+      [251.42, 61.98],
+      [249.92, 63.34],
+      [248.5, 64.71],
+      [247.16, 66.09],
+      [245.9, 67.49],
+      [244.73, 68.9],
+      [243.65, 70.33],
+      [242.65, 71.78],
+      [241.73, 73.25],
+      [240.9, 74.75],
+      [240.14, 76.26],
+      [239.46, 77.81],
+      [238.84, 79.37],
+      [238.28, 80.96],
+      [237.78, 82.58],
+      [237.33, 84.21],
+      [236.92, 85.87],
+      [236.54, 87.55],
+      [236.18, 89.24],
+      [235.85, 90.95],
+      [235.52, 92.67],
+      [235.19, 94.4],
+      [234.85, 96.14],
+      [234.49, 97.88],
+      [234.11, 99.62],
+      [233.69, 101.36],
+      [233.23, 103.09],
+      [232.72, 104.8],
+      [232.16, 106.5],
+      [231.54, 108.19],
+      [230.85, 109.84],
+      [230.09, 111.48],
+      [229.25, 113.08],
+      [228.34, 114.65],
+      [227.35, 116.18],
+      [226.27, 117.67],
+      [225.1, 119.12],
+      [223.86, 120.52],
+      [222.53, 121.88],
+      [221.11, 123.19],
+      [219.62, 124.46],
+      [218.05, 125.67],
+      [216.4, 126.84],
+      [214.68, 127.95],
+      [212.9, 129.02],
+      [211.05, 130.04],
+      [209.15, 131.02],
+      [207.2, 131.95],
+      [205.2, 132.85],
+      [203.17, 133.7],
+      [201.11, 134.52],
+      [199.02, 135.31],
+      [196.92, 136.08],
+      [194.81, 136.82],
+      [192.7, 137.54],
+      [190.59, 138.25],
+      [188.49, 138.96],
+      [186.41, 139.66],
+      [184.35, 140.36],
+      [182.32, 141.07],
+      [180.33, 141.79],
+      [178.37, 142.53],
+      [176.45, 143.29],
+      [174.58, 144.08],
+      [172.76, 144.89],
+      [170.98, 145.74],
+      [169.26, 146.63],
+      [167.6, 147.56],
+      [165.98, 148.53],
+      [164.42, 149.54],
+      [162.9, 150.61],
+      [161.44, 151.72],
+      [160.02, 152.87],
+      [158.65, 154.08],
+      [157.31, 155.33],
+      [156.01, 156.62],
+      [154.75, 157.96],
+      [153.5, 159.34],
+      [152.28, 160.75],
+      [151.07, 162.19],
+      [149.88, 163.66],
+      [148.68, 165.15],
+      [147.48, 166.65],
+      [146.26, 168.16],
+      [145.03, 169.68],
+      [143.78, 171.18],
+      [142.5, 172.67],
+      [141.18, 174.14],
+      [139.81, 175.57],
+      [138.4, 176.96],
+      [136.94, 178.31],
+      [135.42, 179.59],
+      [133.83, 180.81],
+      [132.18, 181.95],
+      [130.46, 183.0],
+      [128.67, 183.97],
+      [126.81, 184.82],
+      [124.87, 185.57],
+      [122.85, 186.21],
+      [120.76, 186.71],
+      [118.59, 187.09],
+      [116.34, 187.34],
+      [114.03, 187.44],
+      [111.64, 187.4],
+      [109.19, 187.21],
+      [106.67, 186.87],
+      [104.09, 186.38],
+      [101.46, 185.74],
+      [98.78, 184.95],
+      [96.05, 184.01],
+      [93.29, 182.93],
+      [90.5, 181.7],
+      [87.68, 180.33],
+      [84.84, 178.82],
+      [81.99, 177.2],
+      [79.14, 175.45],
+      [76.3, 173.59],
+      [73.46, 171.62],
+      [70.64, 169.57],
+      [67.84, 167.43],
+      [65.07, 165.22],
+      [62.34, 162.96],
+      [59.65, 160.64],
+      [57.01, 158.29],
+      [54.43, 155.93],
+      [51.9, 153.55],
+      [49.43, 151.18],
+      [47.03, 148.83],
+      [44.69, 146.51],
+      [42.43, 144.23],
+      [40.24, 142.02],
+      [38.12, 139.88],
+      [36.07, 137.83],
+      [34.1, 135.87],
+      [32.2, 134.02],
+      [30.37, 132.29],
+      [28.62, 130.69],
+      [26.93, 129.23],
+      [25.3, 127.91],
+      [23.73, 126.76],
+      [22.22, 125.76],
+      [20.76, 124.93],
+      [19.35, 124.28],
+      [17.98, 123.8],
+      [16.64, 123.5],
+      [15.34, 123.37],
+      [14.06, 123.43],
+      [12.8, 123.66],
+      [11.55, 124.07],
+      [10.31, 124.66],
+      [9.08, 125.41],
+      [7.83, 126.32],
+      [6.58, 127.4],
+      [5.31, 128.62],
+      [4.03, 129.98],
+      [2.72, 131.47],
+      [1.37, 133.09],
+      [0.0, 134.82],
+      [-1.41, 136.65],
+      [-2.86, 138.56],
+      [-4.36, 140.56],
+      [-5.89, 142.62],
+      [-7.48, 144.73],
+      [-9.11, 146.88],
+      [-10.79, 149.05],
+      [-12.51, 151.24],
+      [-14.29, 153.43],
+      [-16.1, 155.6],
+      [-17.97, 157.75],
+      [-19.87, 159.86],
+      [-21.82, 161.93],
+      [-23.8, 163.93],
+      [-25.82, 165.87],
+      [-27.87, 167.72],
+      [-29.94, 169.49],
+      [-32.04, 171.16],
+      [-34.16, 172.72],
+      [-36.29, 174.18],
+      [-38.43, 175.51],
+      [-40.58, 176.73],
+      [-42.73, 177.82],
+      [-44.87, 178.79],
+      [-47.01, 179.62],
+      [-49.14, 180.33],
+      [-51.25, 180.9],
+      [-53.35, 181.35],
+      [-55.42, 181.67],
+      [-57.47, 181.86],
+      [-59.49, 181.93],
+      [-61.48, 181.89],
+      [-63.44, 181.73],
+      [-65.36, 181.47],
+      [-67.26, 181.11],
+      [-69.12, 180.66],
+      [-70.94, 180.12],
+      [-72.73, 179.51],
+      [-74.49, 178.82],
+      [-76.22, 178.07],
+      [-77.92, 177.27],
+      [-79.59, 176.43],
+      [-81.23, 175.55],
+      [-82.85, 174.64],
+      [-84.46, 173.71],
+      [-86.05, 172.77],
+      [-87.63, 171.82],
+      [-89.2, 170.88],
+      [-90.76, 169.95],
+      [-92.33, 169.03],
+      [-93.9, 168.14],
+      [-95.48, 167.28],
+      [-97.08, 166.45],
+      [-98.69, 165.65],
+      [-100.32, 164.9],
+      [-101.97, 164.19],
+      [-103.65, 163.53],
+      [-105.37, 162.92],
+      [-107.11, 162.35],
+      [-108.89, 161.84],
+      [-110.71, 161.37],
+      [-112.57, 160.95],
+      [-114.47, 160.57],
+      [-116.41, 160.23],
+      [-118.39, 159.94],
+      [-120.41, 159.68],
+      [-122.46, 159.46],
+      [-124.56, 159.26],
+      [-126.69, 159.09],
+      [-128.85, 158.93],
+      [-131.04, 158.79],
+      [-133.26, 158.66],
+      [-135.5, 158.53],
+      [-137.76, 158.39],
+      [-140.04, 158.24],
+      [-142.32, 158.08],
+      [-144.6, 157.9],
+      [-146.89, 157.69],
+      [-149.16, 157.45],
+      [-151.42, 157.18],
+      [-153.67, 156.86],
+      [-155.89, 156.5],
+      [-158.08, 156.09],
+      [-160.24, 155.62],
+      [-162.35, 155.1],
+      [-164.42, 154.52],
+      [-166.45, 153.88],
+      [-168.42, 153.18],
+      [-170.33, 152.42],
+      [-172.18, 151.59],
+      [-173.97, 150.7],
+      [-175.69, 149.75],
+      [-177.35, 148.74],
+      [-178.94, 147.67],
+      [-180.46, 146.55],
+      [-181.92, 145.37],
+      [-183.31, 144.14],
+      [-184.64, 142.86],
+      [-185.9, 141.54],
+      [-187.11, 140.18],
+      [-188.27, 138.79],
+      [-189.37, 137.37],
+      [-190.44, 135.93],
+      [-191.46, 134.47],
+      [-192.46, 132.99],
+      [-193.42, 131.51],
+      [-194.38, 130.02],
+      [-195.32, 128.53],
+      [-196.26, 127.06],
+      [-197.21, 125.59],
+      [-198.17, 124.14],
+      [-199.15, 122.71],
+      [-200.17, 121.31],
+      [-201.23, 119.94],
+      [-202.33, 118.59],
+      [-203.49, 117.28],
+      [-204.72, 116.01],
+      [-206.01, 114.78],
+      [-207.38, 113.59],
+      [-208.84, 112.44],
+      [-210.38, 111.33],
+      [-212.01, 110.26],
+      [-213.75, 109.23],
+      [-215.58, 108.24],
+      [-217.52, 107.29],
+      [-219.56, 106.37],
+      [-221.7, 105.49],
+      [-223.94, 104.64],
+      [-226.29, 103.81],
+      [-228.73, 103.01],
+      [-231.27, 102.22],
+      [-233.9, 101.45],
+      [-236.61, 100.69],
+      [-239.39, 99.93],
+      [-242.24, 99.17],
+      [-245.15, 98.4],
+      [-248.11, 97.63],
+      [-251.11, 96.83],
+      [-254.13, 96.02],
+      [-257.16, 95.18],
+      [-260.2, 94.31],
+      [-263.22, 93.4],
+      [-266.21, 92.45],
+      [-269.17, 91.46],
+      [-272.06, 90.41],
+      [-274.89, 89.32],
+      [-277.63, 88.17],
+      [-280.26, 86.96],
+      [-282.79, 85.69],
+      [-285.18, 84.36],
+      [-287.43, 82.97],
+      [-289.52, 81.51],
+      [-291.44, 79.98],
+      [-293.17, 78.4],
+      [-294.72, 76.75],
+      [-296.06, 75.03],
+      [-297.18, 73.26],
+      [-298.08, 71.42],
+      [-298.75, 69.54],
+      [-299.18, 67.59],
+      [-299.38, 65.6],
+      [-299.32, 63.57],
+      [-299.03, 61.49],
+      [-298.48, 59.38],
+      [-297.69, 57.23],
+      [-296.65, 55.06],
+      [-295.37, 52.86],
+      [-293.85, 50.65],
+      [-292.1, 48.43],
+      [-290.13, 46.2],
+      [-287.95, 43.97],
+      [-285.56, 41.75],
+      [-282.98, 39.53],
+      [-280.22, 37.33],
+      [-277.29, 35.15],
+      [-274.21, 32.99],
+      [-270.99, 30.86],
+      [-267.65, 28.77],
+      [-264.2, 26.71],
+      [-260.67, 24.69],
+      [-257.07, 22.71],
+      [-253.42, 20.78],
+      [-249.73, 18.89],
+      [-246.02, 17.05],
+      [-242.32, 15.26],
+      [-238.64, 13.52],
+      [-235.0, 11.83],
+      [-231.41, 10.19],
+      [-227.89, 8.6],
+      [-224.46, 7.06],
+      [-221.13, 5.56],
+      [-217.92, 4.11],
+      [-214.84, 2.7],
+      [-211.9, 1.33],
+      [-209.11, 0.0],
+      [-206.48, -1.3],
+      [-204.03, -2.56],
+      [-201.75, -3.8],
+      [-199.67, -5.02],
+      [-197.77, -6.22],
+      [-196.06, -7.4],
+      [-194.55, -8.57],
+      [-193.23, -9.73],
+      [-192.11, -10.88],
+      [-191.18, -12.04],
+      [-190.45, -13.2],
+      [-189.89, -14.36],
+      [-189.52, -15.54],
+      [-189.31, -16.72],
+      [-189.27, -17.93],
+      [-189.39, -19.15],
+      [-189.65, -20.38],
+      [-190.04, -21.64],
+      [-190.55, -22.93],
+      [-191.18, -24.23],
+      [-191.9, -25.56],
+      [-192.7, -26.92],
+      [-193.57, -28.3],
+      [-194.51, -29.7],
+      [-195.48, -31.13],
+      [-196.48, -32.58],
+      [-197.5, -34.04],
+      [-198.52, -35.53],
+      [-199.53, -37.03],
+      [-200.52, -38.55],
+      [-201.47, -40.08],
+      [-202.37, -41.61],
+      [-203.22, -43.16],
+      [-204.0, -44.7],
+      [-204.7, -46.25],
+      [-205.31, -47.79],
+      [-205.84, -49.32],
+      [-206.26, -50.85],
+      [-206.58, -52.36],
+      [-206.8, -53.85],
+      [-206.9, -55.33],
+      [-206.88, -56.78],
+      [-206.76, -58.21],
+      [-206.51, -59.61],
+      [-206.16, -60.98],
+      [-205.69, -62.33],
+      [-205.11, -63.64],
+      [-204.42, -64.92],
+      [-203.64, -66.17],
+      [-202.75, -67.38],
+      [-201.78, -68.56],
+      [-200.72, -69.71],
+      [-199.59, -70.82],
+      [-198.38, -71.9],
+      [-197.12, -72.96],
+      [-195.8, -73.98],
+      [-194.44, -74.98],
+      [-193.04, -75.96],
+      [-191.62, -76.91],
+      [-190.17, -77.85],
+      [-188.72, -78.78],
+      [-187.26, -79.69],
+      [-185.82, -80.59],
+      [-184.38, -81.5],
+      [-182.97, -82.4],
+      [-181.58, -83.3],
+      [-180.23, -84.21],
+      [-178.92, -85.14],
+      [-177.65, -86.07],
+      [-176.44, -87.03],
+      [-175.27, -88.0],
+      [-174.16, -89.0],
+      [-173.11, -90.02],
+      [-172.11, -91.08],
+      [-171.17, -92.16],
+      [-170.3, -93.28],
+      [-169.48, -94.42],
+      [-168.71, -95.61],
+      [-168.0, -96.83],
+      [-167.33, -98.08],
+      [-166.72, -99.37],
+      [-166.14, -100.69],
+      [-165.6, -102.04],
+      [-165.1, -103.42],
+      [-164.61, -104.83],
+      [-164.15, -106.27],
+      [-163.7, -107.73],
+      [-163.26, -109.2],
+      [-162.81, -110.69],
+      [-162.36, -112.2],
+      [-161.9, -113.7],
+      [-161.41, -115.21],
+      [-160.9, -116.72],
+      [-160.35, -118.21],
+      [-159.77, -119.7],
+      [-159.14, -121.16],
+      [-158.45, -122.6],
+      [-157.72, -124.01],
+      [-156.92, -125.39],
+      [-156.06, -126.73],
+      [-155.13, -128.02],
+      [-154.13, -129.27],
+      [-153.06, -130.46],
+      [-151.92, -131.6],
+      [-150.7, -132.69],
+      [-149.42, -133.71],
+      [-148.05, -134.66],
+      [-146.62, -135.55],
+      [-145.12, -136.38],
+      [-143.55, -137.14],
+      [-141.92, -137.83],
+      [-140.23, -138.46],
+      [-138.49, -139.03],
+      [-136.69, -139.53],
+      [-134.85, -139.98],
+      [-132.97, -140.37],
+      [-131.06, -140.71],
+      [-129.12, -141.0],
+      [-127.17, -141.25],
+      [-125.19, -141.47],
+      [-123.22, -141.66],
+      [-121.24, -141.84],
+      [-119.27, -141.99],
+      [-117.31, -142.15],
+      [-115.37, -142.3],
+      [-113.45, -142.47],
+      [-111.57, -142.66],
+      [-109.73, -142.87],
+      [-107.92, -143.13],
+      [-106.17, -143.43],
+      [-104.46, -143.79],
+      [-102.81, -144.21],
+      [-101.21, -144.7],
+      [-99.68, -145.28],
+      [-98.2, -145.94],
+      [-96.79, -146.7],
+      [-95.43, -147.56],
+      [-94.14, -148.53],
+      [-92.91, -149.61],
+      [-91.75, -150.81],
+      [-90.63, -152.13],
+      [-89.57, -153.58],
+      [-88.57, -155.16],
+      [-87.6, -156.86],
+      [-86.68, -158.7],
+      [-85.8, -160.66],
+      [-84.95, -162.75],
+      [-84.13, -164.96],
+      [-83.32, -167.29],
+      [-82.53, -169.74],
+      [-81.75, -172.3],
+      [-80.96, -174.97],
+      [-80.17, -177.73],
+      [-79.37, -180.58],
+      [-78.54, -183.51],
+      [-77.69, -186.51],
+      [-76.81, -189.56],
+      [-75.88, -192.67],
+      [-74.91, -195.81],
+      [-73.89, -198.98],
+      [-72.81, -202.15],
+      [-71.67, -205.32],
+      [-70.47, -208.48],
+      [-69.19, -211.61],
+      [-67.84, -214.7],
+      [-66.42, -217.72],
+      [-64.92, -220.68],
+      [-63.34, -223.56],
+      [-61.68, -226.34],
+      [-59.94, -229.01],
+      [-58.12, -231.56],
+      [-56.22, -233.97],
+      [-54.25, -236.25],
+      [-52.19, -238.37],
+      [-50.07, -240.32],
+      [-47.88, -242.11],
+      [-45.62, -243.71],
+      [-43.31, -245.13],
+      [-40.94, -246.36],
+      [-38.51, -247.39],
+      [-36.04, -248.22],
+      [-33.53, -248.85],
+      [-30.99, -249.28],
+      [-28.42, -249.5],
+      [-25.83, -249.52],
+      [-23.22, -249.34],
+      [-20.6, -248.97],
+      [-17.98, -248.4],
+      [-15.36, -247.64],
+      [-12.75, -246.7],
+      [-10.15, -245.59],
+      [-7.57, -244.31],
+      [-5.02, -242.88],
+      [-2.49, -241.3],
+      [-0.0, -239.58],
+      [2.46, -237.74],
+      [4.87, -235.79],
+      [7.24, -233.73],
+      [9.57, -231.59],
+      [11.85, -229.37],
+      [14.08, -227.09],
+      [16.27, -224.75],
+      [18.4, -222.38],
+      [20.48, -219.99],
+      [22.52, -217.58],
+      [24.51, -215.18],
+      [26.45, -212.79],
+      [28.35, -210.42],
+      [30.21, -208.09],
+      [32.04, -205.8],
+      [33.83, -203.57],
+      [35.58, -201.41],
+      [37.31, -199.31],
+      [39.02, -197.3],
+      [40.71, -195.38],
+      [42.38, -193.54],
+      [44.04, -191.81],
+      [45.7, -190.17],
+      [47.35, -188.64],
+      [49.0, -187.21],
+      [50.66, -185.89],
+      [52.32, -184.68],
+      [54.0, -183.57],
+      [55.69, -182.56],
+      [57.4, -181.66],
+      [59.13, -180.85],
+      [60.89, -180.14],
+      [62.66, -179.51],
+      [64.46, -178.97],
+      [66.29, -178.5],
+      [68.14, -178.11],
+      [70.01, -177.77],
+      [71.91, -177.49],
+      [73.84, -177.25],
+      [75.78, -177.06],
+      [77.75, -176.89],
+      [79.73, -176.75],
+      [81.73, -176.62],
+      [83.74, -176.49],
+      [85.75, -176.36],
+      [87.77, -176.22],
+      [89.79, -176.07],
+      [91.81, -175.88],
+      [93.82, -175.66],
+      [95.81, -175.41],
+      [97.79, -175.11],
+      [99.75, -174.75],
+      [101.68, -174.35],
+      [103.59, -173.88],
+      [105.46, -173.35],
+      [107.29, -172.75],
+      [109.08, -172.09],
+      [110.82, -171.36],
+      [112.52, -170.55],
+      [114.17, -169.68],
+      [115.77, -168.74],
+      [117.31, -167.72],
+      [118.8, -166.65],
+      [120.24, -165.5],
+      [121.61, -164.3],
+      [122.94, -163.04],
+      [124.2, -161.72],
+      [125.42, -160.36],
+      [126.58, -158.95],
+      [127.69, -157.51],
+      [128.76, -156.03],
+      [129.78, -154.52],
+      [130.77, -152.99],
+      [131.72, -151.44],
+      [132.64, -149.88],
+      [133.53, -148.32],
+      [134.4, -146.76],
+      [135.25, -145.2],
+      [136.09, -143.66],
+      [136.93, -142.13],
+      [137.77, -140.63],
+      [138.61, -139.15],
+      [139.46, -137.7],
+      [140.33, -136.29],
+      [141.22, -134.91],
+      [142.13, -133.57],
+      [143.08, -132.28],
+      [144.05, -131.02],
+      [145.07, -129.81],
+      [146.12, -128.65],
+      [147.22, -127.53],
+      [148.35, -126.45],
+      [149.54, -125.42],
+      [150.77, -124.43],
+      [152.05, -123.47],
+      [153.37, -122.55],
+      [154.73, -121.67],
+      [156.14, -120.81],
+      [157.58, -119.98],
+      [159.07, -119.17],
+      [160.58, -118.38],
+      [162.12, -117.6],
+      [163.67, -116.83],
+      [165.25, -116.06],
+      [166.83, -115.28],
+      [168.41, -114.5],
+      [169.99, -113.71],
+      [171.55, -112.89],
+      [173.09, -112.06],
+      [174.6, -111.2],
+      [176.08, -110.3],
+      [177.5, -109.37],
+      [178.87, -108.4],
+      [180.17, -107.39],
+      [181.4, -106.33],
+      [182.55, -105.22],
+      [183.61, -104.05],
+      [184.58, -102.84],
+      [185.44, -101.57],
+      [186.2, -100.25],
+      [186.84, -98.87],
+      [187.36, -97.43],
+      [187.76, -95.95],
+      [188.03, -94.41],
+      [188.17, -92.82],
+      [188.19, -91.18],
+      [188.07, -89.49],
+      [187.83, -87.76],
+      [187.46, -86.0],
+      [186.96, -84.19],
+      [186.34, -82.36],
+      [185.61, -80.5],
+      [184.76, -78.63],
+      [183.82, -76.73],
+      [182.78, -74.82],
+      [181.65, -72.91],
+      [180.45, -71.0],
+      [179.18, -69.1],
+      [177.86, -67.2],
+      [176.49, -65.32],
+      [175.1, -63.47],
+      [173.7, -61.63],
+      [172.29, -59.83],
+      [170.89, -58.07],
+      [169.53, -56.34],
+      [168.2, -54.65],
+      [166.94, -53.02],
+      [165.74, -51.43],
+      [164.63, -49.89],
+      [163.63, -48.4],
+      [162.74, -46.97],
+      [161.97, -45.6],
+      [161.35, -44.28],
+      [160.88, -43.02],
+      [160.58, -41.82],
+      [160.45, -40.66],
+      [160.51, -39.57],
+      [160.76, -38.52],
+      [161.21, -37.52],
+      [161.87, -36.57],
+      [162.73, -35.66],
+      [163.82, -34.79],
+      [165.11, -33.95],
+      [166.63, -33.15],
+      [168.37, -32.37],
+      [170.31, -31.61],
+      [172.47, -30.87],
+      [174.84, -30.14],
+      [177.41, -29.41],
+      [180.17, -28.69],
+      [183.11, -27.96],
+      [186.23, -27.22],
+      [189.5, -26.47],
+      [192.93, -25.7],
+      [196.5, -24.91],
+      [200.18, -24.09],
+      [203.98, -23.23],
+      [207.86, -22.34],
+      [211.82, -21.41],
+      [215.83, -20.44],
+      [219.88, -19.42],
+      [223.95, -18.36],
+      [228.03, -17.25],
+      [232.09, -16.08],
+      [236.12, -14.87],
+      [240.1, -13.6],
+      [244.01, -12.28],
+      [247.83, -10.91],
+      [251.55, -9.49],
+      [255.15, -8.02],
+      [258.62, -6.5],
+      [261.94, -4.94],
+      [265.1, -3.33],
+      [268.09, -1.68],
+    ],
+    start: { x:270.89, y:0.0, a:0 },
+  }
+  ,
+  "City": {
+    kind: 'line',
+    lineWidth: 18,
+    line: [
+      [-260.0, -90.0],
+      [-259.97, -92.18],
+      [-259.89, -94.35],
+      [-259.76, -96.52],
+      [-259.58, -98.69],
+      [-259.35, -100.85],
+      [-259.05, -103.01],
+      [-258.71, -105.16],
+      [-258.32, -107.3],
+      [-257.88, -109.43],
+      [-257.38, -111.55],
+      [-256.83, -113.65],
+      [-256.24, -115.74],
+      [-255.59, -117.82],
+      [-254.89, -119.88],
+      [-254.14, -121.92],
+      [-253.35, -123.95],
+      [-252.51, -125.96],
+      [-251.62, -127.94],
+      [-250.67, -129.9],
+      [-249.68, -131.84],
+      [-248.65, -133.75],
+      [-247.56, -135.64],
+      [-246.44, -137.5],
+      [-245.27, -139.34],
+      [-244.05, -141.14],
+      [-242.8, -142.92],
+      [-241.5, -144.66],
+      [-240.15, -146.37],
+      [-238.77, -148.05],
+      [-237.35, -149.7],
+      [-235.89, -151.31],
+      [-234.39, -152.89],
+      [-232.85, -154.42],
+      [-231.27, -155.92],
+      [-229.66, -157.39],
+      [-228.01, -158.81],
+      [-226.33, -160.18],
+      [-224.62, -161.53],
+      [-222.87, -162.83],
+      [-221.1, -164.08],
+      [-219.29, -165.3],
+      [-217.46, -166.47],
+      [-215.59, -167.59],
+      [-213.71, -168.67],
+      [-211.79, -169.71],
+      [-209.85, -170.69],
+      [-207.89, -171.64],
+      [-205.91, -172.53],
+      [-203.9, -173.37],
+      [-201.88, -174.16],
+      [-199.83, -174.91],
+      [-197.77, -175.61],
+      [-195.69, -176.25],
+      [-193.6, -176.85],
+      [-191.49, -177.39],
+      [-189.38, -177.89],
+      [-187.25, -178.33],
+      [-185.11, -178.72],
+      [-182.96, -179.06],
+      [-180.8, -179.35],
+      [-178.64, -179.59],
+      [-176.47, -179.76],
+      [-174.3, -179.89],
+      [-172.12, -179.97],
+      [-169.95, -180.0],
+      [-167.77, -180.0],
+      [-165.6, -180.0],
+      [-163.42, -180.0],
+      [-161.24, -180.0],
+      [-159.07, -180.0],
+      [-156.89, -180.0],
+      [-154.72, -180.0],
+      [-152.54, -180.0],
+      [-150.37, -180.0],
+      [-148.19, -180.0],
+      [-146.01, -180.0],
+      [-143.84, -180.0],
+      [-141.66, -180.0],
+      [-139.49, -180.0],
+      [-137.31, -180.0],
+      [-135.14, -180.0],
+      [-132.96, -180.0],
+      [-130.78, -180.0],
+      [-128.61, -180.0],
+      [-126.43, -180.0],
+      [-124.26, -180.0],
+      [-122.08, -180.0],
+      [-119.91, -180.0],
+      [-117.73, -180.0],
+      [-115.55, -180.0],
+      [-113.38, -180.0],
+      [-111.2, -180.0],
+      [-109.03, -180.0],
+      [-106.85, -180.0],
+      [-104.68, -180.0],
+      [-102.5, -180.0],
+      [-100.32, -180.0],
+      [-98.15, -180.0],
+      [-95.97, -180.0],
+      [-93.8, -180.0],
+      [-91.62, -180.0],
+      [-89.45, -180.0],
+      [-87.27, -180.0],
+      [-85.09, -180.0],
+      [-82.92, -180.0],
+      [-80.74, -180.0],
+      [-79.2, -181.19],
+      [-78.0, -183.0],
+      [-76.79, -184.81],
+      [-75.58, -186.62],
+      [-74.38, -188.44],
+      [-73.17, -190.24],
+      [-71.96, -192.05],
+      [-70.76, -193.87],
+      [-69.55, -195.67],
+      [-68.34, -197.49],
+      [-67.14, -199.3],
+      [-65.93, -201.11],
+      [-64.72, -202.92],
+      [-63.52, -204.73],
+      [-62.31, -206.54],
+      [-61.1, -208.35],
+      [-59.89, -210.16],
+      [-58.69, -211.97],
+      [-57.48, -213.78],
+      [-56.27, -215.59],
+      [-55.07, -217.4],
+      [-53.86, -219.21],
+      [-52.65, -221.02],
+      [-51.45, -222.83],
+      [-50.24, -224.64],
+      [-49.03, -226.45],
+      [-47.83, -228.26],
+      [-46.62, -230.07],
+      [-45.41, -231.88],
+      [-44.21, -233.69],
+      [-43.0, -235.5],
+      [-41.79, -237.31],
+      [-40.58, -239.12],
+      [-39.21, -239.21],
+      [-37.67, -237.67],
+      [-36.13, -236.13],
+      [-34.59, -234.59],
+      [-33.05, -233.05],
+      [-31.51, -231.51],
+      [-29.98, -229.98],
+      [-28.44, -228.44],
+      [-26.9, -226.9],
+      [-25.36, -225.36],
+      [-23.82, -223.82],
+      [-22.28, -222.28],
+      [-20.75, -220.75],
+      [-19.21, -219.21],
+      [-17.67, -217.67],
+      [-16.13, -216.13],
+      [-14.59, -214.59],
+      [-13.05, -213.05],
+      [-11.51, -211.51],
+      [-9.98, -209.98],
+      [-8.44, -208.44],
+      [-6.9, -206.9],
+      [-5.36, -205.36],
+      [-3.82, -203.82],
+      [-2.28, -202.28],
+      [-0.74, -200.74],
+      [0.79, -199.21],
+      [2.33, -197.67],
+      [3.87, -196.13],
+      [5.41, -194.59],
+      [6.95, -193.05],
+      [8.49, -191.51],
+      [10.02, -189.98],
+      [11.56, -188.44],
+      [13.1, -186.9],
+      [14.64, -185.36],
+      [16.18, -183.82],
+      [17.72, -182.28],
+      [19.26, -180.74],
+      [20.79, -179.21],
+      [22.33, -177.67],
+      [23.87, -176.13],
+      [25.41, -174.59],
+      [26.95, -173.05],
+      [28.49, -171.51],
+      [30.02, -169.98],
+      [31.56, -168.44],
+      [33.1, -166.9],
+      [34.64, -165.36],
+      [36.18, -163.82],
+      [37.72, -162.28],
+      [39.26, -160.74],
+      [41.0, -160.5],
+      [42.95, -161.48],
+      [44.9, -162.45],
+      [46.84, -163.42],
+      [48.79, -164.4],
+      [50.74, -165.36],
+      [52.68, -166.34],
+      [54.63, -167.31],
+      [56.57, -168.29],
+      [58.52, -169.26],
+      [60.46, -170.23],
+      [62.41, -171.21],
+      [64.36, -172.17],
+      [66.3, -173.15],
+      [68.25, -174.13],
+      [70.2, -175.1],
+      [72.14, -176.07],
+      [74.09, -177.04],
+      [76.03, -178.02],
+      [77.98, -178.99],
+      [79.93, -179.96],
+      [82.09, -180.0],
+      [84.27, -180.0],
+      [86.44, -180.0],
+      [88.62, -180.0],
+      [90.8, -180.0],
+      [92.97, -180.0],
+      [95.15, -180.0],
+      [97.32, -180.0],
+      [99.5, -180.0],
+      [101.67, -180.0],
+      [103.85, -180.0],
+      [106.03, -180.0],
+      [108.2, -180.0],
+      [110.38, -180.0],
+      [112.55, -180.0],
+      [114.73, -180.0],
+      [116.9, -180.0],
+      [119.08, -180.0],
+      [121.26, -180.0],
+      [123.43, -180.0],
+      [125.61, -180.0],
+      [127.78, -180.0],
+      [129.96, -180.0],
+      [132.13, -180.0],
+      [134.31, -180.0],
+      [136.49, -180.0],
+      [138.66, -180.0],
+      [140.84, -180.0],
+      [143.01, -180.0],
+      [145.19, -180.0],
+      [147.36, -180.0],
+      [149.54, -180.0],
+      [151.72, -180.0],
+      [153.89, -180.0],
+      [156.07, -180.0],
+      [158.24, -180.0],
+      [160.42, -180.0],
+      [162.59, -180.0],
+      [164.77, -180.0],
+      [166.95, -180.0],
+      [169.12, -180.0],
+      [168.7, -179.97],
+      [166.53, -179.93],
+      [164.36, -179.81],
+      [162.19, -179.65],
+      [160.02, -179.44],
+      [157.86, -179.16],
+      [155.71, -178.85],
+      [153.57, -178.47],
+      [151.43, -178.05],
+      [149.31, -177.58],
+      [147.2, -177.04],
+      [145.1, -176.48],
+      [143.02, -175.84],
+      [140.95, -175.17],
+      [138.9, -174.44],
+      [136.87, -173.66],
+      [134.85, -172.85],
+      [132.86, -171.97],
+      [130.89, -171.05],
+      [128.94, -170.09],
+      [127.02, -169.06],
+      [125.12, -168.0],
+      [123.25, -166.89],
+      [121.41, -165.73],
+      [119.58, -164.55],
+      [117.8, -163.29],
+      [116.05, -162.01],
+      [114.32, -160.69],
+      [112.63, -159.32],
+      [110.96, -157.93],
+      [109.34, -156.47],
+      [107.75, -154.98],
+      [106.19, -153.47],
+      [104.69, -151.9],
+      [103.2, -150.3],
+      [101.77, -148.67],
+      [100.37, -147.0],
+      [99.01, -145.31],
+      [97.7, -143.57],
+      [96.42, -141.81],
+      [95.19, -140.01],
+      [94.01, -138.19],
+      [92.85, -136.35],
+      [91.77, -134.46],
+      [90.72, -132.56],
+      [89.71, -130.63],
+      [88.75, -128.67],
+      [87.83, -126.7],
+      [86.97, -124.7],
+      [86.16, -122.69],
+      [85.39, -120.65],
+      [84.68, -118.59],
+      [84.01, -116.52],
+      [83.4, -114.44],
+      [82.83, -112.34],
+      [82.31, -110.22],
+      [81.86, -108.1],
+      [81.43, -105.96],
+      [81.08, -103.82],
+      [80.78, -101.66],
+      [80.5, -99.5],
+      [80.32, -97.33],
+      [80.16, -95.16],
+      [80.06, -92.99],
+      [80.02, -90.82],
+      [80.02, -88.64],
+      [80.09, -86.47],
+      [80.2, -84.29],
+      [80.35, -82.12],
+      [80.58, -79.96],
+      [80.83, -77.8],
+      [81.16, -75.65],
+      [81.54, -73.51],
+      [81.95, -71.37],
+      [82.44, -69.25],
+      [82.96, -67.14],
+      [83.55, -65.04],
+      [84.18, -62.96],
+      [84.84, -60.89],
+      [85.59, -58.84],
+      [86.36, -56.81],
+      [87.18, -54.8],
+      [88.06, -52.81],
+      [88.97, -50.83],
+      [89.95, -48.89],
+      [90.97, -46.97],
+      [92.03, -45.07],
+      [93.15, -43.2],
+      [94.29, -41.35],
+      [95.5, -39.54],
+      [96.74, -37.75],
+      [98.01, -35.99],
+      [99.35, -34.27],
+      [100.71, -32.57],
+      [102.12, -30.92],
+      [103.57, -29.3],
+      [105.05, -27.7],
+      [106.58, -26.16],
+      [108.14, -24.64],
+      [109.74, -23.16],
+      [111.38, -21.73],
+      [113.03, -20.32],
+      [114.75, -18.98],
+      [116.48, -17.66],
+      [118.24, -16.39],
+      [120.04, -15.16],
+      [121.86, -13.97],
+      [123.72, -12.83],
+      [125.59, -11.74],
+      [127.49, -10.68],
+      [129.43, -9.68],
+      [131.38, -8.72],
+      [133.36, -7.81],
+      [135.35, -6.95],
+      [137.37, -6.13],
+      [139.41, -5.38],
+      [141.46, -4.66],
+      [143.53, -3.99],
+      [145.62, -3.38],
+      [147.72, -2.81],
+      [149.84, -2.31],
+      [151.96, -1.84],
+      [154.1, -1.42],
+      [156.25, -1.07],
+      [158.4, -0.75],
+      [160.56, -0.51],
+      [162.73, -0.31],
+      [164.9, -0.15],
+      [167.07, -0.07],
+      [169.24, -0.01],
+      [171.42, -0.02],
+      [173.59, -0.09],
+      [175.77, -0.19],
+      [177.94, -0.37],
+      [180.1, -0.58],
+      [182.26, -0.85],
+      [184.41, -1.18],
+      [186.56, -1.53],
+      [188.69, -1.98],
+      [190.81, -2.45],
+      [192.92, -2.98],
+      [195.02, -3.57],
+      [197.1, -4.18],
+      [199.17, -4.87],
+      [201.22, -5.6],
+      [203.25, -6.37],
+      [205.26, -7.21],
+      [207.25, -8.08],
+      [209.22, -9.01],
+      [211.16, -9.99],
+      [213.09, -11.0],
+      [214.98, -12.07],
+      [216.86, -13.17],
+      [218.7, -14.33],
+      [220.51, -15.53],
+      [222.31, -16.76],
+      [224.05, -18.06],
+      [225.78, -19.38],
+      [227.47, -20.75],
+      [229.12, -22.17],
+      [230.75, -23.61],
+      [232.33, -25.1],
+      [233.89, -26.63],
+      [235.4, -28.19],
+      [236.87, -29.79],
+      [238.32, -31.42],
+      [239.7, -33.09],
+      [241.06, -34.8],
+      [242.38, -36.52],
+      [243.64, -38.3],
+      [244.88, -40.09],
+      [246.06, -41.91],
+      [247.2, -43.77],
+      [248.31, -45.64],
+      [249.35, -47.55],
+      [250.35, -49.48],
+      [251.31, -51.43],
+      [252.21, -53.41],
+      [253.09, -55.4],
+      [253.88, -57.43],
+      [254.64, -59.47],
+      [255.37, -61.52],
+      [256.02, -63.6],
+      [256.64, -65.68],
+      [257.2, -67.78],
+      [257.71, -69.9],
+      [258.18, -72.02],
+      [258.57, -74.16],
+      [258.94, -76.31],
+      [259.25, -78.46],
+      [259.5, -80.62],
+      [259.71, -82.79],
+      [259.84, -84.96],
+      [259.94, -87.13],
+      [259.99, -89.31],
+      [260.0, -88.52],
+      [260.0, -86.34],
+      [260.0, -84.17],
+      [260.0, -81.99],
+      [260.0, -79.82],
+      [260.0, -77.64],
+      [260.0, -75.46],
+      [260.0, -73.29],
+      [260.0, -71.11],
+      [260.0, -68.94],
+      [260.0, -66.76],
+      [260.0, -64.59],
+      [260.0, -62.41],
+      [260.0, -60.23],
+      [260.0, -58.06],
+      [260.0, -55.88],
+      [260.0, -53.71],
+      [260.0, -51.53],
+      [260.0, -49.36],
+      [260.0, -47.18],
+      [260.0, -45.0],
+      [260.0, -42.83],
+      [260.0, -40.65],
+      [260.0, -38.48],
+      [260.0, -36.3],
+      [260.0, -34.13],
+      [260.0, -31.95],
+      [260.0, -29.77],
+      [260.0, -27.6],
+      [260.0, -25.42],
+      [260.0, -23.25],
+      [260.0, -21.07],
+      [260.0, -18.89],
+      [260.0, -16.72],
+      [260.0, -14.54],
+      [260.0, -12.37],
+      [260.0, -10.19],
+      [260.0, -8.02],
+      [260.0, -5.84],
+      [260.0, -3.66],
+      [260.0, -1.49],
+      [260.0, 0.69],
+      [260.0, 2.86],
+      [260.0, 5.04],
+      [260.0, 7.21],
+      [260.0, 9.39],
+      [260.0, 11.57],
+      [260.0, 13.74],
+      [260.0, 15.92],
+      [260.0, 18.09],
+      [260.0, 20.27],
+      [260.0, 22.44],
+      [260.0, 24.62],
+      [260.0, 26.8],
+      [260.0, 28.97],
+      [260.0, 31.15],
+      [260.0, 33.32],
+      [260.0, 35.5],
+      [260.0, 37.67],
+      [260.0, 39.85],
+      [260.0, 42.03],
+      [260.0, 44.2],
+      [260.0, 46.38],
+      [260.0, 48.55],
+      [260.0, 50.73],
+      [260.0, 52.9],
+      [260.0, 55.08],
+      [260.0, 57.26],
+      [260.0, 59.43],
+      [260.0, 61.61],
+      [260.0, 63.78],
+      [260.0, 65.96],
+      [260.0, 68.13],
+      [260.0, 70.31],
+      [260.0, 72.49],
+      [260.0, 74.66],
+      [260.0, 76.84],
+      [260.0, 79.01],
+      [260.0, 81.19],
+      [260.0, 83.37],
+      [260.0, 85.54],
+      [260.0, 87.72],
+      [260.0, 89.89],
+      [259.98, 92.07],
+      [259.9, 94.24],
+      [259.77, 96.41],
+      [259.59, 98.58],
+      [259.36, 100.75],
+      [259.07, 102.9],
+      [258.73, 105.05],
+      [258.34, 107.19],
+      [257.9, 109.32],
+      [257.4, 111.44],
+      [256.86, 113.55],
+      [256.27, 115.64],
+      [255.62, 117.72],
+      [254.93, 119.78],
+      [254.18, 121.82],
+      [253.39, 123.85],
+      [252.55, 125.86],
+      [251.66, 127.84],
+      [250.72, 129.8],
+      [249.73, 131.74],
+      [248.7, 133.66],
+      [247.62, 135.55],
+      [246.5, 137.41],
+      [245.33, 139.25],
+      [244.11, 141.05],
+      [242.86, 142.83],
+      [241.56, 144.58],
+      [240.22, 146.29],
+      [238.84, 147.97],
+      [237.42, 149.62],
+      [235.96, 151.23],
+      [234.46, 152.81],
+      [232.92, 154.35],
+      [231.35, 155.85],
+      [229.74, 157.32],
+      [228.1, 158.74],
+      [226.41, 160.12],
+      [224.7, 161.46],
+      [222.96, 162.76],
+      [221.19, 164.02],
+      [219.38, 165.24],
+      [217.55, 166.41],
+      [215.69, 167.54],
+      [213.8, 168.62],
+      [211.89, 169.66],
+      [209.95, 170.64],
+      [207.99, 171.59],
+      [206.01, 172.48],
+      [204.0, 173.33],
+      [201.98, 174.12],
+      [199.93, 174.87],
+      [197.87, 175.57],
+      [195.8, 176.22],
+      [193.7, 176.82],
+      [191.6, 177.37],
+      [189.48, 177.86],
+      [187.35, 178.31],
+      [185.21, 178.71],
+      [183.06, 179.04],
+      [180.91, 179.34],
+      [178.74, 179.58],
+      [176.58, 179.76],
+      [174.4, 179.89],
+      [172.23, 179.97],
+      [170.06, 180.0],
+      [167.88, 180.0],
+      [165.7, 180.0],
+      [163.53, 180.0],
+      [161.35, 180.0],
+      [159.18, 180.0],
+      [157.0, 180.0],
+      [154.83, 180.0],
+      [152.65, 180.0],
+      [150.47, 180.0],
+      [148.3, 180.0],
+      [146.12, 180.0],
+      [143.95, 180.0],
+      [141.77, 180.0],
+      [139.59, 180.0],
+      [137.42, 180.0],
+      [135.24, 180.0],
+      [133.07, 180.0],
+      [130.89, 180.0],
+      [128.72, 180.0],
+      [126.54, 180.0],
+      [124.36, 180.0],
+      [122.19, 180.0],
+      [120.01, 180.0],
+      [117.84, 180.0],
+      [115.66, 180.0],
+      [113.49, 180.0],
+      [111.31, 180.0],
+      [109.13, 180.0],
+      [106.96, 180.0],
+      [104.78, 180.0],
+      [102.61, 180.0],
+      [100.43, 180.0],
+      [98.26, 180.0],
+      [96.08, 180.0],
+      [93.9, 180.0],
+      [91.73, 180.0],
+      [89.55, 180.0],
+      [87.38, 180.0],
+      [85.2, 180.0],
+      [83.03, 180.0],
+      [80.85, 180.0],
+      [78.67, 180.0],
+      [76.5, 180.0],
+      [74.32, 180.0],
+      [72.15, 180.0],
+      [69.97, 180.0],
+      [67.8, 180.0],
+      [65.62, 180.0],
+      [63.44, 180.0],
+      [61.27, 180.0],
+      [59.09, 180.0],
+      [56.92, 180.0],
+      [54.74, 180.0],
+      [52.57, 180.0],
+      [50.39, 180.0],
+      [48.21, 180.0],
+      [46.04, 180.0],
+      [43.86, 180.0],
+      [41.69, 180.0],
+      [39.51, 180.0],
+      [37.33, 180.0],
+      [35.16, 180.0],
+      [32.98, 180.0],
+      [30.81, 180.0],
+      [28.63, 180.0],
+      [26.46, 180.0],
+      [24.28, 180.0],
+      [22.1, 180.0],
+      [19.93, 180.0],
+      [17.75, 180.0],
+      [15.58, 180.0],
+      [13.4, 180.0],
+      [11.23, 180.0],
+      [9.05, 180.0],
+      [6.87, 180.0],
+      [4.7, 180.0],
+      [2.52, 180.0],
+      [0.35, 180.0],
+      [-1.83, 180.0],
+      [-4.0, 180.0],
+      [-6.18, 180.0],
+      [-8.36, 180.0],
+      [-10.53, 180.0],
+      [-12.71, 180.0],
+      [-14.88, 180.0],
+      [-17.06, 180.0],
+      [-19.23, 180.0],
+      [-21.41, 180.0],
+      [-23.59, 180.0],
+      [-25.76, 180.0],
+      [-27.94, 180.0],
+      [-30.11, 180.0],
+      [-32.29, 180.0],
+      [-34.46, 180.0],
+      [-36.64, 180.0],
+      [-38.82, 180.0],
+      [-40.99, 180.0],
+      [-43.17, 180.0],
+      [-45.34, 180.0],
+      [-47.52, 180.0],
+      [-49.69, 180.0],
+      [-51.87, 180.0],
+      [-54.05, 180.0],
+      [-56.22, 180.0],
+      [-58.4, 180.0],
+      [-60.57, 180.0],
+      [-62.75, 180.0],
+      [-64.93, 180.0],
+      [-67.1, 180.0],
+      [-69.28, 180.0],
+      [-71.45, 180.0],
+      [-73.63, 180.0],
+      [-75.8, 180.0],
+      [-77.98, 180.0],
+      [-80.16, 180.0],
+      [-82.33, 180.0],
+      [-84.51, 180.0],
+      [-86.68, 180.0],
+      [-88.86, 180.0],
+      [-91.03, 180.0],
+      [-93.21, 180.0],
+      [-95.39, 180.0],
+      [-97.56, 180.0],
+      [-99.74, 180.0],
+      [-101.91, 180.0],
+      [-104.09, 180.0],
+      [-106.26, 180.0],
+      [-108.44, 180.0],
+      [-110.62, 180.0],
+      [-112.79, 180.0],
+      [-114.97, 180.0],
+      [-117.14, 180.0],
+      [-119.32, 180.0],
+      [-121.49, 180.0],
+      [-123.67, 180.0],
+      [-125.85, 180.0],
+      [-128.02, 180.0],
+      [-130.2, 180.0],
+      [-132.37, 180.0],
+      [-134.55, 180.0],
+      [-136.72, 180.0],
+      [-138.9, 180.0],
+      [-141.08, 180.0],
+      [-143.25, 180.0],
+      [-145.43, 180.0],
+      [-147.6, 180.0],
+      [-149.78, 180.0],
+      [-151.95, 180.0],
+      [-154.13, 180.0],
+      [-156.31, 180.0],
+      [-158.48, 180.0],
+      [-160.66, 180.0],
+      [-162.83, 180.0],
+      [-165.01, 180.0],
+      [-167.19, 180.0],
+      [-169.36, 180.0],
+      [-171.54, 179.98],
+      [-173.71, 179.92],
+      [-175.88, 179.8],
+      [-178.05, 179.64],
+      [-180.22, 179.42],
+      [-182.38, 179.14],
+      [-184.53, 178.82],
+      [-186.67, 178.44],
+      [-188.8, 178.01],
+      [-190.92, 177.53],
+      [-193.03, 177.0],
+      [-195.13, 176.42],
+      [-197.21, 175.78],
+      [-199.28, 175.1],
+      [-201.33, 174.37],
+      [-203.36, 173.59],
+      [-205.37, 172.76],
+      [-207.36, 171.88],
+      [-209.33, 170.95],
+      [-211.27, 169.98],
+      [-213.19, 168.95],
+      [-215.09, 167.89],
+      [-216.96, 166.78],
+      [-218.8, 165.62],
+      [-220.61, 164.41],
+      [-222.4, 163.17],
+      [-224.15, 161.88],
+      [-225.87, 160.55],
+      [-227.56, 159.18],
+      [-229.22, 157.77],
+      [-230.84, 156.32],
+      [-232.43, 154.83],
+      [-233.98, 153.3],
+      [-235.49, 151.74],
+      [-236.96, 150.14],
+      [-238.39, 148.5],
+      [-239.79, 146.83],
+      [-241.14, 145.13],
+      [-242.45, 143.39],
+      [-243.72, 141.62],
+      [-244.94, 139.82],
+      [-246.13, 138.0],
+      [-247.27, 136.14],
+      [-248.36, 134.27],
+      [-249.41, 132.36],
+      [-250.41, 130.42],
+      [-251.37, 128.47],
+      [-252.27, 126.49],
+      [-253.13, 124.5],
+      [-253.93, 122.47],
+      [-254.7, 120.44],
+      [-255.41, 118.38],
+      [-256.07, 116.31],
+      [-256.68, 114.22],
+      [-257.24, 112.11],
+      [-257.75, 110.0],
+      [-258.2, 107.87],
+      [-258.61, 105.74],
+      [-258.96, 103.59],
+      [-259.27, 101.43],
+      [-259.52, 99.27],
+      [-259.72, 97.11],
+      [-259.86, 94.94],
+      [-259.96, 92.76],
+      [-260.0, 90.59],
+      [-260.0, 88.41],
+      [-260.0, 86.24],
+      [-260.0, 84.06],
+      [-260.0, 81.88],
+      [-260.0, 79.71],
+      [-260.0, 77.53],
+      [-260.0, 75.36],
+      [-260.0, 73.18],
+      [-260.0, 71.01],
+      [-260.0, 68.83],
+      [-260.0, 66.65],
+      [-260.0, 64.48],
+      [-260.0, 62.3],
+      [-260.0, 60.13],
+      [-260.0, 57.95],
+      [-260.0, 55.77],
+      [-260.0, 53.6],
+      [-260.0, 51.42],
+      [-260.0, 49.25],
+      [-260.0, 47.07],
+      [-260.0, 44.9],
+      [-260.0, 42.72],
+      [-260.0, 40.54],
+      [-260.0, 38.37],
+      [-260.0, 36.19],
+      [-260.0, 34.02],
+      [-260.0, 31.84],
+      [-260.0, 29.67],
+      [-260.0, 27.49],
+      [-260.0, 25.31],
+      [-260.0, 23.14],
+      [-260.0, 20.96],
+      [-260.0, 18.79],
+      [-260.0, 16.61],
+      [-260.0, 14.44],
+      [-260.0, 12.26],
+      [-260.0, 10.08],
+      [-260.0, 7.91],
+      [-260.0, 5.73],
+      [-260.0, 3.56],
+      [-260.0, 1.38],
+      [-260.0, -0.79],
+      [-260.0, -2.97],
+      [-260.0, -5.15],
+      [-260.0, -7.32],
+      [-260.0, -9.5],
+      [-260.0, -11.67],
+      [-260.0, -13.85],
+      [-260.0, -16.02],
+      [-260.0, -18.2],
+      [-260.0, -20.38],
+      [-260.0, -22.55],
+      [-260.0, -24.73],
+      [-260.0, -26.9],
+      [-260.0, -29.08],
+      [-260.0, -31.25],
+      [-260.0, -33.43],
+      [-260.0, -35.61],
+      [-260.0, -37.78],
+      [-260.0, -39.96],
+      [-260.0, -42.13],
+      [-260.0, -44.31],
+      [-260.0, -46.49],
+      [-260.0, -48.66],
+      [-260.0, -50.84],
+      [-260.0, -53.01],
+      [-260.0, -55.19],
+      [-260.0, -57.36],
+      [-260.0, -59.54],
+      [-260.0, -61.72],
+      [-260.0, -63.89],
+      [-260.0, -66.07],
+      [-260.0, -68.24],
+      [-260.0, -70.42],
+      [-260.0, -72.59],
+      [-260.0, -74.77],
+      [-260.0, -76.95],
+      [-260.0, -79.12],
+      [-260.0, -81.3],
+      [-260.0, -83.47],
+      [-260.0, -85.65],
+      [-260.0, -87.82],
+    ],
+    start: { x:-260.0, y:-90.0, a:0 },
+  }
+  ,
+  "ZigZag": {
+    kind: 'line',
+    lineWidth: 16,
+    line: [
+      [-340.0, 150.0],
+      [-338.69, 138.44],
+      [-337.38, 126.88],
+      [-336.07, 115.32],
+      [-334.76, 103.76],
+      [-333.45, 92.2],
+      [-332.14, 80.64],
+      [-330.83, 69.08],
+      [-329.52, 57.51],
+      [-328.21, 45.95],
+      [-326.9, 34.39],
+      [-325.59, 22.83],
+      [-324.28, 11.27],
+      [-322.97, -0.29],
+      [-321.66, -11.85],
+      [-320.35, -23.41],
+      [-319.04, -34.97],
+      [-317.73, -46.53],
+      [-316.42, -58.09],
+      [-315.11, -69.65],
+      [-313.8, -81.21],
+      [-312.49, -92.77],
+      [-311.18, -104.34],
+      [-309.87, -115.9],
+      [-308.55, -127.46],
+      [-307.24, -139.02],
+      [-305.93, -149.42],
+      [-304.62, -137.86],
+      [-303.31, -126.3],
+      [-302.0, -114.74],
+      [-300.69, -103.18],
+      [-299.38, -91.62],
+      [-298.07, -80.06],
+      [-296.76, -68.5],
+      [-295.45, -56.94],
+      [-294.14, -45.38],
+      [-292.83, -33.82],
+      [-291.52, -22.25],
+      [-290.21, -10.69],
+      [-288.9, 0.87],
+      [-287.59, 12.43],
+      [-286.28, 23.99],
+      [-284.97, 35.55],
+      [-283.66, 47.11],
+      [-282.35, 58.67],
+      [-281.04, 70.23],
+      [-279.73, 81.79],
+      [-278.42, 93.35],
+      [-277.11, 104.91],
+      [-275.8, 116.47],
+      [-274.49, 128.03],
+      [-273.18, 139.6],
+      [-271.87, 148.84],
+      [-270.56, 137.28],
+      [-269.25, 125.72],
+      [-267.94, 114.16],
+      [-266.63, 102.6],
+      [-265.32, 91.04],
+      [-264.01, 79.48],
+      [-262.7, 67.92],
+      [-261.39, 56.36],
+      [-260.08, 44.8],
+      [-258.77, 33.24],
+      [-257.46, 21.68],
+      [-256.15, 10.12],
+      [-254.84, -1.45],
+      [-253.53, -13.01],
+      [-252.22, -24.57],
+      [-250.91, -36.13],
+      [-249.6, -47.69],
+      [-248.29, -59.25],
+      [-246.97, -70.81],
+      [-245.66, -82.37],
+      [-244.35, -93.93],
+      [-243.04, -105.49],
+      [-241.73, -117.05],
+      [-240.42, -128.61],
+      [-239.11, -140.17],
+      [-237.8, -148.27],
+      [-236.49, -136.71],
+      [-235.18, -125.14],
+      [-233.87, -113.58],
+      [-232.56, -102.02],
+      [-231.25, -90.46],
+      [-229.94, -78.9],
+      [-228.63, -67.34],
+      [-227.32, -55.78],
+      [-226.01, -44.22],
+      [-224.7, -32.66],
+      [-223.39, -21.1],
+      [-222.08, -9.54],
+      [-220.77, 2.02],
+      [-219.46, 13.58],
+      [-218.15, 25.14],
+      [-216.84, 36.71],
+      [-215.53, 48.27],
+      [-214.22, 59.83],
+      [-212.91, 71.39],
+      [-211.6, 82.95],
+      [-210.29, 94.51],
+      [-208.98, 106.07],
+      [-207.67, 117.63],
+      [-206.36, 129.19],
+      [-205.05, 140.75],
+      [-203.74, 147.69],
+      [-202.43, 136.13],
+      [-201.12, 124.57],
+      [-199.81, 113.01],
+      [-198.5, 101.45],
+      [-197.19, 89.88],
+      [-195.88, 78.32],
+      [-194.57, 66.76],
+      [-193.26, 55.2],
+      [-191.95, 43.64],
+      [-190.64, 32.08],
+      [-189.33, 20.52],
+      [-188.02, 8.96],
+      [-186.71, -2.6],
+      [-185.39, -14.16],
+      [-184.08, -25.72],
+      [-182.77, -37.28],
+      [-181.46, -48.84],
+      [-180.15, -60.4],
+      [-178.84, -71.97],
+      [-177.53, -83.53],
+      [-176.22, -95.09],
+      [-174.91, -106.65],
+      [-173.6, -118.21],
+      [-172.29, -129.77],
+      [-170.98, -141.33],
+      [-169.67, -147.11],
+      [-168.36, -135.55],
+      [-167.05, -123.99],
+      [-165.74, -112.43],
+      [-164.43, -100.87],
+      [-163.12, -89.31],
+      [-161.81, -77.75],
+      [-160.5, -66.18],
+      [-159.19, -54.62],
+      [-157.88, -43.06],
+      [-156.57, -31.5],
+      [-155.26, -19.94],
+      [-153.95, -8.38],
+      [-152.64, 3.18],
+      [-151.33, 14.74],
+      [-150.02, 26.3],
+      [-148.71, 37.86],
+      [-147.4, 49.42],
+      [-146.09, 60.98],
+      [-144.78, 72.54],
+      [-143.47, 84.1],
+      [-142.16, 95.66],
+      [-140.85, 107.23],
+      [-139.54, 118.79],
+      [-138.23, 130.35],
+      [-136.92, 141.91],
+      [-135.61, 146.53],
+      [-134.3, 134.97],
+      [-132.99, 123.41],
+      [-131.68, 111.85],
+      [-130.37, 100.29],
+      [-129.06, 88.73],
+      [-127.75, 77.17],
+      [-126.44, 65.61],
+      [-125.13, 54.05],
+      [-123.82, 42.49],
+      [-122.5, 30.92],
+      [-121.19, 19.36],
+      [-119.88, 7.8],
+      [-118.57, -3.76],
+      [-117.26, -15.32],
+      [-115.95, -26.88],
+      [-114.64, -38.44],
+      [-113.33, -50.0],
+      [-112.02, -61.56],
+      [-110.71, -73.12],
+      [-109.4, -84.68],
+      [-108.09, -96.24],
+      [-106.78, -107.8],
+      [-105.47, -119.36],
+      [-104.16, -130.92],
+      [-102.85, -142.49],
+      [-101.54, -145.95],
+      [-100.23, -134.39],
+      [-98.92, -122.83],
+      [-97.61, -111.27],
+      [-96.3, -99.71],
+      [-94.99, -88.15],
+      [-93.68, -76.59],
+      [-92.37, -65.03],
+      [-91.06, -53.47],
+      [-89.75, -41.91],
+      [-88.44, -30.35],
+      [-87.13, -18.79],
+      [-85.82, -7.23],
+      [-84.51, 4.34],
+      [-83.2, 15.9],
+      [-81.89, 27.46],
+      [-80.58, 39.02],
+      [-79.27, 50.58],
+      [-77.96, 62.14],
+      [-76.65, 73.7],
+      [-75.34, 85.26],
+      [-74.03, 96.82],
+      [-72.72, 108.38],
+      [-71.41, 119.94],
+      [-70.1, 131.5],
+      [-68.79, 143.06],
+      [-67.48, 145.38],
+      [-66.17, 133.82],
+      [-64.86, 122.25],
+      [-63.55, 110.69],
+      [-62.24, 99.13],
+      [-60.92, 87.57],
+      [-59.61, 76.01],
+      [-58.3, 64.45],
+      [-56.99, 52.89],
+      [-55.68, 41.33],
+      [-54.37, 29.77],
+      [-53.06, 18.21],
+      [-51.75, 6.65],
+      [-50.44, -4.91],
+      [-49.13, -16.47],
+      [-47.82, -28.03],
+      [-46.51, -39.6],
+      [-45.2, -51.16],
+      [-43.89, -62.72],
+      [-42.58, -74.28],
+      [-41.27, -85.84],
+      [-39.96, -97.4],
+      [-38.65, -108.96],
+      [-37.34, -120.52],
+      [-36.03, -132.08],
+      [-34.72, -143.64],
+      [-33.41, -144.8],
+      [-32.1, -133.24],
+      [-30.79, -121.68],
+      [-29.48, -110.12],
+      [-28.17, -98.55],
+      [-26.86, -86.99],
+      [-25.55, -75.43],
+      [-24.24, -63.87],
+      [-22.93, -52.31],
+      [-21.62, -40.75],
+      [-20.31, -29.19],
+      [-19.0, -17.63],
+      [-17.69, -6.07],
+      [-16.38, 5.49],
+      [-15.07, 17.05],
+      [-13.76, 28.61],
+      [-12.45, 40.17],
+      [-11.14, 51.73],
+      [-9.83, 63.29],
+      [-8.52, 74.86],
+      [-7.21, 86.42],
+      [-5.9, 97.98],
+      [-4.59, 109.54],
+      [-3.28, 121.1],
+      [-1.97, 132.66],
+      [-0.66, 144.22],
+      [0.66, 144.22],
+      [1.97, 132.66],
+      [3.28, 121.1],
+      [4.59, 109.54],
+      [5.9, 97.98],
+      [7.21, 86.42],
+      [8.52, 74.86],
+      [9.83, 63.29],
+      [11.14, 51.73],
+      [12.45, 40.17],
+      [13.76, 28.61],
+      [15.07, 17.05],
+      [16.38, 5.49],
+      [17.69, -6.07],
+      [19.0, -17.63],
+      [20.31, -29.19],
+      [21.62, -40.75],
+      [22.93, -52.31],
+      [24.24, -63.87],
+      [25.55, -75.43],
+      [26.86, -86.99],
+      [28.17, -98.55],
+      [29.48, -110.12],
+      [30.79, -121.68],
+      [32.1, -133.24],
+      [33.41, -144.8],
+      [34.72, -143.64],
+      [36.03, -132.08],
+      [37.34, -120.52],
+      [38.65, -108.96],
+      [39.96, -97.4],
+      [41.27, -85.84],
+      [42.58, -74.28],
+      [43.89, -62.72],
+      [45.2, -51.16],
+      [46.51, -39.6],
+      [47.82, -28.03],
+      [49.13, -16.47],
+      [50.44, -4.91],
+      [51.75, 6.65],
+      [53.06, 18.21],
+      [54.37, 29.77],
+      [55.68, 41.33],
+      [56.99, 52.89],
+      [58.3, 64.45],
+      [59.61, 76.01],
+      [60.92, 87.57],
+      [62.24, 99.13],
+      [63.55, 110.69],
+      [64.86, 122.25],
+      [66.17, 133.82],
+      [67.48, 145.38],
+      [68.79, 143.06],
+      [70.1, 131.5],
+      [71.41, 119.94],
+      [72.72, 108.38],
+      [74.03, 96.82],
+      [75.34, 85.26],
+      [76.65, 73.7],
+      [77.96, 62.14],
+      [79.27, 50.58],
+      [80.58, 39.02],
+      [81.89, 27.46],
+      [83.2, 15.9],
+      [84.51, 4.34],
+      [85.82, -7.23],
+      [87.13, -18.79],
+      [88.44, -30.35],
+      [89.75, -41.91],
+      [91.06, -53.47],
+      [92.37, -65.03],
+      [93.68, -76.59],
+      [94.99, -88.15],
+      [96.3, -99.71],
+      [97.61, -111.27],
+      [98.92, -122.83],
+      [100.23, -134.39],
+      [101.54, -145.95],
+      [102.85, -142.49],
+      [104.16, -130.92],
+      [105.47, -119.36],
+      [106.78, -107.8],
+      [108.09, -96.24],
+      [109.4, -84.68],
+      [110.71, -73.12],
+      [112.02, -61.56],
+      [113.33, -50.0],
+      [114.64, -38.44],
+      [115.95, -26.88],
+      [117.26, -15.32],
+      [118.57, -3.76],
+      [119.88, 7.8],
+      [121.19, 19.36],
+      [122.5, 30.92],
+      [123.82, 42.49],
+      [125.13, 54.05],
+      [126.44, 65.61],
+      [127.75, 77.17],
+      [129.06, 88.73],
+      [130.37, 100.29],
+      [131.68, 111.85],
+      [132.99, 123.41],
+      [134.3, 134.97],
+      [135.61, 146.53],
+      [136.92, 141.91],
+      [138.23, 130.35],
+      [139.54, 118.79],
+      [140.85, 107.23],
+      [142.16, 95.66],
+      [143.47, 84.1],
+      [144.78, 72.54],
+      [146.09, 60.98],
+      [147.4, 49.42],
+      [148.71, 37.86],
+      [150.02, 26.3],
+      [151.33, 14.74],
+      [152.64, 3.18],
+      [153.95, -8.38],
+      [155.26, -19.94],
+      [156.57, -31.5],
+      [157.88, -43.06],
+      [159.19, -54.62],
+      [160.5, -66.18],
+      [161.81, -77.75],
+      [163.12, -89.31],
+      [164.43, -100.87],
+      [165.74, -112.43],
+      [167.05, -123.99],
+      [168.36, -135.55],
+      [169.67, -147.11],
+      [170.98, -141.33],
+      [172.29, -129.77],
+      [173.6, -118.21],
+      [174.91, -106.65],
+      [176.22, -95.09],
+      [177.53, -83.53],
+      [178.84, -71.97],
+      [180.15, -60.4],
+      [181.46, -48.84],
+      [182.77, -37.28],
+      [184.08, -25.72],
+      [185.39, -14.16],
+      [186.71, -2.6],
+      [188.02, 8.96],
+      [189.33, 20.52],
+      [190.64, 32.08],
+      [191.95, 43.64],
+      [193.26, 55.2],
+      [194.57, 66.76],
+      [195.88, 78.32],
+      [197.19, 89.88],
+      [198.5, 101.45],
+      [199.81, 113.01],
+      [201.12, 124.57],
+      [202.43, 136.13],
+      [203.74, 147.69],
+      [205.05, 140.75],
+      [206.36, 129.19],
+      [207.67, 117.63],
+      [208.98, 106.07],
+      [210.29, 94.51],
+      [211.6, 82.95],
+      [212.91, 71.39],
+      [214.22, 59.83],
+      [215.53, 48.27],
+      [216.84, 36.71],
+      [218.15, 25.14],
+      [219.46, 13.58],
+      [220.77, 2.02],
+      [222.08, -9.54],
+      [223.39, -21.1],
+      [224.7, -32.66],
+      [226.01, -44.22],
+      [227.32, -55.78],
+      [228.63, -67.34],
+      [229.94, -78.9],
+      [231.25, -90.46],
+      [232.56, -102.02],
+      [233.87, -113.58],
+      [235.18, -125.14],
+      [236.49, -136.71],
+      [237.8, -148.27],
+      [239.11, -140.17],
+      [240.42, -128.61],
+      [241.73, -117.05],
+      [243.04, -105.49],
+      [244.35, -93.93],
+      [245.66, -82.37],
+      [246.97, -70.81],
+      [248.29, -59.25],
+      [249.6, -47.69],
+      [250.91, -36.13],
+      [252.22, -24.57],
+      [253.53, -13.01],
+      [254.84, -1.45],
+      [256.15, 10.12],
+      [257.46, 21.68],
+      [258.77, 33.24],
+      [260.08, 44.8],
+      [261.39, 56.36],
+      [262.7, 67.92],
+      [264.01, 79.48],
+      [265.32, 91.04],
+      [266.63, 102.6],
+      [267.94, 114.16],
+      [269.25, 125.72],
+      [270.56, 137.28],
+      [271.87, 148.84],
+      [273.18, 139.6],
+      [274.49, 128.03],
+      [275.8, 116.47],
+      [277.11, 104.91],
+      [278.42, 93.35],
+      [279.73, 81.79],
+      [281.04, 70.23],
+      [282.35, 58.67],
+      [283.66, 47.11],
+      [284.97, 35.55],
+      [286.28, 23.99],
+      [287.59, 12.43],
+      [288.9, 0.87],
+      [290.21, -10.69],
+      [291.52, -22.25],
+      [292.83, -33.82],
+      [294.14, -45.38],
+      [295.45, -56.94],
+      [296.76, -68.5],
+      [298.07, -80.06],
+      [299.38, -91.62],
+      [300.69, -103.18],
+      [302.0, -114.74],
+      [303.31, -126.3],
+      [304.62, -137.86],
+      [305.93, -149.42],
+      [307.24, -139.02],
+      [308.55, -127.46],
+      [309.87, -115.9],
+      [311.18, -104.34],
+      [312.49, -92.77],
+      [313.8, -81.21],
+      [315.11, -69.65],
+      [316.42, -58.09],
+      [317.73, -46.53],
+      [319.04, -34.97],
+      [320.35, -23.41],
+      [321.66, -11.85],
+      [322.97, -0.29],
+      [324.28, 11.27],
+      [325.59, 22.83],
+      [326.9, 34.39],
+      [328.21, 45.95],
+      [329.52, 57.51],
+      [330.83, 69.08],
+      [332.14, 80.64],
+      [333.45, 92.2],
+      [334.76, 103.76],
+      [336.07, 115.32],
+      [337.38, 126.88],
+      [338.69, 138.44],
+      [340.0, 150.0],
+    ],
+    start: { x:-340.0, y:150.0, a:0 },
+  }
+  ,
+  "Parking": {
+    kind: 'line',
+    lineWidth: 16,
+    line: [
+      [300.0, 25.77],
+      [299.91, 29.07],
+      [299.65, 32.34],
+      [299.22, 35.59],
+      [298.61, 38.81],
+      [297.82, 42.0],
+      [296.87, 45.16],
+      [295.75, 48.29],
+      [294.46, 51.39],
+      [293.0, 54.46],
+      [291.38, 57.49],
+      [289.59, 60.48],
+      [287.65, 63.44],
+      [285.55, 66.37],
+      [283.3, 69.25],
+      [280.89, 72.09],
+      [278.34, 74.9],
+      [275.65, 77.66],
+      [272.81, 80.38],
+      [269.85, 83.05],
+      [266.75, 85.69],
+      [263.52, 88.27],
+      [260.17, 90.81],
+      [256.71, 93.31],
+      [253.13, 95.75],
+      [249.44, 98.15],
+      [245.65, 100.5],
+      [241.77, 102.8],
+      [237.79, 105.06],
+      [233.73, 107.26],
+      [229.58, 109.41],
+      [225.36, 111.51],
+      [221.07, 113.55],
+      [216.72, 115.55],
+      [212.31, 117.49],
+      [207.85, 119.38],
+      [203.34, 121.22],
+      [198.78, 123.0],
+      [194.2, 124.73],
+      [189.58, 126.4],
+      [184.95, 128.02],
+      [180.29, 129.59],
+      [175.62, 131.1],
+      [170.95, 132.56],
+      [166.28, 133.97],
+      [161.61, 135.32],
+      [156.95, 136.62],
+      [152.31, 137.86],
+      [147.68, 139.05],
+      [143.09, 140.18],
+      [138.52, 141.26],
+      [133.99, 142.29],
+      [129.51, 143.26],
+      [125.06, 144.18],
+      [120.67, 145.05],
+      [116.33, 145.87],
+      [112.05, 146.64],
+      [107.83, 147.35],
+      [103.68, 148.01],
+      [99.59, 148.62],
+      [95.58, 149.19],
+      [91.64, 149.7],
+      [87.78, 150.16],
+      [84.01, 150.58],
+      [80.31, 150.94],
+      [76.7, 151.26],
+      [73.18, 151.54],
+      [69.75, 151.76],
+      [66.41, 151.94],
+      [63.16, 152.08],
+      [60.0, 152.17],
+      [56.94, 152.22],
+      [53.97, 152.23],
+      [51.1, 152.2],
+      [48.32, 152.12],
+      [45.64, 152.01],
+      [43.05, 151.85],
+      [40.55, 151.66],
+      [38.15, 151.43],
+      [35.84, 151.16],
+      [33.62, 150.86],
+      [31.49, 150.52],
+      [29.45, 150.15],
+      [27.5, 149.74],
+      [25.62, 149.3],
+      [23.83, 148.83],
+      [22.12, 148.33],
+      [20.48, 147.8],
+      [18.92, 147.25],
+      [17.42, 146.66],
+      [16.0, 146.05],
+      [14.63, 145.41],
+      [13.33, 144.74],
+      [12.08, 144.05],
+      [10.88, 143.34],
+      [9.74, 142.61],
+      [8.63, 141.85],
+      [7.57, 141.07],
+      [6.55, 140.28],
+      [5.55, 139.46],
+      [4.58, 138.63],
+      [3.64, 137.78],
+      [2.71, 136.92],
+      [1.8, 136.04],
+      [0.9, 135.14],
+      [0.0, 134.23],
+      [-0.9, 133.31],
+      [-1.8, 132.38],
+      [-2.71, 131.43],
+      [-3.64, 130.48],
+      [-4.58, 129.51],
+      [-5.55, 128.54],
+      [-6.55, 127.56],
+      [-7.57, 126.57],
+      [-8.63, 125.57],
+      [-9.74, 124.57],
+      [-10.88, 123.56],
+      [-12.08, 122.55],
+      [-13.33, 121.54],
+      [-14.63, 120.52],
+      [-16.0, 119.5],
+      [-17.42, 118.47],
+      [-18.92, 117.45],
+      [-20.48, 116.42],
+      [-22.12, 115.39],
+      [-23.83, 114.37],
+      [-25.62, 113.34],
+      [-27.5, 112.31],
+      [-29.45, 111.29],
+      [-31.49, 110.26],
+      [-33.62, 109.24],
+      [-35.84, 108.22],
+      [-38.15, 107.2],
+      [-40.55, 106.19],
+      [-43.05, 105.18],
+      [-45.64, 104.17],
+      [-48.32, 103.16],
+      [-51.1, 102.16],
+      [-53.97, 101.17],
+      [-56.94, 100.17],
+      [-60.0, 99.18],
+      [-63.16, 98.2],
+      [-66.41, 97.22],
+      [-69.75, 96.24],
+      [-73.18, 95.27],
+      [-76.7, 94.3],
+      [-80.31, 93.34],
+      [-84.01, 92.38],
+      [-87.78, 91.43],
+      [-91.64, 90.48],
+      [-95.58, 89.53],
+      [-99.59, 88.59],
+      [-103.68, 87.65],
+      [-107.83, 86.72],
+      [-112.05, 85.78],
+      [-116.33, 84.85],
+      [-120.67, 83.93],
+      [-125.06, 83.0],
+      [-129.51, 82.08],
+      [-133.99, 81.16],
+      [-138.52, 80.25],
+      [-143.09, 79.33],
+      [-147.68, 78.41],
+      [-152.31, 77.5],
+      [-156.95, 76.58],
+      [-161.61, 75.67],
+      [-166.28, 74.75],
+      [-170.95, 73.83],
+      [-175.62, 72.91],
+      [-180.29, 71.99],
+      [-184.95, 71.07],
+      [-189.58, 70.14],
+      [-194.2, 69.21],
+      [-198.78, 68.27],
+      [-203.34, 67.33],
+      [-207.85, 66.39],
+      [-212.31, 65.44],
+      [-216.72, 64.48],
+      [-221.07, 63.52],
+      [-225.36, 62.55],
+      [-229.58, 61.57],
+      [-233.73, 60.58],
+      [-237.79, 59.58],
+      [-241.77, 58.58],
+      [-245.65, 57.56],
+      [-249.44, 56.54],
+      [-253.13, 55.5],
+      [-256.71, 54.45],
+      [-260.17, 53.38],
+      [-263.52, 52.31],
+      [-266.75, 51.22],
+      [-269.85, 50.11],
+      [-272.81, 49.0],
+      [-275.65, 47.86],
+      [-278.34, 46.71],
+      [-280.89, 45.55],
+      [-283.3, 44.36],
+      [-285.55, 43.16],
+      [-287.65, 41.94],
+      [-289.59, 40.71],
+      [-291.38, 39.45],
+      [-293.0, 38.18],
+      [-294.46, 36.88],
+      [-295.75, 35.57],
+      [-296.87, 34.23],
+      [-297.82, 32.88],
+      [-298.61, 31.5],
+      [-299.22, 30.1],
+      [-299.65, 28.68],
+      [-299.91, 27.24],
+      [-300.0, 25.77],
+      [-299.91, 24.28],
+      [-299.65, 22.77],
+      [-299.22, 21.23],
+      [-298.61, 19.67],
+      [-297.82, 18.08],
+      [-296.87, 16.48],
+      [-295.75, 14.84],
+      [-294.46, 13.18],
+      [-293.0, 11.5],
+      [-291.38, 9.79],
+      [-289.59, 8.06],
+      [-287.65, 6.31],
+      [-285.55, 4.52],
+      [-283.3, 2.72],
+      [-280.89, 0.89],
+      [-278.34, -0.97],
+      [-275.65, -2.85],
+      [-272.81, -4.75],
+      [-269.85, -6.68],
+      [-266.75, -8.64],
+      [-263.52, -10.61],
+      [-260.17, -12.61],
+      [-256.71, -14.64],
+      [-253.13, -16.69],
+      [-249.44, -18.76],
+      [-245.65, -20.85],
+      [-241.77, -22.96],
+      [-237.79, -25.1],
+      [-233.73, -27.26],
+      [-229.58, -29.44],
+      [-225.36, -31.63],
+      [-221.07, -33.85],
+      [-216.72, -36.09],
+      [-212.31, -38.35],
+      [-207.85, -40.62],
+      [-203.34, -42.91],
+      [-198.78, -45.22],
+      [-194.2, -47.54],
+      [-189.58, -49.88],
+      [-184.95, -52.24],
+      [-180.29, -54.61],
+      [-175.62, -56.99],
+      [-170.95, -59.38],
+      [-166.28, -61.78],
+      [-161.61, -64.2],
+      [-156.95, -66.62],
+      [-152.31, -69.05],
+      [-147.68, -71.49],
+      [-143.09, -73.94],
+      [-138.52, -76.39],
+      [-133.99, -78.85],
+      [-129.51, -81.31],
+      [-125.06, -83.78],
+      [-120.67, -86.24],
+      [-116.33, -88.71],
+      [-112.05, -91.17],
+      [-107.83, -93.63],
+      [-103.68, -96.09],
+      [-99.59, -98.55],
+      [-95.58, -101.0],
+      [-91.64, -103.44],
+      [-87.78, -105.88],
+      [-84.01, -108.31],
+      [-80.31, -110.73],
+      [-76.7, -113.13],
+      [-73.18, -115.53],
+      [-69.75, -117.91],
+      [-66.41, -120.27],
+      [-63.16, -122.62],
+      [-60.0, -124.95],
+      [-56.94, -127.27],
+      [-53.97, -129.56],
+      [-51.1, -131.83],
+      [-48.32, -134.08],
+      [-45.64, -136.3],
+      [-43.05, -138.5],
+      [-40.55, -140.67],
+      [-38.15, -142.82],
+      [-35.84, -144.94],
+      [-33.62, -147.02],
+      [-31.49, -149.07],
+      [-29.45, -151.1],
+      [-27.5, -153.08],
+      [-25.62, -155.03],
+      [-23.83, -156.95],
+      [-22.12, -158.83],
+      [-20.48, -160.66],
+      [-18.92, -162.46],
+      [-17.42, -164.22],
+      [-16.0, -165.93],
+      [-14.63, -167.6],
+      [-13.33, -169.23],
+      [-12.08, -170.8],
+      [-10.88, -172.34],
+      [-9.74, -173.82],
+      [-8.63, -175.25],
+      [-7.57, -176.64],
+      [-6.55, -177.97],
+      [-5.55, -179.25],
+      [-4.58, -180.47],
+      [-3.64, -181.65],
+      [-2.71, -182.76],
+      [-1.8, -183.82],
+      [-0.9, -184.82],
+      [-0.0, -185.77],
+      [0.9, -186.65],
+      [1.8, -187.48],
+      [2.71, -188.25],
+      [3.64, -188.95],
+      [4.58, -189.59],
+      [5.55, -190.17],
+      [6.55, -190.69],
+      [7.57, -191.14],
+      [8.63, -191.53],
+      [9.74, -191.85],
+      [10.88, -192.11],
+      [12.08, -192.3],
+      [13.33, -192.43],
+      [14.63, -192.49],
+      [16.0, -192.48],
+      [17.42, -192.4],
+      [18.92, -192.26],
+      [20.48, -192.05],
+      [22.12, -191.77],
+      [23.83, -191.42],
+      [25.62, -191.0],
+      [27.5, -190.51],
+      [29.45, -189.96],
+      [31.49, -189.33],
+      [33.62, -188.64],
+      [35.84, -187.88],
+      [38.15, -187.05],
+      [40.55, -186.15],
+      [43.05, -185.18],
+      [45.64, -184.14],
+      [48.32, -183.04],
+      [51.1, -181.86],
+      [53.97, -180.62],
+      [56.94, -179.32],
+      [60.0, -177.94],
+      [63.16, -176.5],
+      [66.41, -175.0],
+      [69.75, -173.43],
+      [73.18, -171.79],
+      [76.7, -170.09],
+      [80.31, -168.33],
+      [84.01, -166.5],
+      [87.78, -164.61],
+      [91.64, -162.66],
+      [95.58, -160.65],
+      [99.59, -158.58],
+      [103.68, -156.45],
+      [107.83, -154.27],
+      [112.05, -152.02],
+      [116.33, -149.72],
+      [120.67, -147.37],
+      [125.06, -144.96],
+      [129.51, -142.49],
+      [133.99, -139.98],
+      [138.52, -137.41],
+      [143.09, -134.79],
+      [147.68, -132.13],
+      [152.31, -129.41],
+      [156.95, -126.66],
+      [161.61, -123.85],
+      [166.28, -121.0],
+      [170.95, -118.11],
+      [175.62, -115.18],
+      [180.29, -112.21],
+      [184.95, -109.2],
+      [189.58, -106.15],
+      [194.2, -103.06],
+      [198.78, -99.95],
+      [203.34, -96.79],
+      [207.85, -93.61],
+      [212.31, -90.4],
+      [216.72, -87.16],
+      [221.07, -83.89],
+      [225.36, -80.59],
+      [229.58, -77.27],
+      [233.73, -73.93],
+      [237.79, -70.57],
+      [241.77, -67.19],
+      [245.65, -63.79],
+      [249.44, -60.37],
+      [253.13, -56.94],
+      [256.71, -53.5],
+      [260.17, -50.04],
+      [263.52, -46.58],
+      [266.75, -43.1],
+      [269.85, -39.62],
+      [272.81, -36.14],
+      [275.65, -32.65],
+      [278.34, -29.15],
+      [280.89, -25.66],
+      [283.3, -22.17],
+      [285.55, -18.68],
+      [287.65, -15.19],
+      [289.59, -11.71],
+      [291.38, -8.24],
+      [293.0, -4.78],
+      [294.46, -1.32],
+      [295.75, 2.12],
+      [296.87, 5.55],
+      [297.82, 8.96],
+      [298.61, 12.36],
+      [299.22, 15.74],
+      [299.65, 19.11],
+      [299.91, 22.45],
+    ],
+    start: { x:300.0, y:25.77, a:0 },
+  }
+  };
+
+  // Simple polygon-based arena walls
+  const ARENA = {
+    kind:'arena',
+    lineWidth: 18,
+    walls: [
+      [[-210,-120],[210,-120]],
+      [[210,-120],[310,0]],
+      [[310,0],[210,120]],
+      [[210,120],[-210,120]],
+      [[-210,120],[-310,0]],
+      [[-310,0],[-210,-120]],
+    ],
+    start:{x:0,y:0,a:0},
+    name:'Arena'
+  };
+
+  // Register Arena as track option
+  TRACKS['Arena'] = {
+    kind:'arena',
+    lineWidth:18,
+    walls: ARENA.walls,
+    start: ARENA.start,
+  };
+
+  const TRACK_ORDER = ['Arena','Oval','Figure8','Slalom','Circuit','City','ZigZag','Parking'];
+
+  // ========== Geometry helpers ==========
+  function segDist(px,py, ax,ay, bx,by){
+    const vx = bx-ax, vy = by-ay;
+    const wx = px-ax, wy = py-ay;
+    const c1 = vx*wx + vy*wy;
+    if (c1<=0) return hypot(px-ax, py-ay);
+    const c2 = vx*vx + vy*vy;
+    if (c2<=c1) return hypot(px-bx, py-by);
+    const t = c1 / c2;
+    const cx = ax + t*vx;
+    const cy = ay + t*vy;
+    return hypot(px-cx, py-cy);
+  }
+
+  function raySegIntersect(ox,oy, dx,dy, ax,ay, bx,by){
+    // returns t along ray if intersects segment, else null
+    const vx = bx-ax, vy = by-ay;
+    const det = (-dx*vy + dy*vx);
+    if (Math.abs(det) < 1e-9) return null;
+    const s = (-vy*(ax-ox) + vx*(ay-oy)) / det;
+    const t = ( dx*(ay-oy) - dy*(ax-ox)) / det;
+    if (s>=0 && t>=0 && t<=1) return s;
+    return null;
+  }
+
+  function pointOnLineTrack(track, x,y){
+    const pts = track.line;
+    const w = track.lineWidth || 16;
+    let best = 1e9;
+    for (let i=0;i<pts.length;i++){
+      const a = pts[i];
+      const b = pts[(i+1)%pts.length];
+      const d = segDist(x,y, a[0],a[1], b[0],b[1]);
+      if (d<best) best = d;
+    }
+    return best <= w*0.5;
+  }
+
+  function distanceToWalls(track, x,y, ang, maxDist){
+    const dx = Math.cos(ang), dy = Math.sin(ang);
+    let best = maxDist;
+    const checkSeg = (ax,ay,bx,by)=>{
+      const t = raySegIntersect(x,y, dx,dy, ax,ay,bx,by);
+      if (t!=null && t<best) best = t;
+    };
+    if (track.kind==='arena' && track.walls){
+      for (let i=0;i<track.walls.length;i++){
+        const s=track.walls[i];
+        checkSeg(s[0][0],s[0][1],s[1][0],s[1][1]);
+      }
+    }
+    // For line tracks, we can optionally treat outer boundary as none.
+    return best;
+  }
+
+  // ========== Simulator core ==========
+  const Sim = {
+    mounted:false,
+    root:null,
+    canvas:null,
+    ctx:null,
+    side:null,
+    ui:{},
+
+    // view
+    zoom: 0.62,
+    targetZoom: 0.62,
+    panX: 0,
+    panY: 0,
+    dragging:false,
+    dragBtn:0,
+    lastX:0,
+    lastY:0,
+
+    // time
+    lastT:0,
+    fps:60,
+    dt:1/60,
+    speedScale: 1.0,
+
+    // world
+    trackName:'Arena',
+    track:null,
+
+    // robot
+    bot:{
+      x:0,y:0,a:0,
+      vx:0,vy:0,wa:0,
+      l:0,r:0,
+      wheelBase: 60,
+      maxSpeed: 240, // px/s
+      maxAccel: 520, // px/s^2
+      radius: 22,
+      wheelRotL:0,
+      wheelRotR:0,
+    },
+
+    // sensors: 4 line sensors in bot local coords
+    sensors:[
+      {x:-18,y:-18},
+      {x: 18,y:-18},
+      {x:-18,y: 18},
+      {x: 18,y: 18},
+    ],
+    editSensors:false,
+    sensorHover:-1,
+    sensorDrag:-1,
+
+    sensorValues:[0,0,0,0],
+    distValue: 999,
+
+    // run state
+    running:false,
+    paused:true,
+    stopFlag:false,
+
+    // logging minimal
+    lastCmd:'L0 R0',
+
+    open(){
+      ensureStyle();
+      if (!this.mounted) this.mount();
+      this.root.style.display='block';
+      this.resize();
+      this.center();
+      this.resetBot();
+      this.startLoop();
+    },
+    close(){
+      if (!this.root) return;
+      this.root.style.display='none';
+      this.paused = true;
+      this.running = false;
+      this.stopFlag = true;
+    },
+
+    mount(){
+      this.mounted = true;
+
+      // load sensor layout
+      try{
+        const raw = localStorage.getItem('rcsim2d_sensors');
+        if (raw){
+          const v = JSON.parse(raw);
+          if (Array.isArray(v) && v.length===4){
+            this.sensors = v.map(p=>({x:Number(p.x)||0,y:Number(p.y)||0}));
+          }
+        }
+      }catch(e){}
+
+      this.root = makeEl('div',{class:'rcsim2d-root',id:'rcsim2dRoot'});
+      const shell = makeEl('div',{class:'rcsim2d-shell'});
+      const top = makeEl('div',{class:'rcsim2d-top'});
+      const title = makeEl('div',{class:'rcsim2d-title'},[
+        makeEl('span',{class:'rcsim2d-dot'}),
+        'Симулятор (2D)'
+      ]);
+      const btnBack = makeEl('button',{class:'rcsim2d-btn',onclick:()=>this.close()},'Назад');
+      top.appendChild(title);
+      top.appendChild(btnBack);
+
+      const content = makeEl('div',{class:'rcsim2d-content'});
+      this.side = makeEl('div',{class:'rcsim2d-side'});
+      const main = makeEl('div',{class:'rcsim2d-main'});
+
+      // canvas
+      this.canvas = makeEl('canvas',{class:'rcsim2d-canvas'});
+      this.ctx = this.canvas.getContext('2d');
+      main.appendChild(this.canvas);
+
+      // HUD
+      const hud = makeEl('div',{class:'rcsim2d-hud'});
+      this.ui.pLR = makeEl('div',{class:'rcsim2d-pill'},'L0 R0');
+      this.ui.pZoom = makeEl('div',{class:'rcsim2d-pill'},'x0.62');
+      this.ui.pFps = makeEl('div',{class:'rcsim2d-pill'},'60 FPS');
+      hud.appendChild(this.ui.pLR);
+      hud.appendChild(this.ui.pZoom);
+      hud.appendChild(this.ui.pFps);
+      main.appendChild(hud);
+
+      // Footer buttons
+      const footer = makeEl('div',{class:'rcsim2d-footer'});
+      this.ui.btnPause = makeEl('button',{class:'rcsim2d-btn',onclick:()=>this.togglePause()},'Pause');
+      this.ui.btnStep  = makeEl('button',{class:'rcsim2d-btn',onclick:()=>this.stepOnce()},'Step');
+      this.ui.btnRun   = makeEl('button',{class:'rcsim2d-btn primary',onclick:()=>this.runProgram()},'Run');
+      footer.appendChild(this.ui.btnPause);
+      footer.appendChild(this.ui.btnStep);
+      footer.appendChild(this.ui.btnRun);
+      main.appendChild(footer);
+
+      this.buildSideUI();
+
+      content.appendChild(this.side);
+      content.appendChild(main);
+
+      shell.appendChild(top);
+      shell.appendChild(content);
+      this.root.appendChild(shell);
+      document.body.appendChild(this.root);
+
+      // events
+      window.addEventListener('resize', ()=> this.resize());
+
+      this.canvas.addEventListener('contextmenu', (e)=>e.preventDefault());
+
+      this.canvas.addEventListener('wheel', (e)=>{
+        e.preventDefault();
+        const rect = this.canvas.getBoundingClientRect();
+        const mx = e.clientX-rect.left;
+        const my = e.clientY-rect.top;
+        const wx = this.screenToWorldX(mx);
+        const wy = this.screenToWorldY(my);
+        const k = Math.exp(-e.deltaY*0.0012);
+        this.targetZoom = clamp(this.targetZoom*k, 0.15, 3.2);
+        // zoom around cursor
+        const nz = this.targetZoom;
+        this.panX = mx - wx*nz;
+        this.panY = my - wy*nz;
+      }, {passive:false});
+
+      this.canvas.addEventListener('mousedown', (e)=>{
+        const btn = e.button;
+        const rect = this.canvas.getBoundingClientRect();
+        const mx = e.clientX-rect.left;
+        const my = e.clientY-rect.top;
+
+        // sensor edit drag
+        if (this.editSensors){
+          const w = this.screenToWorld(mx,my);
+          const idx = this.pickSensor(w.x,w.y);
+          if (idx>=0){
+            this.sensorDrag = idx;
+            this.dragging = false;
+            return;
+          }
+        }
+
+        // pan with any mouse button
+        this.dragging = true;
+        this.dragBtn = btn;
+        this.lastX = e.clientX;
+        this.lastY = e.clientY;
+      });
+
+      window.addEventListener('mousemove', (e)=>{
+        if (this.sensorDrag>=0){
+          const rect = this.canvas.getBoundingClientRect();
+          const mx = e.clientX-rect.left;
+          const my = e.clientY-rect.top;
+          const w = this.screenToWorld(mx,my);
+          // convert world to bot-local at current bot pose
+          const bx = this.bot.x;
+          const by = this.bot.y;
+          const ca = Math.cos(-this.bot.a);
+          const sa = Math.sin(-this.bot.a);
+          const lx = (w.x-bx)*ca - (w.y-by)*sa;
+          const ly = (w.x-bx)*sa + (w.y-by)*ca;
+          this.sensors[this.sensorDrag].x = clamp(lx, -80, 80);
+          this.sensors[this.sensorDrag].y = clamp(ly, -80, 80);
+          return;
+        }
+
+        if (!this.dragging) return;
+        const dx = e.clientX - this.lastX;
+        const dy = e.clientY - this.lastY;
+        this.lastX = e.clientX;
+        this.lastY = e.clientY;
+        this.panX += dx;
+        this.panY += dy;
+      });
+
+      window.addEventListener('mouseup', ()=>{
+        if (this.sensorDrag>=0){
+          this.sensorDrag=-1;
+          this.saveSensors();
+        }
+        this.dragging=false;
+      });
+
+      // Keyboard: arrows move bot manually if program not running
+      window.addEventListener('keydown', (e)=>{
+        if (this.root.style.display!=='block') return;
+        if (e.key==='Escape'){ this.close(); return; }
+        if (e.key===' '){ this.togglePause(); e.preventDefault(); }
+        if (e.key==='r' || e.key==='R'){ this.resetBot(); }
+      });
+
+      // Expose bridge functions for generated code
+      this.installBridge();
+
+      // initial track
+      this.setTrack(this.trackName);
+    },
+
+    buildSideUI(){
+      const s = this.side;
+      s.innerHTML='';
+
+      s.appendChild(makeEl('div',{class:'rcsim2d-panelTitle'},'Траса'));
+
+      const sel = makeEl('select',{class:'rcsim2d-select'});
+      for (const name of TRACK_ORDER){
+        const opt = makeEl('option', {value:name}, name);
+        if (name===this.trackName) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      sel.addEventListener('change', ()=>{
+        this.setTrack(sel.value);
+        this.resetBot();
+      });
+      s.appendChild(sel);
+
+      const chkCam = makeEl('label',{class:'rcsim2d-check'},[
+        makeEl('input',{type:'checkbox',checked:true}),
+        makeEl('span',null,'Камера за машинкою')
+      ]);
+      this.ui.chkCam = chkCam.querySelector('input');
+      s.appendChild(chkCam);
+
+      const chkRay = makeEl('label',{class:'rcsim2d-check'},[
+        makeEl('input',{type:'checkbox',checked:true}),
+        makeEl('span',null,'Промінь distance')
+      ]);
+      this.ui.chkRay = chkRay.querySelector('input');
+      s.appendChild(chkRay);
+
+      const chkEdit = makeEl('label',{class:'rcsim2d-check'},[
+        makeEl('input',{type:'checkbox',checked:false}),
+        makeEl('span',null,'Редагувати 4 сенсори')
+      ]);
+      this.ui.chkEdit = chkEdit.querySelector('input');
+      chkEdit.querySelector('input').addEventListener('change', ()=>{
+        this.editSensors = !!this.ui.chkEdit.checked;
+      });
+      s.appendChild(chkEdit);
+
+      const row = makeEl('div',{class:'rcsim2d-row'},[
+        makeEl('button',{class:'rcsim2d-btn',onclick:()=>this.resetBot()},'Reset'),
+        makeEl('button',{class:'rcsim2d-btn',onclick:()=>this.center()},'Center'),
+      ]);
+      s.appendChild(row);
+
+      s.appendChild(makeEl('div',{class:'rcsim2d-panelTitle'},'Сенсори'));
+
+      const sl = makeEl('div',{class:'rcsim2d-slist'});
+      this.ui.svals=[];
+      for (let i=0;i<4;i++){
+        sl.appendChild(makeEl('div',{class:'rcsim2d-sname'},'S'+(i+1)));
+        const v = makeEl('div',{class:'rcsim2d-sval'},'0');
+        sl.appendChild(v);
+        this.ui.svals.push(v);
+      }
+      sl.appendChild(makeEl('div',{class:'rcsim2d-sname'},'DIST'));
+      this.ui.dist = makeEl('div',{class:'rcsim2d-sval'},'999');
+      sl.appendChild(this.ui.dist);
+      s.appendChild(sl);
+
+      s.appendChild(makeEl('div',{class:'rcsim2d-help'},[
+        makeEl('div',null, (this.trackName==='Arena' ? 'Арена + стіни' : 'Траса для line-follow') ),
+        makeEl('div',null,'Колесо — zoom. Перетяг ЛКМ/ПКМ/СКМ — pan. Shift — швидше. Стрілки — ручний рух.'),
+        makeEl('div',null,'Run виконує програму (якщо є) і візуалізує рух. Стоп: натисни Pause або ESC.'),
+      ]));
+
+      // Program source controls
+      s.appendChild(makeEl('div',{class:'rcsim2d-panelTitle'},'Програма'));
+      const srcSel = makeEl('select',{class:'rcsim2d-select'});
+      srcSel.appendChild(makeEl('option',{value:'workspace'},'Поточний Scratch/Blockly проєкт'));
+      srcSel.appendChild(makeEl('option',{value:'custom'},'Міні-блок (CustomBlock preview)'));
+      srcSel.value = 'workspace';
+      this.ui.srcSel = srcSel;
+      s.appendChild(srcSel);
+
+      const btnRow = makeEl('div',{class:'rcsim2d-row'},[
+        makeEl('button',{class:'rcsim2d-btn',onclick:()=>this.exportSnapshot()},'Експорт'),
+        makeEl('button',{class:'rcsim2d-btn',onclick:()=>this.importSnapshotPrompt()},'Імпорт'),
+      ]);
+      s.appendChild(btnRow);
+    },
+
+    exportSnapshot(){
+      const snap = {
+        track:this.trackName,
+        sensors:this.sensors,
+        bot:{x:this.bot.x,y:this.bot.y,a:this.bot.a},
+        zoom:this.targetZoom,
+        panX:this.panX, panY:this.panY,
+      };
+      const txt = JSON.stringify(snap);
+      try{
+        navigator.clipboard.writeText(txt);
+        alert('Snapshot скопійовано в буфер обміну');
+      }catch(e){
+        prompt('Скопіюй snapshot:', txt);
+      }
+    },
+    importSnapshotPrompt(){
+      const txt = prompt('Встав snapshot JSON');
+      if (!txt) return;
+      try{
+        const s = JSON.parse(txt);
+        if (s.track) this.setTrack(s.track);
+        if (Array.isArray(s.sensors) && s.sensors.length===4){
+          this.sensors = s.sensors.map(p=>({x:Number(p.x)||0, y:Number(p.y)||0}));
+          this.saveSensors();
+        }
+        if (s.bot){
+          this.bot.x = Number(s.bot.x)||0;
+          this.bot.y = Number(s.bot.y)||0;
+          this.bot.a = Number(s.bot.a)||0;
+        }
+        if (typeof s.zoom==='number') this.targetZoom = clamp(s.zoom,0.15,3.2);
+        if (typeof s.panX==='number') this.panX = s.panX;
+        if (typeof s.panY==='number') this.panY = s.panY;
+      }catch(e){
+        alert('Помилка JSON');
+      }
+    },
+
+    saveSensors(){
+      try{
+        localStorage.setItem('rcsim2d_sensors', JSON.stringify(this.sensors));
+      }catch(e){}
+    },
+
+    setTrack(name){
+      this.trackName = name;
+      this.track = TRACKS[name] || TRACKS['Arena'];
+      this.buildSideUI();
+    },
+
+    resetBot(){
+      const st = this.track.start || {x:0,y:0,a:0};
+      this.bot.x = st.x;
+      this.bot.y = st.y;
+      this.bot.a = st.a;
+      this.bot.vx = 0;
+      this.bot.vy = 0;
+      this.bot.wa = 0;
+      this.bot.l = 0;
+      this.bot.r = 0;
+      this.bot.wheelRotL = 0;
+      this.bot.wheelRotR = 0;
+      this.lastCmd = 'L0 R0';
+      this.updateHUD();
+    },
+
+    center(){
+      const rect = this.canvas.getBoundingClientRect();
+      const z = this.targetZoom;
+      this.panX = rect.width/2 - this.bot.x*z;
+      this.panY = rect.height/2 - this.bot.y*z;
+    },
+
+    resize(){
+      if (!this.canvas) return;
+      const rect = this.canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const w = Math.max(1, Math.floor(rect.width*dpr));
+      const h = Math.max(1, Math.floor(rect.height*dpr));
+      if (this.canvas.width!==w || this.canvas.height!==h){
+        this.canvas.width = w;
+        this.canvas.height = h;
+      }
+      this.ctx.setTransform(dpr,0,0,dpr,0,0);
+    },
+
+    screenToWorld(mx,my){
+      const z = this.zoom;
+      return {x:(mx - this.panX)/z, y:(my - this.panY)/z};
+    },
+    screenToWorldX(mx){ return (mx - this.panX)/this.zoom; },
+    screenToWorldY(my){ return (my - this.panY)/this.zoom; },
+
+    pickSensor(wx,wy){
+      // compute sensors world positions and pick within radius
+      const bx=this.bot.x, by=this.bot.y;
+      const ca=Math.cos(this.bot.a), sa=Math.sin(this.bot.a);
+      let best=-1, bestD=1e9;
+      for (let i=0;i<4;i++){
+        const p=this.sensors[i];
+        const sx=bx + p.x*ca - p.y*sa;
+        const sy=by + p.x*sa + p.y*ca;
+        const d=hypot(wx-sx, wy-sy);
+        if (d<14 && d<bestD){best=i; bestD=d;}
+      }
+      return best;
+    },
+
+    togglePause(){
+      this.paused = !this.paused;
+      this.ui.btnPause.textContent = this.paused ? 'Resume' : 'Pause';
+    },
+
+    stepOnce(){
+      // one physics tick
+      this.paused = true;
+      this.tick(1/60);
+      this.render();
+    },
+
+    async runProgram(){
+      // This starts an async program from either main workspace or custom-block preview.
+      this.stopFlag = false;
+      window._shouldStop = false;
+
+      // Reset bot at start
+      this.resetBot();
+      this.paused = false;
+
+      const src = (this.ui.srcSel && this.ui.srcSel.value) ? this.ui.srcSel.value : 'workspace';
+
+      try{
+        if (src==='custom'){
+          await this.runCustomPreview();
+        }else{
+          await this.runWorkspaceProgram();
+        }
+      }catch(e){
+        // stop silently if canceled
+        if (String(e).includes('RC_STOP')) return;
+        console.error(e);
+        alert('Помилка виконання програми (дивись консоль)');
+      }
+    },
+
+    async runCustomPreview(){
+      // Try to pull preview code from customblock builder.
+      const code = (window.__rc_customblock_preview_js || '').trim();
+      if (!code){
+        alert('Нема preview JS для міні-блоку (відкрий CustomBlock і натисни Зберегти/Preview)');
+        return;
+      }
+      await this.evalAsync(code);
+    },
+
+    async runWorkspaceProgram(){
+      const Blockly = window.Blockly;
+      if (!Blockly || !Blockly.JavaScript){
+        alert('Blockly не знайдено');
+        return;
+      }
+      const ws = window.workspace || window.mainWorkspace || window.__workspace || null;
+      if (!ws){
+        alert('Workspace не знайдено');
+        return;
+      }
+      let code='';
+      try{
+        code = Blockly.JavaScript.workspaceToCode(ws);
+      }catch(e){
+        console.error(e);
+        alert('Не вдалось згенерувати код з workspace');
+        return;
+      }
+      if (!code.trim()){
+        alert('Порожня програма');
+        return;
+      }
+      await this.evalAsync(code);
+    },
+
+    async evalAsync(code){
+      // wrap as async function
+      const wrapped = `return (async ()=>{
+${code}
+})();`;
+      const fn = new Function('RC', wrapped);
+      // Provide minimal RC api
+      const RC = {
+        wait: (ms)=> this.rcWait(ms),
+        stopIfNeeded: ()=> this.stopIfNeeded(),
+        getSensors: ()=> this.sensorValues.slice(),
+        getDistance: ()=> this.distValue,
+        drive: (l,r)=> this.setDrive(l,r),
+      };
+      await fn(RC);
+    },
+
+    stopIfNeeded(){
+      if (this.stopFlag || window._shouldStop) throw new Error('RC_STOP');
+    },
+
+    rcWait(ms){
+      return new Promise((resolve,reject)=>{
+        const t0=now();
+        const loop=()=>{
+          if (this.stopFlag || window._shouldStop) return reject(new Error('RC_STOP'));
+          if ((now()-t0)>=ms) return resolve();
+          requestAnimationFrame(loop);
+        };
+        requestAnimationFrame(loop);
+      });
+    },
+
+    setDrive(l,r){
+      l = clamp(Number(l)||0, -100, 100);
+      r = clamp(Number(r)||0, -100, 100);
+      this.bot.l = l;
+      this.bot.r = r;
+      this.lastCmd = `L${l.toFixed(0)} R${r.toFixed(0)}`;
+    },
+
+    installBridge(){
+      const self = this;
+      // Standard globals used by generator output
+      window.sensorData = window.sensorData || [0,0,0,0];
+      window.distanceData = window.distanceData || 999;
+
+      window.recordMove = function(l,r){
+        self.setDrive(l,r);
+      };
+
+      window.sendDrivePacket = async function(){
+        // Accept many signatures: (l,r), (l,r,l2,r2), array, object
+        let l=0,r=0;
+        if (arguments.length===1 && Array.isArray(arguments[0])){
+          l=arguments[0][0]||0; r=arguments[0][1]||0;
+        }else if (arguments.length>=2){
+          l=arguments[0]; r=arguments[1];
+        }else if (arguments.length===1 && typeof arguments[0]==='object'){
+          l=arguments[0].l||0; r=arguments[0].r||0;
+        }
+        self.setDrive(l,r);
+        // small yield so "await sendDrivePacket" works
+        await self.rcWait(0);
+      };
+
+      window.rc_wait = (ms)=> self.rcWait(ms);
+
+      // Expose for debug
+      window.RCSim2D_get = ()=> self;
+    },
+
+    startLoop(){
+      if (this._raf) return;
+      this.lastT = now();
+      const loop = ()=>{
+        if (this.root.style.display!=='block'){
+          this._raf = null;
+          return;
+        }
+        const t = now();
+        let dt = (t - this.lastT)/1000;
+        this.lastT = t;
+        dt = clamp(dt, 0, 0.05);
+        // Smooth zoom
+        this.zoom = lerp(this.zoom, this.targetZoom, 0.18);
+        this.dt = dt;
+        if (!this.paused){
+          this.tick(dt);
+        }
+        this.render();
+        this._raf = requestAnimationFrame(loop);
+      };
+      this._raf = requestAnimationFrame(loop);
+    },
+
+    tick(dt){
+      // Convert motor commands to wheel speeds
+      const bot = this.bot;
+      const maxV = bot.maxSpeed;
+      const targVL = (bot.l/100) * maxV;
+      const targVR = (bot.r/100) * maxV;
+
+      // Accel limit: adjust vx along heading and angular
+      const v = (targVL + targVR)*0.5;
+      const w = (targVR - targVL) / bot.wheelBase;
+
+      // Integrate with smoothing
+      bot.vx = lerp(bot.vx, v*Math.cos(bot.a), clamp(dt*4.0,0,1));
+      bot.vy = lerp(bot.vy, v*Math.sin(bot.a), clamp(dt*4.0,0,1));
+      bot.wa = lerp(bot.wa, w, clamp(dt*5.0,0,1));
+
+      // Position update
+      bot.x += bot.vx * dt;
+      bot.y += bot.vy * dt;
+      bot.a += bot.wa * dt;
+
+      // Wheels rotation for visuals
+      bot.wheelRotL += targVL * dt * 0.03;
+      bot.wheelRotR += targVR * dt * 0.03;
+
+      // Collision with arena walls (simple)
+      if (this.track.kind==='arena' && this.track.walls){
+        this.resolveWallCollisions();
+      }
+
+      // Update sensors
+      this.updateSensors();
+
+      // Camera follow (optional)
+      if (this.ui.chkCam && this.ui.chkCam.checked){
+        const rect = this.canvas.getBoundingClientRect();
+        const z = this.zoom;
+        const tx = rect.width/2 - bot.x*z;
+        const ty = rect.height/2 - bot.y*z;
+        this.panX = lerp(this.panX, tx, clamp(dt*3.6,0,1));
+        this.panY = lerp(this.panY, ty, clamp(dt*3.6,0,1));
+      }
+
+      // Update HUD
+      this.updateHUD();
+    },
+
+    resolveWallCollisions(){
+      const bot=this.bot;
+      const r=bot.radius;
+      let pushX=0, pushY=0;
+      const walls=this.track.walls;
+      for (let i=0;i<walls.length;i++){
+        const s=walls[i];
+        const ax=s[0][0], ay=s[0][1], bx=s[1][0], by=s[1][1];
+        // Closest point on segment to bot center
+        const vx=bx-ax, vy=by-ay;
+        const wx=bot.x-ax, wy=bot.y-ay;
+        const c1 = vx*wx + vy*wy;
+        const c2 = vx*vx + vy*vy;
+        let t = 0;
+        if (c2>1e-9) t = clamp(c1/c2, 0, 1);
+        const cx=ax+vx*t, cy=ay+vy*t;
+        const dx=bot.x-cx, dy=bot.y-cy;
+        const d=hypot(dx,dy);
+        if (d<r && d>1e-6){
+          const pen = (r-d);
+          pushX += (dx/d)*pen;
+          pushY += (dy/d)*pen;
+        }
+      }
+      if (pushX||pushY){
+        bot.x += pushX;
+        bot.y += pushY;
+        // damp velocities
+        bot.vx *= 0.4;
+        bot.vy *= 0.4;
+      }
+    },
+
+    updateSensors(){
+      const bot=this.bot;
+      const track=this.track;
+      const ca=Math.cos(bot.a), sa=Math.sin(bot.a);
+      for (let i=0;i<4;i++){
+        const p=this.sensors[i];
+        const sx=bot.x + p.x*ca - p.y*sa;
+        const sy=bot.y + p.x*sa + p.y*ca;
+        let val = 0;
+        if (track.kind==='line'){
+          val = pointOnLineTrack(track, sx,sy) ? 100 : 0;
+        }else{
+          // arena: no line, just zeros
+          val = 0;
+        }
+        this.sensorValues[i]=val;
+        window.sensorData[i]=val;
+      }
+
+      // distance sensor
+      const maxDist=999;
+      let dist=maxDist;
+      if (track.kind==='arena'){
+        dist = distanceToWalls(track, bot.x,bot.y, bot.a - Math.PI/2, maxDist);
+      }
+      this.distValue = Math.min(maxDist, Math.floor(dist));
+      window.distanceData = this.distValue;
+
+      if (this.ui.svals){
+        for (let i=0;i<4;i++) this.ui.svals[i].textContent = String(this.sensorValues[i]|0);
+      }
+      if (this.ui.dist) this.ui.dist.textContent = String(this.distValue|0);
+    },
+
+    updateHUD(){
+      if (this.ui.pLR) this.ui.pLR.textContent = this.lastCmd;
+      if (this.ui.pZoom) this.ui.pZoom.textContent = 'x'+this.zoom.toFixed(2);
+      if (this.ui.pFps){
+        // rough fps from dt
+        const fps = this.dt>0 ? (1/this.dt) : 60;
+        this.ui.pFps.textContent = Math.round(fps)+' FPS';
+      }
+    },
+
+    render(){
+      const ctx=this.ctx;
+      const rect=this.canvas.getBoundingClientRect();
+      const w=rect.width, h=rect.height;
+      ctx.clearRect(0,0,w,h);
+
+      // background grid (gray)
+      this.drawGrid(ctx,w,h);
+
+      // apply view transform
+      ctx.save();
+      ctx.translate(this.panX, this.panY);
+      ctx.scale(this.zoom, this.zoom);
+
+      // draw track
+      this.drawTrack(ctx);
+
+      // distance ray
+      if (this.ui.chkRay && this.ui.chkRay.checked) this.drawRay(ctx);
+
+      // draw bot
+      this.drawBot(ctx);
+
+      // draw sensors
+      this.drawSensors(ctx);
+
+      ctx.restore();
+    },
+
+    drawGrid(ctx,w,h){
+      ctx.save();
+      ctx.fillStyle = 'rgba(148,163,184,0.04)';
+      ctx.fillRect(0,0,w,h);
+      const step = 28;
+      ctx.strokeStyle = 'rgba(148,163,184,0.10)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x=0;x<=w;x+=step){ ctx.moveTo(x,0); ctx.lineTo(x,h); }
+      for (let y=0;y<=h;y+=step){ ctx.moveTo(0,y); ctx.lineTo(w,y); }
+      ctx.stroke();
+      ctx.restore();
+    },
+
+    drawTrack(ctx){
+      const tr=this.track;
+      ctx.save();
+      ctx.lineCap='round';
+      ctx.lineJoin='round';
+
+      if (tr.kind==='arena'){
+        // arena walls
+        ctx.strokeStyle='rgba(0,0,0,0.40)';
+        ctx.lineWidth=tr.lineWidth+10;
+        ctx.beginPath();
+        for (const s of tr.walls){
+          ctx.moveTo(s[0][0],s[0][1]);
+          ctx.lineTo(s[1][0],s[1][1]);
+        }
+        ctx.stroke();
+
+        ctx.strokeStyle='rgba(15,23,42,0.95)';
+        ctx.lineWidth=tr.lineWidth;
+        ctx.beginPath();
+        for (const s of tr.walls){
+          ctx.moveTo(s[0][0],s[0][1]);
+          ctx.lineTo(s[1][0],s[1][1]);
+        }
+        ctx.stroke();
+      }else{
+        const pts=tr.line;
+        if (pts && pts.length>1){
+          ctx.strokeStyle='rgba(0,0,0,0.25)';
+          ctx.lineWidth=(tr.lineWidth||16)+10;
+          ctx.beginPath();
+          ctx.moveTo(pts[0][0],pts[0][1]);
+          for (let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
+          ctx.closePath();
+          ctx.stroke();
+
+          ctx.strokeStyle='rgba(17,24,39,0.95)';
+          ctx.lineWidth=(tr.lineWidth||16);
+          ctx.beginPath();
+          ctx.moveTo(pts[0][0],pts[0][1]);
+          for (let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
+          ctx.closePath();
+          ctx.stroke();
+        }
+      }
+
+      ctx.restore();
+    },
+
+    drawBot(ctx){
+      const b=this.bot;
+      ctx.save();
+      ctx.translate(b.x,b.y);
+      ctx.rotate(b.a);
+
+      // shadow
+      ctx.fillStyle='rgba(0,0,0,0.25)';
+      ctx.beginPath();
+      ctx.ellipse(0,8, 26, 18, 0, 0, Math.PI*2);
+      ctx.fill();
+
+      // body (gradient)
+      const g = ctx.createLinearGradient(-18,-24, 18, 24);
+      g.addColorStop(0,'rgba(147,197,253,0.95)');
+      g.addColorStop(1,'rgba(59,130,246,0.90)');
+      ctx.fillStyle = g;
+      ctx.strokeStyle='rgba(2,6,23,0.6)';
+      ctx.lineWidth=2.2;
+      roundRect(ctx,-18,-24,36,48,10);
+      ctx.fill();
+      ctx.stroke();
+
+      // wheels
+      ctx.fillStyle='rgba(15,23,42,0.95)';
+      roundRect(ctx,-22,-20,6,14,3); ctx.fill();
+      roundRect(ctx,-22,6,6,14,3); ctx.fill();
+      roundRect(ctx,16,-20,6,14,3); ctx.fill();
+      roundRect(ctx,16,6,6,14,3); ctx.fill();
+
+      // wheel highlights
+      ctx.strokeStyle='rgba(148,163,184,0.25)';
+      ctx.lineWidth=1;
+      ctx.beginPath();
+      ctx.moveTo(-19,-18); ctx.lineTo(-19,-8);
+      ctx.moveTo(-19,8); ctx.lineTo(-19,18);
+      ctx.moveTo(19,-18); ctx.lineTo(19,-8);
+      ctx.moveTo(19,8); ctx.lineTo(19,18);
+      ctx.stroke();
+
+      // top hatch
+      ctx.fillStyle='rgba(2,6,23,0.35)';
+      roundRect(ctx,-8,-6,16,20,7);
+      ctx.fill();
+
+      // front marker
+      ctx.fillStyle='rgba(245,158,11,0.95)';
+      ctx.beginPath();
+      ctx.arc(0,-22,3.2,0,Math.PI*2);
+      ctx.fill();
+
+      // small LEDs on right
+      ctx.fillStyle='rgba(251,191,36,0.95)';
+      for (let i=0;i<4;i++){
+        ctx.beginPath();
+        ctx.arc(14, -10 + i*7, 1.8, 0, Math.PI*2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    },
+
+    drawSensors(ctx){
+      const b=this.bot;
+      const ca=Math.cos(b.a), sa=Math.sin(b.a);
+      for (let i=0;i<4;i++){
+        const p=this.sensors[i];
+        const sx=b.x + p.x*ca - p.y*sa;
+        const sy=b.y + p.x*sa + p.y*ca;
+        ctx.save();
+        ctx.translate(sx,sy);
+        ctx.fillStyle = this.sensorValues[i] ? 'rgba(34,197,94,0.95)' : 'rgba(148,163,184,0.7)';
+        ctx.strokeStyle='rgba(2,6,23,0.7)';
+        ctx.lineWidth=2;
+        ctx.beginPath();
+        ctx.arc(0,0,5.2,0,Math.PI*2);
+        ctx.fill();
+        ctx.stroke();
+        if (this.editSensors){
+          ctx.strokeStyle='rgba(59,130,246,0.8)';
+          ctx.lineWidth=2;
+          ctx.beginPath();
+          ctx.arc(0,0,11,0,Math.PI*2);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    },
+
+    drawRay(ctx){
+      const b=this.bot;
+      const ang = b.a - Math.PI/2;
+      const dx = Math.cos(ang), dy = Math.sin(ang);
+      const d = Math.min(this.distValue, 999);
+      ctx.save();
+      ctx.strokeStyle='rgba(147,197,253,0.70)';
+      ctx.lineWidth=2.2;
+      ctx.beginPath();
+      ctx.moveTo(b.x,b.y);
+      ctx.lineTo(b.x+dx*d, b.y+dy*d);
+      ctx.stroke();
+
+      ctx.fillStyle='rgba(147,197,253,0.85)';
+      ctx.beginPath();
+      ctx.arc(b.x+dx*d, b.y+dy*d, 4, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    },
+  };
+
+  function roundRect(ctx,x,y,w,h,r){
+    const rr = Math.min(r, w/2, h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+rr,y);
+    ctx.lineTo(x+w-rr,y);
+    ctx.quadraticCurveTo(x+w,y, x+w,y+rr);
+    ctx.lineTo(x+w,y+h-rr);
+    ctx.quadraticCurveTo(x+w,y+h, x+w-rr,y+h);
+    ctx.lineTo(x+rr,y+h);
+    ctx.quadraticCurveTo(x,y+h, x,y+h-rr);
+    ctx.lineTo(x,y+rr);
+    ctx.quadraticCurveTo(x,y, x+rr,y);
+    ctx.closePath();
+  }
+
+  // expose
+  window.RCSim2D = {
+    open: ()=> Sim.open(),
+    close: ()=> Sim.close(),
+    _sim: Sim,
+  };
 })();
