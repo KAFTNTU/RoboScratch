@@ -1519,6 +1519,7 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 #include "main.h"   // STM32CubeMX / CubeIDE project
+#include "rc_board_conf.h" // RoboScratch board profile (TIM/ADC mapping)
 
 /* ===== Hardware hooks expected by generated program =====
    The generated VM calls these functions. You can keep the default
@@ -1534,6 +1535,9 @@ void rc_drive4(float m1, float m2, float m3, float m4);
 /* Read sensor [0..3] and return normalized value 0..100 */
 float rc_sensor_read(void* vm_unused, uint8_t index);
 
+/* Optional: start PWM etc. Call once after MX_*_Init() */
+void rc_platform_init(void);
+
 /* Optional: external stop flag (button, UART command etc.) */
 bool rc_platform_stop_requested(void);
 
@@ -1546,6 +1550,7 @@ bool rc_platform_stop_requested(void);
 
   function genPlatformC(){
     return `#include "rc_platform.h"
+#include "rc_board_conf.h"
 
 /* ===== Default STM32F103 HAL implementation =====
    This file is safe by default: if you don't configure handles/pins,
@@ -1569,27 +1574,26 @@ typedef struct {
   ADC_HandleTypeDef* hadc;
   uint32_t channel;
   uint16_t min_raw;
-  uint16_t max_raw;
-} rc_sensor_cfg_t;
-
-/* ===== Edit this section for your board =====
-   Example wiring:
-     Motor A PWM -> TIM1 CH1, DIR -> PA1
-     Motor B PWM -> TIM1 CH2, DIR -> PA2
-   Fill the handles/pins after MX_* init.
+  uint16_t ma/* ===== Board profile mapping =====
+   These defaults are defined in rc_board_conf.h.
+   If you change pins/timers in CubeMX, edit ONLY rc_board_conf.h.
 */
 
 rc_motor_cfg_t g_rc_motor[4] = {
-  {0, 0, 0, 0, 0},
-  {0, 0, 0, 0, 0},
-  {0, 0, 0, 0, 0},
-  {0, 0, 0, 0, 0},
+  { RC_M1_TIM, RC_M1_CH, RC_M1_DIR_PORT, RC_M1_DIR_PIN, RC_M1_DIR_INV },
+  { RC_M2_TIM, RC_M2_CH, RC_M2_DIR_PORT, RC_M2_DIR_PIN, RC_M2_DIR_INV },
+  { RC_M3_TIM, RC_M3_CH, RC_M3_DIR_PORT, RC_M3_DIR_PIN, RC_M3_DIR_INV },
+  { RC_M4_TIM, RC_M4_CH, RC_M4_DIR_PORT, RC_M4_DIR_PIN, RC_M4_DIR_INV },
 };
 
 rc_sensor_cfg_t g_rc_sensor[4] = {
-  {0, 0, 0, 4095},
-  {0, 0, 0, 4095},
-  {0, 0, 0, 4095},
+  { RC_S1_ADC, RC_S1_CH, RC_S1_MIN_RAW, RC_S1_MAX_RAW },
+  { RC_S2_ADC, RC_S2_CH, RC_S2_MIN_RAW, RC_S2_MAX_RAW },
+  { RC_S3_ADC, RC_S3_CH, RC_S3_MIN_RAW, RC_S3_MAX_RAW },
+  { RC_S4_ADC, RC_S4_CH, RC_S4_MIN_RAW, RC_S4_MAX_RAW },
+};
+
+5},
   {0, 0, 0, 4095},
 };
 
@@ -1680,6 +1684,22 @@ float rc_sensor_read(void* vm_unused, uint8_t index){
   return norm;
 }
 
+void rc_platform_init(void){
+  // Start PWM for all configured motors and set duty=0
+  for (uint8_t i=0; i<4; i++){
+    rc_motor_cfg_t* m = &g_rc_motor[i];
+    if (m->htim && m->channel){
+      HAL_TIM_PWM_Start(m->htim, m->channel);
+      __HAL_TIM_SET_COMPARE(m->htim, m->channel, 0);
+    }
+    if (m->dir_port && m->dir_pin){
+      // default direction: forward (inversion supported)
+      uint8_t dir = (0u ^ (m->dir_invert ? 1u : 0u));
+      HAL_GPIO_WritePin(m->dir_port, m->dir_pin, dir ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    }
+  }
+}
+
 /* Optional stop request */
 bool rc_platform_stop_requested(void){
   return false;
@@ -1687,7 +1707,182 @@ bool rc_platform_stop_requested(void){
 `;
   }
 
-  // ============================================================
+  
+  function genBoardConfH(){
+    return `#ifndef RC_BOARD_CONF_H
+#define RC_BOARD_CONF_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include "main.h"
+
+/* ===== RoboScratch board profile =====
+   Тут задається МАПІНГ "логіки" на залізо.
+   Ідея: ти вибираєш таймери/канали/піни в CubeMX так, щоб збігалось з цим файлом.
+   Або (2) міняєш тільки цей файл під свій пінмап — інший C не чіпаєш.
+
+   Швидкість моторів у VM: [-100..100]
+   PWM duty: 0..RC_PWM_MAX  (RC_PWM_MAX має відповідати Period таймера)
+*/
+
+// Declare common handles (CubeMX може створювати їх в main.c або tim.c/adc.c)
+extern TIM_HandleTypeDef htim1;
+extern TIM_HandleTypeDef htim2;
+extern TIM_HandleTypeDef htim3;
+extern TIM_HandleTypeDef htim4;
+
+extern ADC_HandleTypeDef hadc1;
+extern ADC_HandleTypeDef hadc2;
+
+#ifndef RC_PWM_MAX
+#define RC_PWM_MAX 1000u
+#endif
+
+/* ===== MOTORS (4 шт) =====
+   Default: TIM1 CH1..CH4.
+   Якщо DIR не потрібен (типу ESC/servo) — лишай PORT/PIN = 0.
+*/
+
+// Motor 1
+#ifndef RC_M1_TIM
+#define RC_M1_TIM (&htim1)
+#endif
+#ifndef RC_M1_CH
+#define RC_M1_CH  TIM_CHANNEL_1
+#endif
+#ifndef RC_M1_DIR_PORT
+#define RC_M1_DIR_PORT 0
+#endif
+#ifndef RC_M1_DIR_PIN
+#define RC_M1_DIR_PIN  0
+#endif
+#ifndef RC_M1_DIR_INV
+#define RC_M1_DIR_INV  0
+#endif
+
+// Motor 2
+#ifndef RC_M2_TIM
+#define RC_M2_TIM (&htim1)
+#endif
+#ifndef RC_M2_CH
+#define RC_M2_CH  TIM_CHANNEL_2
+#endif
+#ifndef RC_M2_DIR_PORT
+#define RC_M2_DIR_PORT 0
+#endif
+#ifndef RC_M2_DIR_PIN
+#define RC_M2_DIR_PIN  0
+#endif
+#ifndef RC_M2_DIR_INV
+#define RC_M2_DIR_INV  0
+#endif
+
+// Motor 3
+#ifndef RC_M3_TIM
+#define RC_M3_TIM (&htim1)
+#endif
+#ifndef RC_M3_CH
+#define RC_M3_CH  TIM_CHANNEL_3
+#endif
+#ifndef RC_M3_DIR_PORT
+#define RC_M3_DIR_PORT 0
+#endif
+#ifndef RC_M3_DIR_PIN
+#define RC_M3_DIR_PIN  0
+#endif
+#ifndef RC_M3_DIR_INV
+#define RC_M3_DIR_INV  0
+#endif
+
+// Motor 4
+#ifndef RC_M4_TIM
+#define RC_M4_TIM (&htim1)
+#endif
+#ifndef RC_M4_CH
+#define RC_M4_CH  TIM_CHANNEL_4
+#endif
+#ifndef RC_M4_DIR_PORT
+#define RC_M4_DIR_PORT 0
+#endif
+#ifndef RC_M4_DIR_PIN
+#define RC_M4_DIR_PIN  0
+#endif
+#ifndef RC_M4_DIR_INV
+#define RC_M4_DIR_INV  0
+#endif
+
+/* ===== SENSORS (4 шт) =====
+   Значення повертається 0..100.
+   Default: ADC1 CH0..CH3 (12-bit).
+   Якщо хочеш цифрові датчики (GPIO) — можна замінити rc_sensor_read у rc_platform_stm32f103.c.
+*/
+
+// Sensor 1
+#ifndef RC_S1_ADC
+#define RC_S1_ADC (&hadc1)
+#endif
+#ifndef RC_S1_CH
+#define RC_S1_CH  ADC_CHANNEL_0
+#endif
+#ifndef RC_S1_MIN_RAW
+#define RC_S1_MIN_RAW 0
+#endif
+#ifndef RC_S1_MAX_RAW
+#define RC_S1_MAX_RAW 4095
+#endif
+
+// Sensor 2
+#ifndef RC_S2_ADC
+#define RC_S2_ADC (&hadc1)
+#endif
+#ifndef RC_S2_CH
+#define RC_S2_CH  ADC_CHANNEL_1
+#endif
+#ifndef RC_S2_MIN_RAW
+#define RC_S2_MIN_RAW 0
+#endif
+#ifndef RC_S2_MAX_RAW
+#define RC_S2_MAX_RAW 4095
+#endif
+
+// Sensor 3
+#ifndef RC_S3_ADC
+#define RC_S3_ADC (&hadc1)
+#endif
+#ifndef RC_S3_CH
+#define RC_S3_CH  ADC_CHANNEL_2
+#endif
+#ifndef RC_S3_MIN_RAW
+#define RC_S3_MIN_RAW 0
+#endif
+#ifndef RC_S3_MAX_RAW
+#define RC_S3_MAX_RAW 4095
+#endif
+
+// Sensor 4
+#ifndef RC_S4_ADC
+#define RC_S4_ADC (&hadc1)
+#endif
+#ifndef RC_S4_CH
+#define RC_S4_CH  ADC_CHANNEL_3
+#endif
+#ifndef RC_S4_MIN_RAW
+#define RC_S4_MIN_RAW 0
+#endif
+#ifndef RC_S4_MAX_RAW
+#define RC_S4_MAX_RAW 4095
+#endif
+
+#ifdef __cplusplus
+}
+#endif
+#endif
+`;
+  }
+
+// ============================================================
   // Public API: generate artifacts
   // ============================================================
   API.generateArtifacts = function(workspace, options){
@@ -1714,11 +1909,13 @@ bool rc_platform_stop_requested(void){
       c: genProgramC(name, c.ins, meta),
       platformH: genPlatformH(),
       platformC: genPlatformC(),
+      boardConfH: genBoardConfH(),
       files: {
         h: headerName,
         c: cName,
         platformH: 'rc_platform.h',
-        platformC: 'rc_platform_stm32f103.c'
+        platformC: 'rc_platform_stm32f103.c',
+        boardConfH: 'rc_board_conf.h'
       },
       meta: meta,
       version: API.version
