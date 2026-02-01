@@ -35,19 +35,19 @@
 
   // Hide scrollbars visually but keep scrolling capability (important for drag-pan to work in some UIs)
   const CSS = `
-  .rcsim2d-root{position:fixed;inset:0;z-index:999999;background:rgba(3,6,18,.88);backdrop-filter: blur(10px);display:none;}
-  .rcsim2d-shell{position:absolute;inset:14px;border-radius:22px;background:rgba(8,16,32,.72);box-shadow:0 20px 80px rgba(0,0,0,.55);border:1px solid rgba(148,163,184,.18);overflow:hidden;}
+  .rcsim2d-root{position:fixed;inset:0;z-index:2147483647;background:#0b1020;display:none;color:#e5e7eb;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
+  .rcsim2d-shell{position:absolute;inset:0;border-radius:0;background:#0b1020;box-shadow:none;border:none;overflow:hidden;}
   .rcsim2d-top{height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-bottom:1px solid rgba(148,163,184,.12);}
   .rcsim2d-title{display:flex;gap:10px;align-items:center;font-weight:950;color:#e2e8f0;letter-spacing:.08em;text-transform:uppercase;font-size:12px;}
   .rcsim2d-dot{width:10px;height:10px;border-radius:999px;background:#f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,.12);}
   .rcsim2d-btn{user-select:none;cursor:pointer;border-radius:14px;padding:10px 14px;background:rgba(148,163,184,.08);border:1px solid rgba(148,163,184,.14);color:#e2e8f0;font-weight:900;}
   .rcsim2d-btn:hover{background:rgba(148,163,184,.12)}
   .rcsim2d-btn.primary{background:rgba(59,130,246,.92);border-color:rgba(59,130,246,.95)}
-  .rcsim2d-content{position:absolute;left:0;right:0;top:56px;bottom:0;display:flex;gap:0;padding:0;}
-  .rcsim2d-side{border-right:1px solid rgba(148,163,184,.10);padding:14px;overflow:auto;;flex:0 0 320px;min-width:280px;max-width:360px;}
+  .rcsim2d-content{position:absolute;inset:56px 0 0 0;display:grid;grid-template-columns:280px 1fr;;min-height:0;}
+  .rcsim2d-side{border-right:1px solid rgba(148,163,184,.10);padding:14px;overflow:auto;}
   .rcsim2d-side::-webkit-scrollbar{width:0;height:0}
   .rcsim2d-side{scrollbar-width:none;}
-  .rcsim2d-main{position:relative;overflow:hidden;;flex:1 1 auto;min-height:0;}
+  .rcsim2d-main{position:relative;overflow:hidden;;min-height:0;}
   .rcsim2d-hud{position:absolute;left:14px;top:14px;display:flex;gap:8px;z-index:3;}
   .rcsim2d-pill{background:rgba(2,6,23,.55);border:1px solid rgba(148,163,184,.14);color:#e2e8f0;border-radius:999px;padding:7px 10px;font-weight:900;font-size:12px;backdrop-filter: blur(6px);}
   .rcsim2d-footer{position:absolute;right:14px;bottom:14px;display:flex;gap:10px;z-index:3;}
@@ -64,7 +64,16 @@
   .rcsim2d-sname{color:#e2e8f0;font-weight:900}
   .rcsim2d-sval{color:#93c5fd;font-weight:950;min-width:52px;text-align:right}
   .rcsim2d-help{margin-top:10px;color:#94a3b8;font-weight:900;font-size:12px;line-height:1.35;}
-  `;
+  
+  .rcsim2d-root.collapsed .rcsim2d-content{grid-template-columns:1fr;}
+  .rcsim2d-root.collapsed .rcsim2d-side{display:none;}
+  .rcsim2d-root.collapsed .rcsim2d-main{border-left:none;}
+  .rcsim2d-topBtn{background:rgba(2,6,23,.55);border:1px solid rgba(148,163,184,.14);color:#e2e8f0;border-radius:12px;padding:8px 10px;font-weight:900;font-size:12px;cursor:pointer;}
+  .rcsim2d-topBtn:hover{background:rgba(2,6,23,.72);}
+  .rcsim2d-pill.bad{background:rgba(220,38,38,.20);border-color:rgba(220,38,38,.45);color:#fecaca;}
+  .rcsim2d-help{font-size:12px;line-height:1.35;color:rgba(226,232,240,.78);margin-top:10px;}
+
+`;
 
   function ensureStyle(){
     if (document.getElementById('rcsim2d-style')) return;
@@ -4624,9 +4633,8 @@
     return null;
   }
 
-  function pointOnLineTrack(track, x,y){
+  function distToLineTrack(track,x,y){
     const pts = track.line;
-    const w = track.lineWidth || 16;
     let best = 1e9;
     for (let i=0;i<pts.length;i++){
       const a = pts[i];
@@ -4634,7 +4642,12 @@
       const d = segDist(x,y, a[0],a[1], b[0],b[1]);
       if (d<best) best = d;
     }
-    return best <= w*0.5;
+    return best;
+  }
+
+  function pointOnLineTrack(track, x,y){
+    const w = track.lineWidth || 16;
+    return distToLineTrack(track,x,y) <= w*0.5;
   }
 
   function distanceToWalls(track, x,y, ang, maxDist){
@@ -4668,6 +4681,8 @@
     targetZoom: 0.62,
     panX: 0,
     panY: 0,
+    targetPanX: 0,
+    targetPanY: 0,
     dragging:false,
     dragBtn:0,
     lastX:0,
@@ -4709,6 +4724,9 @@
 
     sensorValues:[0,0,0,0],
     distValue: 999,
+    offTrack:false,
+    offTrackAccum:0,
+    autoStopOffTrack:true,
 
     // run state
     running:false,
@@ -4723,6 +4741,11 @@
       if (!this.mounted) this.mount();
       this.root.style.display='block';
       this.resize();
+      // Sync targets and resize again after layout
+      this.targetPanX = this.panX;
+      this.targetPanY = this.panY;
+      requestAnimationFrame(()=>{ this.resize(); this.targetPanX=this.panX; this.targetPanY=this.panY; });
+      setTimeout(()=>{ this.resize(); this.targetPanX=this.panX; this.targetPanY=this.panY; }, 60);
       this.center();
       this.resetBot();
       this.startLoop();
@@ -4756,8 +4779,10 @@
         makeEl('span',{class:'rcsim2d-dot'}),
         'Симулятор (2D)'
       ]);
+      const btnPanel = makeEl('button',{class:'rcsim2d-topBtn',onclick:()=>{ this.root.classList.toggle('collapsed'); this.resize(); }},'Панель');
       const btnBack = makeEl('button',{class:'rcsim2d-btn',onclick:()=>this.close()},'Назад');
       top.appendChild(title);
+      top.appendChild(btnPanel);
       top.appendChild(btnBack);
 
       const content = makeEl('div',{class:'rcsim2d-content'});
@@ -4769,6 +4794,18 @@
       this.ctx = this.canvas.getContext('2d');
       main.appendChild(this.canvas);
 
+      // Keep canvas size in sync with layout (prevents "small/cropped field")
+      if (!this._ro && typeof ResizeObserver !== 'undefined'){
+        this._ro = new ResizeObserver(()=>this.resize());
+        this._ro.observe(main);
+        this._ro.observe(shell);
+      }
+      if (!this._winResizeBound){
+        this._winResizeBound = true;
+        window.addEventListener('resize', ()=>this.resize(), {passive:true});
+      }
+
+
       // HUD
       const hud = makeEl('div',{class:'rcsim2d-hud'});
       this.ui.pLR = makeEl('div',{class:'rcsim2d-pill'},'L0 R0');
@@ -4777,6 +4814,9 @@
       hud.appendChild(this.ui.pLR);
       hud.appendChild(this.ui.pZoom);
       hud.appendChild(this.ui.pFps);
+      this.ui.pOff = makeEl('div',{class:'rcsim2d-pill bad'},'ПОЗА ТРАСОЮ');
+      this.ui.pOff.style.display='none';
+      hud.appendChild(this.ui.pOff);
       main.appendChild(hud);
 
       // Footer buttons
@@ -4797,7 +4837,7 @@
       shell.appendChild(top);
       shell.appendChild(content);
       this.root.appendChild(shell);
-      document.body.appendChild(this.root);
+      document.documentElement.appendChild(this.root);
 
       // events
       window.addEventListener('resize', ()=> this.resize());
@@ -4809,9 +4849,10 @@
         const rect = this.canvas.getBoundingClientRect();
         const mx = e.clientX-rect.left;
         const my = e.clientY-rect.top;
-        const wx = this.screenToWorldX(mx);
-        const wy = this.screenToWorldY(my);
-        const k = Math.exp(-e.deltaY*0.0009);
+        const wpt = this.screenToWorld(mx,my);
+        const wx = wpt.x;
+        const wy = wpt.y;
+        const k = Math.exp(-e.deltaY*0.0012);
         this.targetZoom = clamp(this.targetZoom*k, 0.15, 3.2);
         // zoom around cursor
         const nz = this.targetZoom;
@@ -4866,8 +4907,10 @@
         const dy = e.clientY - this.lastY;
         this.lastX = e.clientX;
         this.lastY = e.clientY;
-        this.panX += dx;
-        this.panY += dy;
+        this.targetPanX += dx;
+        this.targetPanY += dy;
+        this.panX = this.targetPanX;
+        this.panY = this.targetPanY;
       });
 
       window.addEventListener('mouseup', ()=>{
@@ -4935,6 +4978,15 @@
       });
       s.appendChild(chkEdit);
 
+      const chkOff = makeEl('label',{class:'rcsim2d-check'},[
+        makeEl('input',{type:'checkbox',checked:true}),
+        makeEl('span',null,'Авто-стоп якщо поза трасою')
+      ]);
+      this.ui.chkOff = chkOff.querySelector('input');
+      chkOff.querySelector('input').addEventListener('change', ()=>{ this.autoStopOffTrack = !!this.ui.chkOff.checked; });
+      s.appendChild(chkOff);
+
+
       const row = makeEl('div',{class:'rcsim2d-row'},[
         makeEl('button',{class:'rcsim2d-btn',onclick:()=>this.resetBot()},'Reset'),
         makeEl('button',{class:'rcsim2d-btn',onclick:()=>this.center()},'Center'),
@@ -4957,8 +5009,8 @@
       s.appendChild(sl);
 
       s.appendChild(makeEl('div',{class:'rcsim2d-help'},[
-        makeEl('div',null,(this.trackName==='Arena' ? 'Арена + стіни' : 'Траса для line-follow')),
-        makeEl('div',null,'Колесо—zoom, drag мишкою—pan. Для датчиків увімкни «Редагувати 4 сенсори» і перетягни точки S1–S4.'),
+        makeEl('div',null, (this.trackName==='Arena' ? 'Арена + стіни' : 'Траса для line-follow') ),
+        makeEl('div',null,'Колесо=зум · Drag мишкою=пан · «Редагувати 4 сенсори» → перетягни S1–S4. «Панель» ховає/показує меню.'),
       ]));
 
       // Program source controls
@@ -5049,6 +5101,8 @@
       const z = this.targetZoom;
       this.panX = rect.width/2 - this.bot.x*z;
       this.panY = rect.height/2 - this.bot.y*z;
+      this.targetPanX = this.panX;
+      this.targetPanY = this.panY;
     },
 
     resize(){
@@ -5081,7 +5135,7 @@
         const sx=bx + p.x*ca - p.y*sa;
         const sy=by + p.x*sa + p.y*ca;
         const d=hypot(wx-sx, wy-sy);
-        if (d<14 && d<bestD){best=i; bestD=d;}
+        if (d<26 && d<bestD){best=i; bestD=d;}
       }
       return best;
     },
@@ -5244,7 +5298,11 @@ ${code}
         this.lastT = t;
         dt = clamp(dt, 0, 0.05);
         // Smooth zoom
-        this.zoom = lerp(this.zoom, this.targetZoom, 0.12);
+        const zk = 1 - Math.pow(0.00008, dt*60);
+        this.zoom = lerp(this.zoom, this.targetZoom, clamp(zk,0,1));
+        const pk = 1 - Math.pow(0.00006, dt*60);
+        this.panX = lerp(this.panX, this.targetPanX, clamp(pk,0,1));
+        this.panY = lerp(this.panY, this.targetPanY, clamp(pk,0,1));
         this.dt = dt;
         if (!this.paused){
           this.tick(dt);
@@ -5264,11 +5322,17 @@ ${code}
 
       // Accel limit: adjust vx along heading and angular
       const v = (targVL + targVR)*0.5;
+      // If robot is off-track, optionally auto-stop smoothly
+      let offScale = 1;
+      if (this.offTrack && this.autoStopOffTrack){
+        offScale = clamp(1 - (this.offTrackAccum*1.6), 0, 1);
+      }
+      const v2 = v * offScale;
       const w = (targVR - targVL) / bot.wheelBase;
 
       // Integrate with smoothing
-      bot.vx = lerp(bot.vx, v*Math.cos(bot.a), clamp(dt*4.0,0,1));
-      bot.vy = lerp(bot.vy, v*Math.sin(bot.a), clamp(dt*4.0,0,1));
+      bot.vx = lerp(bot.vx, v2*Math.cos(bot.a), clamp(dt*4.0,0,1));
+      bot.vy = lerp(bot.vy, v2*Math.sin(bot.a), clamp(dt*4.0,0,1));
       bot.wa = lerp(bot.wa, w, clamp(dt*5.0,0,1));
 
       // Position update
@@ -5354,6 +5418,18 @@ ${code}
         window.sensorData[i]=val;
       }
 
+      // off-track detection (distance from robot center to line)
+      if (track.kind==='line'){
+        const dLine = distToLineTrack(track, bot.x, bot.y);
+        const w = track.lineWidth || 16;
+        // threshold: half road + robot half-size (tweakable)
+        const thresh = w*0.55 + 18;
+        this.offTrack = dLine > thresh;
+      } else {
+        this.offTrack = false;
+      }
+      this.offTrackAccum = this.offTrack ? (this.offTrackAccum + (this.dt||0)) : 0;
+
       // distance sensor
       const maxDist=999;
       let dist=maxDist;
@@ -5372,6 +5448,7 @@ ${code}
     updateHUD(){
       if (this.ui.pLR) this.ui.pLR.textContent = this.lastCmd;
       if (this.ui.pZoom) this.ui.pZoom.textContent = 'x'+this.zoom.toFixed(2);
+      if (this.ui.pOff) this.ui.pOff.style.display = this.offTrack ? '' : 'none';
       if (this.ui.pFps){
         // rough fps from dt
         const fps = this.dt>0 ? (1/this.dt) : 60;
@@ -5555,6 +5632,16 @@ ${code}
           ctx.beginPath();
           ctx.arc(0,0,11,0,Math.PI*2);
           ctx.stroke();
+          // label
+          ctx.font = '900 11px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = 'rgba(226,232,240,0.95)';
+          ctx.strokeStyle = 'rgba(2,6,23,0.85)';
+          ctx.lineWidth = 3;
+          const t = 'S'+(i+1);
+          ctx.strokeText(t, 0, -18);
+          ctx.fillText(t, 0, -18);
         }
         ctx.restore();
       }
