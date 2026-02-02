@@ -51,7 +51,7 @@
   .rcsim2d-hud{position:absolute;left:14px;top:14px;display:flex;gap:8px;z-index:3;}
   .rcsim2d-pill{background:rgba(2,6,23,.55);border:1px solid rgba(148,163,184,.14);color:#e2e8f0;border-radius:999px;padding:7px 10px;font-weight:900;font-size:12px;backdrop-filter: blur(6px);}
   .rcsim2d-footer{position:absolute;right:14px;bottom:14px;display:flex;gap:10px;z-index:3;}
-  .rcsim2d-canvas{position:absolute;inset:0;}
+  .rcsim2d-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;}
   .rcsim2d-panelTitle{color:#e2e8f0;font-weight:950;letter-spacing:.08em;text-transform:uppercase;font-size:12px;margin:10px 0 8px 0;}
   .rcsim2d-field{margin:10px 0;}
   .rcsim2d-label{display:flex;align-items:center;justify-content:space-between;color:#cbd5e1;font-weight:800;font-size:12px;margin-bottom:6px;}
@@ -73,6 +73,15 @@
   .rcsim2d-pill.bad{background:rgba(220,38,38,.20);border-color:rgba(220,38,38,.45);color:#fecaca;}
   .rcsim2d-help{font-size:12px;line-height:1.35;color:rgba(226,232,240,.78);margin-top:10px;}
 
+
+  .rcsim2d-row{display:flex;gap:10px;margin:10px 0;}
+  .rcsim2d-small{color:#94a3b8;font-weight:800;font-size:11px;line-height:1.25;}
+  .rcsim2d-obsHint{color:#94a3b8;font-weight:800;font-size:11px;margin-top:6px;}
+  .rcsim2d-miniLabel{color:#cbd5e1;font-weight:900;font-size:11px;margin:8px 0 6px 0;}
+  .rcsim2d-inline{display:flex;gap:10px;}
+  .rcsim2d-inline .rcsim2d-input{flex:1;}
+  .rcsim2d-pill.good{border-color:rgba(34,197,94,.35);}
+  .rcsim2d-pill.bad{border-color:rgba(239,68,68,.40);}
 `;
 
   function ensureStyle(){
@@ -4606,7 +4615,16 @@
     start: ARENA.start,
   };
 
-  const TRACK_ORDER = ['Arena','Oval','Figure8','Slalom','Circuit','City','ZigZag','Parking'];
+  // Sandbox: empty arena (no walls/line) for free experiments
+  TRACKS['Sandbox'] = {
+    kind:'arena',
+    lineWidth: 0,
+    walls: [],
+    start: {x:0,y:0,a:0},
+  };
+
+
+  const TRACK_ORDER = ['Arena','Sandbox','Oval','Figure8','Slalom','Circuit','City','ZigZag','Parking'];
 
   // ========== Geometry helpers ==========
   function segDist(px,py, ax,ay, bx,by){
@@ -4650,7 +4668,7 @@
     return distToLineTrack(track,x,y) <= w*0.5;
   }
 
-  function distanceToWalls(track, x,y, ang, maxDist){
+  function distanceToWalls(track, obstacles, x,y, ang, maxDist){
     const dx = Math.cos(ang), dy = Math.sin(ang);
     let best = maxDist;
     const checkSeg = (ax,ay,bx,by)=>{
@@ -4663,7 +4681,62 @@
         checkSeg(s[0][0],s[0][1],s[1][0],s[1][1]);
       }
     }
-    // For line tracks, we can optionally treat outer boundary as none.
+    
+    // obstacles: simple shapes (rect/square/circle)
+    if (obstacles && obstacles.length){
+      const eps = 1e-9;
+      const rayCircle = (cx,cy,r)=>{
+        const ox = x - cx;
+        const oy = y - cy;
+        const b = ox*dx + oy*dy;
+        const c = ox*ox + oy*oy - r*r;
+        const disc = b*b - c;
+        if (disc < 0) return;
+        const s = Math.sqrt(disc);
+        let t = -b - s;
+        if (t < 0) t = -b + s;
+        if (t >= 0 && t < best) best = t;
+      };
+      const rayAABB = (minX,minY,maxX,maxY)=>{
+        let tmin = -1e18, tmax = 1e18;
+        if (Math.abs(dx) < eps){
+          if (x < minX || x > maxX) return;
+        } else {
+          const tx1 = (minX - x)/dx;
+          const tx2 = (maxX - x)/dx;
+          const a = Math.min(tx1,tx2), b = Math.max(tx1,tx2);
+          tmin = Math.max(tmin, a);
+          tmax = Math.min(tmax, b);
+        }
+        if (Math.abs(dy) < eps){
+          if (y < minY || y > maxY) return;
+        } else {
+          const ty1 = (minY - y)/dy;
+          const ty2 = (maxY - y)/dy;
+          const a = Math.min(ty1,ty2), b = Math.max(ty1,ty2);
+          tmin = Math.max(tmin, a);
+          tmax = Math.min(tmax, b);
+        }
+        if (tmax < tmin) return;
+        let t = tmin;
+        if (t < 0) t = tmax; // if starting inside
+        if (t >= 0 && t < best) best = t;
+      };
+      for (let i=0;i<obstacles.length;i++){
+        const o = obstacles[i];
+        if (!o) continue;
+        if (o.type==='circle'){
+          rayCircle(o.x,o.y,o.r);
+        } else {
+          const w = (o.type==='square') ? (o.s||0) : (o.w||0);
+          const h = (o.type==='square') ? (o.s||0) : (o.h||0);
+          const hx = w*0.5, hy = h*0.5;
+          rayAABB(o.x-hx, o.y-hy, o.x+hx, o.y+hy);
+        }
+      }
+    }
+
+// For line tracks, we can optionally treat outer boundary as none.
     return best;
   }
 
@@ -4727,6 +4800,21 @@
     offTrack:false,
     offTrackAccum:0,
     autoStopOffTrack:true,
+    
+    // obstacles (simple shapes): global for all tracks
+    obstacles:[],
+    editObstacles:false,
+    obstacleType:'rect',
+    obstacleW:140,
+    obstacleH:90,
+    obstacleR:70,
+    obstacleHover:-1,
+    obstacleDrag:-1,
+    obstacleDragOffX:0,
+    obstacleDragOffY:0,
+
+    // simulation speed multiplier
+    speedMul:0.65,
 
     // run state
     running:false,
@@ -4741,6 +4829,8 @@
       if (!this.mounted) this.mount();
       this.root.style.display='block';
       this.resize();
+      // Fit view to track/obstacles after open
+      requestAnimationFrame(()=>{ this.resize(); this.fitToTrack(); });
       // Sync targets and resize again after layout
       this.targetPanX = this.panX;
       this.targetPanY = this.panY;
@@ -4866,6 +4956,34 @@
         const mx = e.clientX-rect.left;
         const my = e.clientY-rect.top;
 
+        // obstacle edit (simple shapes)
+        if (this.editObstacles){
+          const w = this.screenToWorld(mx,my);
+          if (btn===2){
+            const idx = this.pickObstacle(w.x,w.y);
+            if (idx>=0){
+              this.obstacles.splice(idx,1);
+              this.obstacleHover = -1;
+              this.obstacleDrag = -1;
+              return;
+            }
+          }
+          if (btn===0){
+            const idx = this.pickObstacle(w.x,w.y);
+            if (idx>=0){
+              this.obstacleDrag = idx;
+              const o = this.obstacles[idx];
+              this.obstacleDragOffX = w.x - o.x;
+              this.obstacleDragOffY = w.y - o.y;
+              this.dragging = false;
+              return;
+            }
+            this.addObstacleAt(w.x,w.y);
+            this.dragging = false;
+            return;
+          }
+        }
+
         // sensor edit drag
         if (this.editSensors){
           const w = this.screenToWorld(mx,my);
@@ -4885,6 +5003,30 @@
       });
 
       window.addEventListener('mousemove', (e)=>{
+        // obstacle drag
+        if (this.obstacleDrag>=0){
+          const rect = this.canvas.getBoundingClientRect();
+          const mx = e.clientX-rect.left;
+          const my = e.clientY-rect.top;
+          const w = this.screenToWorld(mx,my);
+          const o = this.obstacles[this.obstacleDrag];
+          if (o){
+            o.x = w.x - (this.obstacleDragOffX||0);
+            o.y = w.y - (this.obstacleDragOffY||0);
+          }
+          return;
+        }
+        // obstacle hover (only when editing)
+        if (this.editObstacles){
+          const rect = this.canvas.getBoundingClientRect();
+          const mx = e.clientX-rect.left;
+          const my = e.clientY-rect.top;
+          const w = this.screenToWorld(mx,my);
+          this.obstacleHover = this.pickObstacle(w.x,w.y);
+        } else {
+          this.obstacleHover = -1;
+        }
+
         if (this.sensorDrag>=0){
           const rect = this.canvas.getBoundingClientRect();
           const mx = e.clientX-rect.left;
@@ -4914,6 +5056,9 @@
       });
 
       window.addEventListener('mouseup', ()=>{
+        if (this.obstacleDrag>=0){
+          this.obstacleDrag = -1;
+        }
         if (this.sensorDrag>=0){
           this.sensorDrag=-1;
           this.saveSensors();
@@ -4927,6 +5072,7 @@
         if (e.key==='Escape'){ this.close(); return; }
         if (e.key===' '){ this.togglePause(); e.preventDefault(); }
         if (e.key==='r' || e.key==='R'){ this.resetBot(); }
+        if (e.key==='o' || e.key==='O'){ this.editObstacles = !this.editObstacles; if (this.ui.chkObs) this.ui.chkObs.checked = this.editObstacles; }
       });
 
       // Expose bridge functions for generated code
@@ -4986,10 +5132,29 @@
       chkOff.querySelector('input').addEventListener('change', ()=>{ this.autoStopOffTrack = !!this.ui.chkOff.checked; });
       s.appendChild(chkOff);
 
+      s.appendChild(makeEl('div',{class:'rcsim2d-panelTitle'},'Швидкість'));
+
+      const speedWrap = makeEl('div',{class:'rcsim2d-field'});
+      const speedLabel = makeEl('div',{class:'rcsim2d-label'},[
+        makeEl('span',null,'Множник'),
+        makeEl('span',{id:'rcsim2dSpeedVal'}, (this.speedMul||1).toFixed(2)+'x')
+      ]);
+      const speed = makeEl('input',{class:'rcsim2d-input',type:'range',min:'0.15',max:'2.50',step:'0.05',value:String(this.speedMul||1)});
+      speed.addEventListener('input', ()=>{
+        this.speedMul = clamp(parseFloat(speed.value)||1, 0.05, 5);
+        speedLabel.querySelector('#rcsim2dSpeedVal').textContent = (this.speedMul||1).toFixed(2)+'x';
+      });
+      speedWrap.appendChild(speedLabel);
+      speedWrap.appendChild(speed);
+      s.appendChild(speedWrap);
+
+
+
 
       const row = makeEl('div',{class:'rcsim2d-row'},[
         makeEl('button',{class:'rcsim2d-btn',onclick:()=>this.resetBot()},'Reset'),
         makeEl('button',{class:'rcsim2d-btn',onclick:()=>this.center()},'Center'),
+        makeEl('button',{class:'rcsim2d-btn',onclick:()=>this.fitToTrack()},'Fit'),
       ]);
       s.appendChild(row);
 
@@ -5008,13 +5173,57 @@
       sl.appendChild(this.ui.dist);
       s.appendChild(sl);
 
-      s.appendChild(makeEl('div',{class:'rcsim2d-help'},[
-        makeEl('div',null, (this.trackName==='Arena' ? 'Арена + стіни' : 'Траса для line-follow') ),
-        makeEl('div',null,'Колесо=зум · Drag мишкою=пан · «Редагувати 4 сенсори» → перетягни S1–S4. «Панель» ховає/показує меню.'),
-      ]));
-
       // Program source controls
-      s.appendChild(makeEl('div',{class:'rcsim2d-panelTitle'},'Програма'));
+      
+      s.appendChild(makeEl('div',{class:'rcsim2d-panelTitle'},'Перешкоди'));
+
+      const chkObs = makeEl('label',{class:'rcsim2d-check'},[
+        makeEl('input',{type:'checkbox',checked:false}),
+        makeEl('span',null,'Редагувати перешкоди')
+      ]);
+      this.ui.chkObs = chkObs.querySelector('input');
+      this.ui.chkObs.addEventListener('change', ()=>{ this.editObstacles = !!this.ui.chkObs.checked; });
+      s.appendChild(chkObs);
+
+      const typeSel = makeEl('select',{class:'rcsim2d-select'});
+      typeSel.appendChild(makeEl('option',{value:'rect'},'Прямокутник'));
+      typeSel.appendChild(makeEl('option',{value:'square'},'Квадрат'));
+      typeSel.appendChild(makeEl('option',{value:'circle'},'Коло'));
+      typeSel.value = this.obstacleType || 'rect';
+      typeSel.addEventListener('change', ()=>{
+        this.obstacleType = typeSel.value;
+        syncObsInputs();
+      });
+      s.appendChild(typeSel);
+
+      const sizeRow = makeEl('div',{class:'rcsim2d-inline'});
+      const inpW = makeEl('input',{class:'rcsim2d-input',type:'number',min:'6',max:'2000',step:'1',value:String(this.obstacleW||120)});
+      const inpH = makeEl('input',{class:'rcsim2d-input',type:'number',min:'6',max:'2000',step:'1',value:String(this.obstacleH||80)});
+      const inpR = makeEl('input',{class:'rcsim2d-input',type:'number',min:'3',max:'2000',step:'1',value:String(this.obstacleR||60)});
+      this.ui.obsW = inpW; this.ui.obsH = inpH; this.ui.obsR = inpR;
+
+      const syncObsInputs = ()=>{
+        const t = this.obstacleType || 'rect';
+        inpW.style.display = (t==='circle') ? 'none' : '';
+        inpH.style.display = (t==='rect') ? '' : 'none';
+        inpR.style.display = (t==='circle') ? '' : 'none';
+      };
+      inpW.addEventListener('input', ()=>{ this.obstacleW = clamp(parseFloat(inpW.value)||80, 6, 2000); });
+      inpH.addEventListener('input', ()=>{ this.obstacleH = clamp(parseFloat(inpH.value)||60, 6, 2000); });
+      inpR.addEventListener('input', ()=>{ this.obstacleR = clamp(parseFloat(inpR.value)||40, 3, 2000); });
+      sizeRow.appendChild(inpW); sizeRow.appendChild(inpH); sizeRow.appendChild(inpR);
+      s.appendChild(sizeRow);
+      syncObsInputs();
+
+      const obsBtnRow = makeEl('div',{class:'rcsim2d-row'},[
+        makeEl('button',{class:'rcsim2d-btn',onclick:()=>{ this.obstacles.length=0; this.obstacleHover=-1; this.obstacleDrag=-1; }},'Clear'),
+        makeEl('button',{class:'rcsim2d-btn',onclick:()=>this.fitToTrack()},'Fit view'),
+      ]);
+      s.appendChild(obsBtnRow);
+
+      s.appendChild(makeEl('div',{class:'rcsim2d-obsHint'},'ЛКМ: додати/перетягти · ПКМ: видалити (увімкни редагування)'));
+
+s.appendChild(makeEl('div',{class:'rcsim2d-panelTitle'},'Програма'));
       const srcSel = makeEl('select',{class:'rcsim2d-select'});
       srcSel.appendChild(makeEl('option',{value:'workspace'},'Поточний Scratch/Blockly проєкт'));
       srcSel.appendChild(makeEl('option',{value:'custom'},'Міні-блок (CustomBlock preview)'));
@@ -5078,6 +5287,8 @@
       this.trackName = name;
       this.track = TRACKS[name] || TRACKS['Arena'];
       this.buildSideUI();
+      // Fit view after UI/layout settles
+      requestAnimationFrame(()=>{ this.resize(); this.fitToTrack(); });
     },
 
     resetBot(){
@@ -5105,16 +5316,79 @@
       this.targetPanY = this.panY;
     },
 
+
+    findBot(){ this.center(); },
+
+    fitToTrack(){
+      if (!this.canvas) return;
+      const tr = this.track || TRACKS['Arena'];
+      let minX=1e18, minY=1e18, maxX=-1e18, maxY=-1e18;
+      const addPt=(x,y)=>{ if (x<minX) minX=x; if (y<minY) minY=y; if (x>maxX) maxX=x; if (y>maxY) maxY=y; };
+      if (tr.kind==='line' && Array.isArray(tr.line)){
+        for (let i=0;i<tr.line.length;i++){
+          const p=tr.line[i];
+          addPt(p[0],p[1]);
+        }
+      } else if (tr.kind==='arena' && Array.isArray(tr.walls)){
+        for (let i=0;i<tr.walls.length;i++){
+          const s=tr.walls[i];
+          addPt(s[0][0],s[0][1]);
+          addPt(s[1][0],s[1][1]);
+        }
+      } else {
+        addPt(-400,-300); addPt(400,300);
+      }
+      // include obstacles bounds (global)
+      if (this.obstacles && this.obstacles.length){
+        for (let i=0;i<this.obstacles.length;i++){
+          const o=this.obstacles[i];
+          if (!o) continue;
+          if (o.type==='circle'){
+            addPt(o.x-o.r, o.y-o.r);
+            addPt(o.x+o.r, o.y+o.r);
+          } else {
+            const w = (o.type==='square') ? (o.s||0) : (o.w||0);
+            const h = (o.type==='square') ? (o.s||0) : (o.h||0);
+            addPt(o.x-w*0.5, o.y-h*0.5);
+            addPt(o.x+w*0.5, o.y+h*0.5);
+          }
+        }
+      }
+      if (!(isFinite(minX)&&isFinite(minY)&&isFinite(maxX)&&isFinite(maxY))){ return; }
+      const rect = this.canvas.getBoundingClientRect();
+      const pad = 80;
+      const availW = Math.max(40, rect.width - pad*2);
+      const availH = Math.max(40, rect.height - pad*2);
+      const spanX = Math.max(1, maxX - minX);
+      const spanY = Math.max(1, maxY - minY);
+      const z = clamp(Math.min(availW/spanX, availH/spanY), 0.15, 3.2);
+      this.targetZoom = z;
+      const cx=(minX+maxX)*0.5;
+      const cy=(minY+maxY)*0.5;
+      this.panX = rect.width/2 - cx*z;
+      this.panY = rect.height/2 - cy*z;
+      this.targetPanX=this.panX;
+      this.targetPanY=this.panY;
+    },
+
+
+
     resize(){
       if (!this.canvas) return;
       const rect = this.canvas.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
-      const w = Math.max(1, Math.floor(rect.width*dpr));
-      const h = Math.max(1, Math.floor(rect.height*dpr));
+      const cssW = Math.max(1, Math.floor(rect.width));
+      const cssH = Math.max(1, Math.floor(rect.height));
+      const w = Math.max(1, Math.floor(cssW*dpr));
+      const h = Math.max(1, Math.floor(cssH*dpr));
+      this._dpr = dpr;
+      this._cssW = cssW;
+      this._cssH = cssH;
       if (this.canvas.width!==w || this.canvas.height!==h){
         this.canvas.width = w;
         this.canvas.height = h;
       }
+      // keep default transform = dpr scale (so all drawing uses CSS px)
       this.ctx.setTransform(dpr,0,0,dpr,0,0);
     },
 
@@ -5303,9 +5577,11 @@ ${code}
         const pk = 1 - Math.pow(0.00006, dt*60);
         this.panX = lerp(this.panX, this.targetPanX, clamp(pk,0,1));
         this.panY = lerp(this.panY, this.targetPanY, clamp(pk,0,1));
-        this.dt = dt;
+        this.dtBase = dt;
+        const physDt = dt * (this.speedMul||1);
+        this.dt = physDt;
         if (!this.paused){
-          this.tick(dt);
+          this.tick(physDt);
         }
         this.render();
         this._raf = requestAnimationFrame(loop);
@@ -5348,6 +5624,8 @@ ${code}
       if (this.track.kind==='arena' && this.track.walls){
         this.resolveWallCollisions();
       }
+      // Collision with user obstacles
+      this.resolveObstacleCollisions();
 
       // Update sensors
       this.updateSensors();
@@ -5430,12 +5708,10 @@ ${code}
       }
       this.offTrackAccum = this.offTrack ? (this.offTrackAccum + (this.dt||0)) : 0;
 
-      // distance sensor
+      // distance sensor (works on all tracks; checks arena walls + obstacles)
       const maxDist=999;
       let dist=maxDist;
-      if (track.kind==='arena'){
-        dist = distanceToWalls(track, bot.x,bot.y, bot.a - Math.PI/2, maxDist);
-      }
+      dist = distanceToWalls(track, this.obstacles, bot.x,bot.y, bot.a - Math.PI/2, maxDist);
       this.distValue = Math.min(maxDist, Math.floor(dist));
       window.distanceData = this.distValue;
 
@@ -5458,8 +5734,11 @@ ${code}
 
     render(){
       const ctx=this.ctx;
-      const rect=this.canvas.getBoundingClientRect();
-      const w=rect.width, h=rect.height;
+      const w = this._cssW || this.canvas.getBoundingClientRect().width || 1;
+      const h = this._cssH || this.canvas.getBoundingClientRect().height || 1;
+      // ensure correct DPR transform before clearing
+      const dpr = this._dpr || (window.devicePixelRatio||1);
+      ctx.setTransform(dpr,0,0,dpr,0,0);
       ctx.clearRect(0,0,w,h);
 
       // background grid (gray)
@@ -5472,6 +5751,9 @@ ${code}
 
       // draw track
       this.drawTrack(ctx);
+
+      // obstacles
+      this.drawObstacles(ctx);
 
       // distance ray
       if (this.ui.chkRay && this.ui.chkRay.checked) this.drawRay(ctx);
@@ -5487,7 +5769,7 @@ ${code}
 
     drawGrid(ctx,w,h){
       ctx.save();
-      ctx.fillStyle = 'rgba(148,163,184,0.04)';
+      ctx.fillStyle = 'rgba(148,163,184,0.03)';
       ctx.fillRect(0,0,w,h);
       const step = 28;
       ctx.strokeStyle = 'rgba(148,163,184,0.10)';
@@ -5547,6 +5829,114 @@ ${code}
 
       ctx.restore();
     },
+    drawObstacles(ctx){
+      const obs = this.obstacles;
+      if (!obs || !obs.length) return;
+      ctx.save();
+      for (let i=0;i<obs.length;i++){
+        const o = obs[i];
+        const hi = (i===this.obstacleHover) || (i===this.obstacleDrag);
+        ctx.fillStyle = hi ? 'rgba(245,158,11,0.22)' : 'rgba(148,163,184,0.16)';
+        ctx.strokeStyle = hi ? 'rgba(245,158,11,0.92)' : 'rgba(148,163,184,0.50)';
+        ctx.lineWidth = hi ? 2.6 : 1.6;
+        if (o.type==='circle'){
+          ctx.beginPath();
+          ctx.arc(o.x,o.y, o.r, 0, Math.PI*2);
+          ctx.fill(); ctx.stroke();
+        } else {
+          const w = (o.type==='square') ? (o.s||0) : (o.w||0);
+          const h = (o.type==='square') ? (o.s||0) : (o.h||0);
+          ctx.beginPath();
+          ctx.rect(o.x - w*0.5, o.y - h*0.5, w, h);
+          ctx.fill(); ctx.stroke();
+        }
+      }
+      ctx.restore();
+    },
+
+    pickObstacle(wx,wy){
+      const obs = this.obstacles;
+      if (!obs || !obs.length) return -1;
+      for (let i=obs.length-1;i>=0;i--){
+        const o = obs[i];
+        if (!o) continue;
+        if (o.type==='circle'){
+          const dx = wx - o.x, dy = wy - o.y;
+          if (dx*dx + dy*dy <= (o.r*o.r)) return i;
+        } else {
+          const w = (o.type==='square') ? (o.s||0) : (o.w||0);
+          const h = (o.type==='square') ? (o.s||0) : (o.h||0);
+          if (Math.abs(wx-o.x) <= w*0.5 && Math.abs(wy-o.y) <= h*0.5) return i;
+        }
+      }
+      return -1;
+    },
+
+    addObstacleAt(wx,wy){
+      const t = this.obstacleType || 'rect';
+      if (t==='circle'){
+        this.obstacles.push({type:'circle', x:wx, y:wy, r: clamp(+this.obstacleR||60, 6, 800)});
+      } else if (t==='square'){
+        this.obstacles.push({type:'square', x:wx, y:wy, s: clamp(+this.obstacleW||80, 6, 1200)});
+      } else {
+        this.obstacles.push({type:'rect', x:wx, y:wy, w: clamp(+this.obstacleW||120, 6, 1600), h: clamp(+this.obstacleH||80, 6, 1600)});
+      }
+    },
+
+    resolveObstacleCollisions(){
+      const bot = this.bot;
+      const r = bot.radius || 22;
+      const obs = this.obstacles;
+      if (!obs || !obs.length) return;
+      for (let i=0;i<obs.length;i++){
+        const o = obs[i];
+        if (!o) continue;
+        if (o.type==='circle'){
+          const dx = bot.x - o.x;
+          const dy = bot.y - o.y;
+          const rr = r + o.r;
+          const d2 = dx*dx + dy*dy;
+          if (d2 > 0 && d2 < rr*rr){
+            const d = Math.sqrt(d2);
+            const k = (rr - d) / d;
+            bot.x += dx * k;
+            bot.y += dy * k;
+          } else if (d2===0){
+            bot.x += rr;
+          }
+        } else {
+          const w = (o.type==='square') ? (o.s||0) : (o.w||0);
+          const h = (o.type==='square') ? (o.s||0) : (o.h||0);
+          const hx = w*0.5, hy = h*0.5;
+          const minX = o.x - hx, maxX = o.x + hx;
+          const minY = o.y - hy, maxY = o.y + hy;
+          const cx = clamp(bot.x, minX, maxX);
+          const cy = clamp(bot.y, minY, maxY);
+          let dx = bot.x - cx;
+          let dy = bot.y - cy;
+          let d2 = dx*dx + dy*dy;
+          if (d2 < r*r){
+            if (d2 === 0){
+              // inside: push out along smallest penetration axis
+              const penX = Math.min(Math.abs(bot.x-minX), Math.abs(maxX-bot.x));
+              const penY = Math.min(Math.abs(bot.y-minY), Math.abs(maxY-bot.y));
+              if (penX < penY){
+                bot.x += (bot.x < o.x ? -(r+penX) : (r+penX));
+              } else {
+                bot.y += (bot.y < o.y ? -(r+penY) : (r+penY));
+              }
+            } else {
+              const d = Math.sqrt(d2);
+              const k = (r - d) / d;
+              bot.x += dx * k;
+              bot.y += dy * k;
+            }
+          }
+        }
+      }
+    },
+
+
 
     drawBot(ctx){
       const b=this.bot;
