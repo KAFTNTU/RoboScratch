@@ -10,6 +10,33 @@
 
   const now = ()=> (typeof performance!=='undefined' && performance.now)? performance.now() : Date.now();
 
+
+  function themeForTrack(name, tr){
+    // Default: dark, slightly colorful road that doesn't "burn the eyes"
+    const dark = {
+      bg: '#0b1220',
+      grid: 'rgba(226,232,240,0.08)',
+      roadOuter: 'rgba(0,0,0,0.35)',
+      roadMain: 'rgba(20,184,166,0.72)', // muted teal
+      wallOuter: 'rgba(0,0,0,0.45)',
+      wallMain: 'rgba(20,184,166,0.55)',
+    };
+
+    // Line-follow mode: white ground + black line (for clear black/white sensing)
+    const lineFollow = {
+      bg: '#f7f7f8',
+      grid: 'rgba(0,0,0,0.06)',
+      roadOuter: 'rgba(0,0,0,0.10)',
+      roadMain: 'rgba(0,0,0,0.96)',
+      wallOuter: 'rgba(0,0,0,0.18)',
+      wallMain: 'rgba(0,0,0,0.55)',
+    };
+
+    const base = (name === 'LineFollow') ? lineFollow : dark;
+    const extra = (tr && tr.theme) ? tr.theme : null;
+    return extra ? Object.assign({}, base, extra) : base;
+  }
+
   function makeEl(tag, attrs, children){
     const el = document.createElement(tag);
     if (attrs){
@@ -4590,6 +4617,23 @@
     start: { x:300.0, y:25.77, a:0 },
   }
   };
+  // ===== Line-follow track preset =====
+  // Uses the same geometry as Oval, but rendered as: white ground + black line.
+  // This makes it ideal for "color sensor" (black/white) line-follow algorithms.
+  TRACKS['LineFollow'] = {
+    kind: 'line',
+    lineWidth: 12,
+    line: (TRACKS['Oval'] && TRACKS['Oval'].line) ? TRACKS['Oval'].line : [],
+    start: (TRACKS['Oval'] && TRACKS['Oval'].start) ? TRACKS['Oval'].start : {x:0,y:0,a:0},
+    theme: {
+      bg: '#f7f7f8',
+      grid: 'rgba(0,0,0,0.05)',
+      roadOuter: 'rgba(0,0,0,0.08)',
+      roadMain: 'rgba(0,0,0,0.96)',
+    }
+  };
+
+
 
   // Simple polygon-based arena walls
   const ARENA = {
@@ -4624,7 +4668,7 @@
   };
 
 
-  const TRACK_ORDER = ['Arena','Sandbox','Oval','Figure8','Slalom','Circuit','City','ZigZag','Parking'];
+  const TRACK_ORDER = ['LineFollow','Sandbox'];
 
   // ========== Geometry helpers ==========
   function segDist(px,py, ax,ay, bx,by){
@@ -4768,7 +4812,7 @@
     speedScale: 1.0,
 
     // world
-    trackName:'Arena',
+    trackName:'Sandbox',
     track:null,
 
     // robot
@@ -5285,7 +5329,8 @@ s.appendChild(makeEl('div',{class:'rcsim2d-panelTitle'},'Програма'));
 
     setTrack(name){
       this.trackName = name;
-      this.track = TRACKS[name] || TRACKS['Arena'];
+      this.track = TRACKS[name] || TRACKS['Sandbox'] || TRACKS['LineFollow'];
+      this.theme = themeForTrack(name, this.track);
       this.buildSideUI();
       // Fit view after UI/layout settles
       requestAnimationFrame(()=>{ this.resize(); this.fitToTrack(); });
@@ -5528,11 +5573,67 @@ ${code}
       this.lastCmd = `L${l.toFixed(0)} R${r.toFixed(0)}`;
     },
 
+    // Configure which sensors exist + what they measure.
+    // Supported formats:
+    //  - Array(4): entries can be 'color' | 'distance' | {enabled,mode} | null/false (disabled)
+    //  - Object: {enabled:[...], modes:[...], mask:[...]}
+    setSensorsConfig(cfg){
+      if (!cfg) return;
+      const applyOne = (i, it)=>{
+        let enabled = this.sensorEnabled[i];
+        let mode = this.sensorModes[i] || 'color';
+        if (it===null || it===false || it===0){
+          enabled = false;
+        } else if (typeof it==='string'){
+          enabled = true;
+          mode = (it==='distance') ? 'distance' : 'color';
+        } else if (typeof it==='object'){
+          if ('enabled' in it) enabled = !!it.enabled;
+          const m = it.mode || it.type || it.sensor;
+          if (typeof m==='string') mode = (m==='distance') ? 'distance' : 'color';
+        }
+        this.sensorEnabled[i] = !!enabled;
+        this.sensorModes[i] = (mode==='distance') ? 'distance' : 'color';
+      };
+
+      if (Array.isArray(cfg)){
+        for (let i=0;i<4;i++) applyOne(i, cfg[i]);
+      } else if (typeof cfg==='object'){
+        if (Array.isArray(cfg.enabled)){
+          for (let i=0;i<4;i++) this.sensorEnabled[i] = !!cfg.enabled[i];
+        }
+        if (Array.isArray(cfg.mask)){
+          for (let i=0;i<4;i++) this.sensorEnabled[i] = !!cfg.mask[i];
+        }
+        if (typeof cfg.mask==='number'){
+          for (let i=0;i<4;i++) this.sensorEnabled[i] = ((cfg.mask>>i)&1)===1;
+        }
+        if (Array.isArray(cfg.modes)){
+          for (let i=0;i<4;i++) this.sensorModes[i] = (cfg.modes[i]==='distance') ? 'distance' : 'color';
+        }
+        if (Array.isArray(cfg.sensors)){
+          for (let i=0;i<4;i++) applyOne(i, cfg.sensors[i]);
+        }
+      }
+
+      // Sync UI if it exists
+      if (this.ui && this.ui.senEn){
+        for (let i=0;i<4;i++){
+          if (this.ui.senEn[i]) this.ui.senEn[i].checked = !!this.sensorEnabled[i];
+          if (this.ui.senMode[i]) this.ui.senMode[i].value = (this.sensorModes[i]||'color');
+        }
+      }
+      this.updateSensors();
+    },
+
     installBridge(){
       const self = this;
       // Standard globals used by generator output
       window.sensorData = window.sensorData || [0,0,0,0];
-      window.distanceData = window.distanceData || 999;
+      window.distanceData = window.distanceData || 100;
+
+      // Optional: let the generator configure sensor list/modes
+      window.rcsim2d_configSensors = (cfg)=> self.setSensorsConfig(cfg);
 
       window.recordMove = function(l,r){
         self.setDrive(l,r);
@@ -5755,8 +5856,8 @@ ${code}
       // obstacles
       this.drawObstacles(ctx);
 
-      // distance ray
-      if (this.ui.chkRay && this.ui.chkRay.checked) this.drawRay(ctx);
+      // distance rays (per-sensor)
+      if (this.ui.chkRay && this.ui.chkRay.checked) this.drawSensorRays(ctx);
 
       // draw bot
       this.drawBot(ctx);
@@ -5769,10 +5870,10 @@ ${code}
 
     drawGrid(ctx,w,h){
       ctx.save();
-      ctx.fillStyle = 'rgba(148,163,184,0.03)';
+      ctx.fillStyle = (this.theme && this.theme.bg) ? this.theme.bg : 'rgba(148,163,184,0.03)';
       ctx.fillRect(0,0,w,h);
       const step = 28;
-      ctx.strokeStyle = 'rgba(148,163,184,0.10)';
+      ctx.strokeStyle = (this.theme && this.theme.grid) ? this.theme.grid : 'rgba(148,163,184,0.10)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       for (let x=0;x<=w;x+=step){ ctx.moveTo(x,0); ctx.lineTo(x,h); }
@@ -5789,7 +5890,7 @@ ${code}
 
       if (tr.kind==='arena'){
         // arena walls
-        ctx.strokeStyle='rgba(0,0,0,0.40)';
+        ctx.strokeStyle=(this.theme&&this.theme.wallOuter)|| (this.theme&&this.theme.roadOuter) || 'rgba(0,0,0,0.40)';
         ctx.lineWidth=tr.lineWidth+10;
         ctx.beginPath();
         for (const s of tr.walls){
@@ -5798,7 +5899,7 @@ ${code}
         }
         ctx.stroke();
 
-        ctx.strokeStyle='rgba(15,23,42,0.95)';
+        ctx.strokeStyle=(this.theme&&this.theme.wallMain)|| 'rgba(15,23,42,0.95)';
         ctx.lineWidth=tr.lineWidth;
         ctx.beginPath();
         for (const s of tr.walls){
@@ -5809,7 +5910,7 @@ ${code}
       }else{
         const pts=tr.line;
         if (pts && pts.length>1){
-          ctx.strokeStyle='rgba(0,0,0,0.25)';
+          ctx.strokeStyle=(this.theme&&this.theme.roadOuter)|| 'rgba(0,0,0,0.25)';
           ctx.lineWidth=(tr.lineWidth||16)+10;
           ctx.beginPath();
           ctx.moveTo(pts[0][0],pts[0][1]);
@@ -5817,7 +5918,7 @@ ${code}
           ctx.closePath();
           ctx.stroke();
 
-          ctx.strokeStyle='rgba(17,24,39,0.95)';
+          ctx.strokeStyle=(this.theme&&this.theme.roadMain)|| 'rgba(17,24,39,0.95)';
           ctx.lineWidth=(tr.lineWidth||16);
           ctx.beginPath();
           ctx.moveTo(pts[0][0],pts[0][1]);
@@ -5836,8 +5937,8 @@ ${code}
       for (let i=0;i<obs.length;i++){
         const o = obs[i];
         const hi = (i===this.obstacleHover) || (i===this.obstacleDrag);
-        ctx.fillStyle = hi ? 'rgba(245,158,11,0.22)' : 'rgba(148,163,184,0.16)';
-        ctx.strokeStyle = hi ? 'rgba(245,158,11,0.92)' : 'rgba(148,163,184,0.50)';
+        ctx.fillStyle = hi ? 'rgba(245,158,11,0.22)' : 'rgba(99,102,241,0.18)';
+        ctx.strokeStyle = hi ? 'rgba(245,158,11,0.92)' : 'rgba(99,102,241,0.70)';
         ctx.lineWidth = hi ? 2.6 : 1.6;
         if (o.type==='circle'){
           ctx.beginPath();
@@ -6007,10 +6108,20 @@ ${code}
         const p=this.sensors[i];
         const sx=b.x + p.x*ca - p.y*sa;
         const sy=b.y + p.x*sa + p.y*ca;
+        const enabled = !!this.sensorEnabled[i];
+        const mode = (this.sensorModes[i] || 'color');
+        if (!enabled && !this.editSensors) continue;
         ctx.save();
         ctx.translate(sx,sy);
-        ctx.fillStyle = this.sensorValues[i] ? 'rgba(34,197,94,0.95)' : 'rgba(148,163,184,0.7)';
-        ctx.strokeStyle='rgba(2,6,23,0.7)';
+        // Color sensor: black/white dot. Distance sensor: red dot.
+        if (mode==='distance'){
+          ctx.fillStyle = enabled ? 'rgba(239,68,68,0.85)' : 'rgba(148,163,184,0.25)';
+          ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+        } else {
+          const on = (this.sensorValues[i] >= 50);
+          ctx.fillStyle = enabled ? (on ? 'rgba(0,0,0,0.95)' : 'rgba(255,255,255,0.95)') : 'rgba(148,163,184,0.25)';
+          ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+        }
         ctx.lineWidth=2;
         ctx.beginPath();
         ctx.arc(0,0,5.2,0,Math.PI*2);
@@ -6037,23 +6148,31 @@ ${code}
       }
     },
 
-    drawRay(ctx){
+    drawSensorRays(ctx){
       const b=this.bot;
       const ang = b.a - Math.PI/2;
       const dx = Math.cos(ang), dy = Math.sin(ang);
-      const d = Math.min(this.distValue, 999);
+      const ca=Math.cos(b.a), sa=Math.sin(b.a);
+      const maxDist = 100;
       ctx.save();
-      ctx.strokeStyle='rgba(147,197,253,0.70)';
+      ctx.strokeStyle='rgba(239,68,68,0.45)';
       ctx.lineWidth=2.2;
-      ctx.beginPath();
-      ctx.moveTo(b.x,b.y);
-      ctx.lineTo(b.x+dx*d, b.y+dy*d);
-      ctx.stroke();
-
-      ctx.fillStyle='rgba(147,197,253,0.85)';
-      ctx.beginPath();
-      ctx.arc(b.x+dx*d, b.y+dy*d, 4, 0, Math.PI*2);
-      ctx.fill();
+      ctx.fillStyle='rgba(239,68,68,0.55)';
+      for (let i=0;i<4;i++){
+        if (!this.sensorEnabled[i]) continue;
+        if ((this.sensorModes[i]||'color')!=='distance') continue;
+        const p=this.sensors[i];
+        const ox=b.x + p.x*ca - p.y*sa;
+        const oy=b.y + p.x*sa + p.y*ca;
+        const d = clamp(Math.floor(this.sensorValues[i]||0), 0, maxDist);
+        ctx.beginPath();
+        ctx.moveTo(ox,oy);
+        ctx.lineTo(ox+dx*d, oy+dy*d);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(ox+dx*d, oy+dy*d, 3.6, 0, Math.PI*2);
+        ctx.fill();
+      }
       ctx.restore();
     },
   };
@@ -6077,6 +6196,7 @@ ${code}
   window.RCSim2D = {
     open: ()=> Sim.open(),
     close: ()=> Sim.close(),
+    configureSensors: (cfg)=> Sim.setSensorsConfig(cfg),
     _sim: Sim,
   };
 })();
