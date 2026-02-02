@@ -4840,6 +4840,9 @@
     sensorDrag:-1,
 
     sensorValues:[0,0,0,0],
+    // sensorEnabled/mode are used for per-sensor rendering + optional config from Scratch
+    sensorEnabled:[true,true,true,true],
+    sensorModes:['color','color','color','color'],
     distValue: 999,
     offTrack:false,
     offTrackAccum:0,
@@ -5579,6 +5582,9 @@ ${code}
     //  - Object: {enabled:[...], modes:[...], mask:[...]}
     setSensorsConfig(cfg){
       if (!cfg) return;
+      // Ensure arrays exist (older builds may not define them)
+      this.sensorEnabled = Array.isArray(this.sensorEnabled) ? this.sensorEnabled : [true,true,true,true];
+      this.sensorModes = Array.isArray(this.sensorModes) ? this.sensorModes : ['color','color','color','color'];
       const applyOne = (i, it)=>{
         let enabled = this.sensorEnabled[i];
         let mode = this.sensorModes[i] || 'color';
@@ -5781,20 +5787,48 @@ ${code}
     updateSensors(){
       const bot=this.bot;
       const track=this.track;
+      // Ensure arrays exist
+      this.sensorEnabled = Array.isArray(this.sensorEnabled) ? this.sensorEnabled : [true,true,true,true];
+      this.sensorModes = Array.isArray(this.sensorModes) ? this.sensorModes : ['color','color','color','color'];
+
       const ca=Math.cos(bot.a), sa=Math.sin(bot.a);
+
+      // Forward direction (sprite faces up, motion is along +a, but sensors/rays use corrected forward)
+      const rayAng = bot.a - Math.PI/2;
+      const maxSensorDist = 100;
+
       for (let i=0;i<4;i++){
+        const enabled = !!(this.sensorEnabled ? this.sensorEnabled[i] : true);
+        const mode = ((this.sensorModes && this.sensorModes[i]) || 'color');
         const p=this.sensors[i];
         const sx=bot.x + p.x*ca - p.y*sa;
         const sy=bot.y + p.x*sa + p.y*ca;
-        let val = 0;
-        if (track.kind==='line'){
-          val = pointOnLineTrack(track, sx,sy) ? 100 : 0;
-        }else{
-          // arena: no line, just zeros
-          val = 0;
+
+        if (!enabled){
+          this.sensorValues[i]=0;
+          window.sensorData[i]=0;
+          continue;
         }
-        this.sensorValues[i]=val;
-        window.sensorData[i]=val;
+
+        if (mode==='distance'){
+          // Per-sensor distance: clamp to 0..100, "no hit" -> 100
+          let d = distanceToWalls(track, this.obstacles, sx, sy, rayAng, 999);
+          if (!Number.isFinite(d) || d>=999) d = maxSensorDist;
+          d = clamp(Math.floor(d), 0, maxSensorDist);
+          if (d>maxSensorDist) d = maxSensorDist;
+          this.sensorValues[i]=d;
+          window.sensorData[i]=d;
+        } else {
+          // Color sensor: 0/100 depending on black line on LineFollow track
+          let val = 0;
+          if (track.kind==='line'){
+            val = pointOnLineTrack(track, sx,sy) ? 100 : 0;
+          } else {
+            val = 0;
+          }
+          this.sensorValues[i]=val;
+          window.sensorData[i]=val;
+        }
       }
 
       // off-track detection (distance from robot center to line)
@@ -5809,7 +5843,7 @@ ${code}
       }
       this.offTrackAccum = this.offTrack ? (this.offTrackAccum + (this.dt||0)) : 0;
 
-      // distance sensor (works on all tracks; checks arena walls + obstacles)
+      // legacy/global distance sensor
       const maxDist=999;
       let dist=maxDist;
       dist = distanceToWalls(track, this.obstacles, bot.x,bot.y, bot.a - Math.PI/2, maxDist);
@@ -5870,15 +5904,45 @@ ${code}
 
     drawGrid(ctx,w,h){
       ctx.save();
-      ctx.fillStyle = (this.theme && this.theme.bg) ? this.theme.bg : 'rgba(148,163,184,0.03)';
-      ctx.fillRect(0,0,w,h);
-      const step = 28;
-      ctx.strokeStyle = (this.theme && this.theme.grid) ? this.theme.grid : 'rgba(148,163,184,0.10)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      for (let x=0;x<=w;x+=step){ ctx.moveTo(x,0); ctx.lineTo(x,h); }
-      for (let y=0;y<=h;y+=step){ ctx.moveTo(0,y); ctx.lineTo(w,y); }
-      ctx.stroke();
+
+      // Special background for Sandbox: 3-color soft mosaic (not a flat fill)
+      const isSandbox = (this.trackName === 'Sandbox');
+      if (isSandbox){
+        const tile = 64;
+        const c1 = 'rgba(11,18,32,1)';   // deep navy
+        const c2 = 'rgba(12,26,38,1)';   // blue-green tint
+        const c3 = 'rgba(16,32,58,1)';   // muted indigo
+        for (let y=0; y<h; y+=tile){
+          for (let x=0; x<w; x+=tile){
+            const xi = (x/tile)|0, yi = (y/tile)|0;
+            // deterministic hash
+            const hsh = ((xi*73856093) ^ (yi*19349663)) >>> 0;
+            const k = hsh % 3;
+            ctx.fillStyle = (k===0)?c1:(k===1)?c2:c3;
+            ctx.fillRect(x,y,tile,tile);
+          }
+        }
+        // subtle grid overlay
+        ctx.strokeStyle = 'rgba(226,232,240,0.08)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let x=0;x<=w;x+=32){ ctx.moveTo(x,0); ctx.lineTo(x,h); }
+        for (let y=0;y<=h;y+=32){ ctx.moveTo(0,y); ctx.lineTo(w,y); }
+        ctx.stroke();
+
+      } else {
+        // Default background (track-dependent)
+        ctx.fillStyle = (this.theme && this.theme.bg) ? this.theme.bg : 'rgba(148,163,184,0.03)';
+        ctx.fillRect(0,0,w,h);
+        const step = 28;
+        ctx.strokeStyle = (this.theme && this.theme.grid) ? this.theme.grid : 'rgba(148,163,184,0.10)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let x=0;x<=w;x+=step){ ctx.moveTo(x,0); ctx.lineTo(x,h); }
+        for (let y=0;y<=h;y+=step){ ctx.moveTo(0,y); ctx.lineTo(w,y); }
+        ctx.stroke();
+      }
+
       ctx.restore();
     },
 
@@ -5937,8 +6001,8 @@ ${code}
       for (let i=0;i<obs.length;i++){
         const o = obs[i];
         const hi = (i===this.obstacleHover) || (i===this.obstacleDrag);
-        ctx.fillStyle = hi ? 'rgba(245,158,11,0.22)' : 'rgba(99,102,241,0.18)';
-        ctx.strokeStyle = hi ? 'rgba(245,158,11,0.92)' : 'rgba(99,102,241,0.70)';
+        ctx.fillStyle = hi ? 'rgba(245,158,11,0.20)' : 'rgba(167,139,250,0.18)';
+        ctx.strokeStyle = hi ? 'rgba(245,158,11,0.88)' : 'rgba(167,139,250,0.72)';
         ctx.lineWidth = hi ? 2.6 : 1.6;
         if (o.type==='circle'){
           ctx.beginPath();
@@ -6108,8 +6172,8 @@ ${code}
         const p=this.sensors[i];
         const sx=b.x + p.x*ca - p.y*sa;
         const sy=b.y + p.x*sa + p.y*ca;
-        const enabled = !!this.sensorEnabled[i];
-        const mode = (this.sensorModes[i] || 'color');
+        const enabled = !!(this.sensorEnabled ? this.sensorEnabled[i] : true);
+        const mode = ((this.sensorModes && this.sensorModes[i]) || 'color');
         if (!enabled && !this.editSensors) continue;
         ctx.save();
         ctx.translate(sx,sy);
@@ -6159,8 +6223,10 @@ ${code}
       ctx.lineWidth=2.2;
       ctx.fillStyle='rgba(239,68,68,0.55)';
       for (let i=0;i<4;i++){
-        if (!this.sensorEnabled[i]) continue;
-        if ((this.sensorModes[i]||'color')!=='distance') continue;
+        const enArr = this.sensorEnabled;
+        if (enArr && !enArr[i]) continue;
+        const mArr = this.sensorModes;
+        if (((mArr && mArr[i])||'color')!=='distance') continue;
         const p=this.sensors[i];
         const ox=b.x + p.x*ca - p.y*sa;
         const oy=b.y + p.x*sa + p.y*ca;
