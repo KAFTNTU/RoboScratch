@@ -10,33 +10,6 @@
 
   const now = ()=> (typeof performance!=='undefined' && performance.now)? performance.now() : Date.now();
 
-
-  function themeForTrack(name, tr){
-    // Default: dark, slightly colorful road that doesn't "burn the eyes"
-    const dark = {
-      bg: '#0b1220',
-      grid: 'rgba(226,232,240,0.08)',
-      roadOuter: 'rgba(0,0,0,0.35)',
-      roadMain: 'rgba(20,184,166,0.72)', // muted teal
-      wallOuter: 'rgba(0,0,0,0.45)',
-      wallMain: 'rgba(20,184,166,0.55)',
-    };
-
-    // Line-follow mode: white ground + black line (for clear black/white sensing)
-    const lineFollow = {
-      bg: '#f7f7f8',
-      grid: 'rgba(0,0,0,0.06)',
-      roadOuter: 'rgba(0,0,0,0.10)',
-      roadMain: 'rgba(0,0,0,0.96)',
-      wallOuter: 'rgba(0,0,0,0.18)',
-      wallMain: 'rgba(0,0,0,0.55)',
-    };
-
-    const base = (name === 'LineFollow') ? lineFollow : dark;
-    const extra = (tr && tr.theme) ? tr.theme : null;
-    return extra ? Object.assign({}, base, extra) : base;
-  }
-
   function makeEl(tag, attrs, children){
     const el = document.createElement(tag);
     if (attrs){
@@ -4617,23 +4590,6 @@
     start: { x:300.0, y:25.77, a:0 },
   }
   };
-  // ===== Line-follow track preset =====
-  // Uses the same geometry as Oval, but rendered as: white ground + black line.
-  // This makes it ideal for "color sensor" (black/white) line-follow algorithms.
-  TRACKS['LineFollow'] = {
-    kind: 'line',
-    lineWidth: 12,
-    line: (TRACKS['Oval'] && TRACKS['Oval'].line) ? TRACKS['Oval'].line : [],
-    start: (TRACKS['Oval'] && TRACKS['Oval'].start) ? TRACKS['Oval'].start : {x:0,y:0,a:0},
-    theme: {
-      bg: '#f7f7f8',
-      grid: 'rgba(0,0,0,0.05)',
-      roadOuter: 'rgba(0,0,0,0.08)',
-      roadMain: 'rgba(0,0,0,0.96)',
-    }
-  };
-
-
 
   // Simple polygon-based arena walls
   const ARENA = {
@@ -4668,7 +4624,7 @@
   };
 
 
-  const TRACK_ORDER = ['LineFollow','Sandbox'];
+  const TRACK_ORDER = ['Arena','Sandbox','Oval','Figure8','Slalom','Circuit','City','ZigZag','Parking'];
 
   // ========== Geometry helpers ==========
   function segDist(px,py, ax,ay, bx,by){
@@ -4812,7 +4768,7 @@
     speedScale: 1.0,
 
     // world
-    trackName:'Sandbox',
+    trackName:'Arena',
     track:null,
 
     // robot
@@ -4840,10 +4796,7 @@
     sensorDrag:-1,
 
     sensorValues:[0,0,0,0],
-    // sensorEnabled/mode are used for per-sensor rendering + optional config from Scratch
-    sensorEnabled:[true,true,true,true],
-    sensorModes:['color','color','color','color'],
-    distValue: 999,
+    distValue: 100,
     offTrack:false,
     offTrackAccum:0,
     autoStopOffTrack:true,
@@ -5216,7 +5169,7 @@
         this.ui.svals.push(v);
       }
       sl.appendChild(makeEl('div',{class:'rcsim2d-sname'},'DIST'));
-      this.ui.dist = makeEl('div',{class:'rcsim2d-sval'},'999');
+      this.ui.dist = makeEl('div',{class:'rcsim2d-sval'},'100');
       sl.appendChild(this.ui.dist);
       s.appendChild(sl);
 
@@ -5332,8 +5285,7 @@ s.appendChild(makeEl('div',{class:'rcsim2d-panelTitle'},'Програма'));
 
     setTrack(name){
       this.trackName = name;
-      this.track = TRACKS[name] || TRACKS['Sandbox'] || TRACKS['LineFollow'];
-      this.theme = themeForTrack(name, this.track);
+      this.track = TRACKS[name] || TRACKS['Arena'];
       this.buildSideUI();
       // Fit view after UI/layout settles
       requestAnimationFrame(()=>{ this.resize(); this.fitToTrack(); });
@@ -5576,70 +5528,11 @@ ${code}
       this.lastCmd = `L${l.toFixed(0)} R${r.toFixed(0)}`;
     },
 
-    // Configure which sensors exist + what they measure.
-    // Supported formats:
-    //  - Array(4): entries can be 'color' | 'distance' | {enabled,mode} | null/false (disabled)
-    //  - Object: {enabled:[...], modes:[...], mask:[...]}
-    setSensorsConfig(cfg){
-      if (!cfg) return;
-      // Ensure arrays exist (older builds may not define them)
-      this.sensorEnabled = Array.isArray(this.sensorEnabled) ? this.sensorEnabled : [true,true,true,true];
-      this.sensorModes = Array.isArray(this.sensorModes) ? this.sensorModes : ['color','color','color','color'];
-      const applyOne = (i, it)=>{
-        let enabled = this.sensorEnabled[i];
-        let mode = this.sensorModes[i] || 'color';
-        if (it===null || it===false || it===0){
-          enabled = false;
-        } else if (typeof it==='string'){
-          enabled = true;
-          mode = (it==='distance') ? 'distance' : 'color';
-        } else if (typeof it==='object'){
-          if ('enabled' in it) enabled = !!it.enabled;
-          const m = it.mode || it.type || it.sensor;
-          if (typeof m==='string') mode = (m==='distance') ? 'distance' : 'color';
-        }
-        this.sensorEnabled[i] = !!enabled;
-        this.sensorModes[i] = (mode==='distance') ? 'distance' : 'color';
-      };
-
-      if (Array.isArray(cfg)){
-        for (let i=0;i<4;i++) applyOne(i, cfg[i]);
-      } else if (typeof cfg==='object'){
-        if (Array.isArray(cfg.enabled)){
-          for (let i=0;i<4;i++) this.sensorEnabled[i] = !!cfg.enabled[i];
-        }
-        if (Array.isArray(cfg.mask)){
-          for (let i=0;i<4;i++) this.sensorEnabled[i] = !!cfg.mask[i];
-        }
-        if (typeof cfg.mask==='number'){
-          for (let i=0;i<4;i++) this.sensorEnabled[i] = ((cfg.mask>>i)&1)===1;
-        }
-        if (Array.isArray(cfg.modes)){
-          for (let i=0;i<4;i++) this.sensorModes[i] = (cfg.modes[i]==='distance') ? 'distance' : 'color';
-        }
-        if (Array.isArray(cfg.sensors)){
-          for (let i=0;i<4;i++) applyOne(i, cfg.sensors[i]);
-        }
-      }
-
-      // Sync UI if it exists
-      if (this.ui && this.ui.senEn){
-        for (let i=0;i<4;i++){
-          if (this.ui.senEn[i]) this.ui.senEn[i].checked = !!this.sensorEnabled[i];
-          if (this.ui.senMode[i]) this.ui.senMode[i].value = (this.sensorModes[i]||'color');
-        }
-      }
-      this.updateSensors();
-    },
-
     installBridge(){
       const self = this;
       // Standard globals used by generator output
       window.sensorData = window.sensorData || [0,0,0,0];
       window.distanceData = window.distanceData || 100;
-
-      // Optional: let the generator configure sensor list/modes
-      window.rcsim2d_configSensors = (cfg)=> self.setSensorsConfig(cfg);
 
       window.recordMove = function(l,r){
         self.setDrive(l,r);
@@ -5787,48 +5680,20 @@ ${code}
     updateSensors(){
       const bot=this.bot;
       const track=this.track;
-      // Ensure arrays exist
-      this.sensorEnabled = Array.isArray(this.sensorEnabled) ? this.sensorEnabled : [true,true,true,true];
-      this.sensorModes = Array.isArray(this.sensorModes) ? this.sensorModes : ['color','color','color','color'];
-
       const ca=Math.cos(bot.a), sa=Math.sin(bot.a);
-
-      // Forward direction (sprite faces up, motion is along +a, but sensors/rays use corrected forward)
-      const rayAng = bot.a - Math.PI/2;
-      const maxSensorDist = 100;
-
       for (let i=0;i<4;i++){
-        const enabled = !!(this.sensorEnabled ? this.sensorEnabled[i] : true);
-        const mode = ((this.sensorModes && this.sensorModes[i]) || 'color');
         const p=this.sensors[i];
         const sx=bot.x + p.x*ca - p.y*sa;
         const sy=bot.y + p.x*sa + p.y*ca;
-
-        if (!enabled){
-          this.sensorValues[i]=0;
-          window.sensorData[i]=0;
-          continue;
+        let val = 0;
+        if (track.kind==='line'){
+          val = pointOnLineTrack(track, sx,sy) ? 100 : 0;
+        }else{
+          // arena: no line, just zeros
+          val = 0;
         }
-
-        if (mode==='distance'){
-          // Per-sensor distance: clamp to 0..100, "no hit" -> 100
-          let d = distanceToWalls(track, this.obstacles, sx, sy, rayAng, 999);
-          if (!Number.isFinite(d) || d>=999) d = maxSensorDist;
-          d = clamp(Math.floor(d), 0, maxSensorDist);
-          if (d>maxSensorDist) d = maxSensorDist;
-          this.sensorValues[i]=d;
-          window.sensorData[i]=d;
-        } else {
-          // Color sensor: 0/100 depending on black line on LineFollow track
-          let val = 0;
-          if (track.kind==='line'){
-            val = pointOnLineTrack(track, sx,sy) ? 100 : 0;
-          } else {
-            val = 0;
-          }
-          this.sensorValues[i]=val;
-          window.sensorData[i]=val;
-        }
+        this.sensorValues[i]=val;
+        window.sensorData[i]=val;
       }
 
       // off-track detection (distance from robot center to line)
@@ -5843,8 +5708,8 @@ ${code}
       }
       this.offTrackAccum = this.offTrack ? (this.offTrackAccum + (this.dt||0)) : 0;
 
-      // legacy/global distance sensor
-      const maxDist=999;
+      // distance sensor (works on all tracks; checks arena walls + obstacles)
+      const maxDist=100;
       let dist=maxDist;
       dist = distanceToWalls(track, this.obstacles, bot.x,bot.y, bot.a - Math.PI/2, maxDist);
       this.distValue = Math.min(maxDist, Math.floor(dist));
@@ -5890,8 +5755,8 @@ ${code}
       // obstacles
       this.drawObstacles(ctx);
 
-      // distance rays (per-sensor)
-      if (this.ui.chkRay && this.ui.chkRay.checked) this.drawSensorRays(ctx);
+      // distance ray
+      if (this.ui.chkRay && this.ui.chkRay.checked) this.drawRay(ctx);
 
       // draw bot
       this.drawBot(ctx);
@@ -5904,45 +5769,15 @@ ${code}
 
     drawGrid(ctx,w,h){
       ctx.save();
-
-      // Special background for Sandbox: 3-color soft mosaic (not a flat fill)
-      const isSandbox = (this.trackName === 'Sandbox');
-      if (isSandbox){
-        const tile = 64;
-        const c1 = 'rgba(11,18,32,1)';   // deep navy
-        const c2 = 'rgba(12,26,38,1)';   // blue-green tint
-        const c3 = 'rgba(16,32,58,1)';   // muted indigo
-        for (let y=0; y<h; y+=tile){
-          for (let x=0; x<w; x+=tile){
-            const xi = (x/tile)|0, yi = (y/tile)|0;
-            // deterministic hash
-            const hsh = ((xi*73856093) ^ (yi*19349663)) >>> 0;
-            const k = hsh % 3;
-            ctx.fillStyle = (k===0)?c1:(k===1)?c2:c3;
-            ctx.fillRect(x,y,tile,tile);
-          }
-        }
-        // subtle grid overlay
-        ctx.strokeStyle = 'rgba(226,232,240,0.08)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        for (let x=0;x<=w;x+=32){ ctx.moveTo(x,0); ctx.lineTo(x,h); }
-        for (let y=0;y<=h;y+=32){ ctx.moveTo(0,y); ctx.lineTo(w,y); }
-        ctx.stroke();
-
-      } else {
-        // Default background (track-dependent)
-        ctx.fillStyle = (this.theme && this.theme.bg) ? this.theme.bg : 'rgba(148,163,184,0.03)';
-        ctx.fillRect(0,0,w,h);
-        const step = 28;
-        ctx.strokeStyle = (this.theme && this.theme.grid) ? this.theme.grid : 'rgba(148,163,184,0.10)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        for (let x=0;x<=w;x+=step){ ctx.moveTo(x,0); ctx.lineTo(x,h); }
-        for (let y=0;y<=h;y+=step){ ctx.moveTo(0,y); ctx.lineTo(w,y); }
-        ctx.stroke();
-      }
-
+      ctx.fillStyle = 'rgba(148,163,184,0.03)';
+      ctx.fillRect(0,0,w,h);
+      const step = 28;
+      ctx.strokeStyle = 'rgba(148,163,184,0.10)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x=0;x<=w;x+=step){ ctx.moveTo(x,0); ctx.lineTo(x,h); }
+      for (let y=0;y<=h;y+=step){ ctx.moveTo(0,y); ctx.lineTo(w,y); }
+      ctx.stroke();
       ctx.restore();
     },
 
@@ -5954,7 +5789,7 @@ ${code}
 
       if (tr.kind==='arena'){
         // arena walls
-        ctx.strokeStyle=(this.theme&&this.theme.wallOuter)|| (this.theme&&this.theme.roadOuter) || 'rgba(0,0,0,0.40)';
+        ctx.strokeStyle='rgba(0,0,0,0.40)';
         ctx.lineWidth=tr.lineWidth+10;
         ctx.beginPath();
         for (const s of tr.walls){
@@ -5963,7 +5798,7 @@ ${code}
         }
         ctx.stroke();
 
-        ctx.strokeStyle=(this.theme&&this.theme.wallMain)|| 'rgba(15,23,42,0.95)';
+        ctx.strokeStyle='rgba(15,23,42,0.95)';
         ctx.lineWidth=tr.lineWidth;
         ctx.beginPath();
         for (const s of tr.walls){
@@ -5974,7 +5809,7 @@ ${code}
       }else{
         const pts=tr.line;
         if (pts && pts.length>1){
-          ctx.strokeStyle=(this.theme&&this.theme.roadOuter)|| 'rgba(0,0,0,0.25)';
+          ctx.strokeStyle='rgba(0,0,0,0.25)';
           ctx.lineWidth=(tr.lineWidth||16)+10;
           ctx.beginPath();
           ctx.moveTo(pts[0][0],pts[0][1]);
@@ -5982,7 +5817,7 @@ ${code}
           ctx.closePath();
           ctx.stroke();
 
-          ctx.strokeStyle=(this.theme&&this.theme.roadMain)|| 'rgba(17,24,39,0.95)';
+          ctx.strokeStyle='rgba(17,24,39,0.95)';
           ctx.lineWidth=(tr.lineWidth||16);
           ctx.beginPath();
           ctx.moveTo(pts[0][0],pts[0][1]);
@@ -6001,8 +5836,8 @@ ${code}
       for (let i=0;i<obs.length;i++){
         const o = obs[i];
         const hi = (i===this.obstacleHover) || (i===this.obstacleDrag);
-        ctx.fillStyle = hi ? 'rgba(245,158,11,0.20)' : 'rgba(167,139,250,0.18)';
-        ctx.strokeStyle = hi ? 'rgba(245,158,11,0.88)' : 'rgba(167,139,250,0.72)';
+        ctx.fillStyle = hi ? 'rgba(245,158,11,0.22)' : 'rgba(148,163,184,0.16)';
+        ctx.strokeStyle = hi ? 'rgba(245,158,11,0.92)' : 'rgba(148,163,184,0.50)';
         ctx.lineWidth = hi ? 2.6 : 1.6;
         if (o.type==='circle'){
           ctx.beginPath();
@@ -6104,65 +5939,8 @@ ${code}
 
 
     drawBot(ctx){
-      const b=this.bot;
-      ctx.save();
-      ctx.translate(b.x,b.y);
-      ctx.rotate(b.a);
-
-      // shadow
-      ctx.fillStyle='rgba(0,0,0,0.25)';
-      ctx.beginPath();
-      ctx.ellipse(0,8, 26, 18, 0, 0, Math.PI*2);
-      ctx.fill();
-
-      // body (gradient)
-      const g = ctx.createLinearGradient(-18,-24, 18, 24);
-      g.addColorStop(0,'rgba(147,197,253,0.95)');
-      g.addColorStop(1,'rgba(59,130,246,0.90)');
-      ctx.fillStyle = g;
-      ctx.strokeStyle='rgba(2,6,23,0.6)';
-      ctx.lineWidth=2.2;
-      roundRect(ctx,-18,-24,36,48,10);
-      ctx.fill();
-      ctx.stroke();
-
-      // wheels
-      ctx.fillStyle='rgba(15,23,42,0.95)';
-      roundRect(ctx,-22,-20,6,14,3); ctx.fill();
-      roundRect(ctx,-22,6,6,14,3); ctx.fill();
-      roundRect(ctx,16,-20,6,14,3); ctx.fill();
-      roundRect(ctx,16,6,6,14,3); ctx.fill();
-
-      // wheel highlights
-      ctx.strokeStyle='rgba(148,163,184,0.25)';
-      ctx.lineWidth=1;
-      ctx.beginPath();
-      ctx.moveTo(-19,-18); ctx.lineTo(-19,-8);
-      ctx.moveTo(-19,8); ctx.lineTo(-19,18);
-      ctx.moveTo(19,-18); ctx.lineTo(19,-8);
-      ctx.moveTo(19,8); ctx.lineTo(19,18);
-      ctx.stroke();
-
-      // top hatch
-      ctx.fillStyle='rgba(2,6,23,0.35)';
-      roundRect(ctx,-8,-6,16,20,7);
-      ctx.fill();
-
-      // front marker
-      ctx.fillStyle='rgba(245,158,11,0.95)';
-      ctx.beginPath();
-      ctx.arc(0,-22,3.2,0,Math.PI*2);
-      ctx.fill();
-
-      // small LEDs on right
-      ctx.fillStyle='rgba(251,191,36,0.95)';
-      for (let i=0;i<4;i++){
-        ctx.beginPath();
-        ctx.arc(14, -10 + i*7, 1.8, 0, Math.PI*2);
-        ctx.fill();
-      }
-
-      ctx.restore();
+      // 2D bot disabled (3D renderer used instead)
+      return;
     },
 
     drawSensors(ctx){
@@ -6172,20 +5950,10 @@ ${code}
         const p=this.sensors[i];
         const sx=b.x + p.x*ca - p.y*sa;
         const sy=b.y + p.x*sa + p.y*ca;
-        const enabled = !!(this.sensorEnabled ? this.sensorEnabled[i] : true);
-        const mode = ((this.sensorModes && this.sensorModes[i]) || 'color');
-        if (!enabled && !this.editSensors) continue;
         ctx.save();
         ctx.translate(sx,sy);
-        // Color sensor: black/white dot. Distance sensor: red dot.
-        if (mode==='distance'){
-          ctx.fillStyle = enabled ? 'rgba(239,68,68,0.85)' : 'rgba(148,163,184,0.25)';
-          ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-        } else {
-          const on = (this.sensorValues[i] >= 50);
-          ctx.fillStyle = enabled ? (on ? 'rgba(0,0,0,0.95)' : 'rgba(255,255,255,0.95)') : 'rgba(148,163,184,0.25)';
-          ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-        }
+        ctx.fillStyle = this.sensorValues[i] ? 'rgba(34,197,94,0.95)' : 'rgba(148,163,184,0.7)';
+        ctx.strokeStyle='rgba(2,6,23,0.7)';
         ctx.lineWidth=2;
         ctx.beginPath();
         ctx.arc(0,0,5.2,0,Math.PI*2);
@@ -6212,33 +5980,23 @@ ${code}
       }
     },
 
-    drawSensorRays(ctx){
+    drawRay(ctx){
       const b=this.bot;
       const ang = b.a - Math.PI/2;
       const dx = Math.cos(ang), dy = Math.sin(ang);
-      const ca=Math.cos(b.a), sa=Math.sin(b.a);
-      const maxDist = 100;
+      const d = Math.min(this.distValue, 100);
       ctx.save();
-      ctx.strokeStyle='rgba(239,68,68,0.45)';
+      ctx.strokeStyle='rgba(147,197,253,0.70)';
       ctx.lineWidth=2.2;
-      ctx.fillStyle='rgba(239,68,68,0.55)';
-      for (let i=0;i<4;i++){
-        const enArr = this.sensorEnabled;
-        if (enArr && !enArr[i]) continue;
-        const mArr = this.sensorModes;
-        if (((mArr && mArr[i])||'color')!=='distance') continue;
-        const p=this.sensors[i];
-        const ox=b.x + p.x*ca - p.y*sa;
-        const oy=b.y + p.x*sa + p.y*ca;
-        const d = clamp(Math.floor(this.sensorValues[i]||0), 0, maxDist);
-        ctx.beginPath();
-        ctx.moveTo(ox,oy);
-        ctx.lineTo(ox+dx*d, oy+dy*d);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(ox+dx*d, oy+dy*d, 3.6, 0, Math.PI*2);
-        ctx.fill();
-      }
+      ctx.beginPath();
+      ctx.moveTo(b.x,b.y);
+      ctx.lineTo(b.x+dx*d, b.y+dy*d);
+      ctx.stroke();
+
+      ctx.fillStyle='rgba(147,197,253,0.85)';
+      ctx.beginPath();
+      ctx.arc(b.x+dx*d, b.y+dy*d, 4, 0, Math.PI*2);
+      ctx.fill();
       ctx.restore();
     },
   };
@@ -6262,7 +6020,6 @@ ${code}
   window.RCSim2D = {
     open: ()=> Sim.open(),
     close: ()=> Sim.close(),
-    configureSensors: (cfg)=> Sim.setSensorsConfig(cfg),
     _sim: Sim,
   };
 })();
