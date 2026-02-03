@@ -1,4 +1,4 @@
-// === 🚗 ROBOT CAR BLOCKS & XML ===
+// === 🚗 ROBOT CA BLOCKS & XML ===
 
 window.CAR_CATEGORY = `
 <category name="🚗 Машинка" colour="#4C97FF">
